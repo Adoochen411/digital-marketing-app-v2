@@ -42,23 +42,26 @@ export const AuthPage: React.FC = () => {
 
     setLoading(true);
 
+    // Combine Country Code + Phone (e.g. +923001234567)
+    const formattedPhone = `${countryCode}${phone.trim()}`;
+
     try {
       if (isLogin) {
-        // LOGIN FLOW
-        await signIn(phone, password);
+        // LOGIN FLOW - Format phone with country code
+        await signIn(formattedPhone, password);
 
         // Local Storage Session Backup
-        localStorage.setItem('user_registered_phone', countryCode + phone);
+        localStorage.setItem('user_registered_phone', formattedPhone);
         localStorage.setItem('user_registered_pass', password);
 
-        // Direct Redirection to Dashboard
+        // Force redirect to root/dashboard
         window.location.href = '/'; 
       } else {
         // REGISTER FLOW
-        await signUp(phone, password);
+        await signUp(formattedPhone, password);
 
         // Store Session Locally
-        localStorage.setItem('user_registered_phone', countryCode + phone);
+        localStorage.setItem('user_registered_phone', formattedPhone);
         if (email) localStorage.setItem('user_registered_email', email);
         localStorage.setItem('user_registered_pass', password);
         if (invitationCode) {
@@ -69,7 +72,8 @@ export const AuthPage: React.FC = () => {
         setIsLogin(true);
       }
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed. Please check credentials.');
+      console.error('Auth Error:', err);
+      setError(err?.message || 'Authentication failed. Please check your phone number and password.');
       generateCaptcha();
     } finally {
       setLoading(false);
@@ -110,7 +114,7 @@ export const AuthPage: React.FC = () => {
 
         {/* Error Notification */}
         {error && (
-          <div className="p-3 bg-red-600/90 border border-red-400 text-white font-bold text-xs text-center rounded-xl shadow-lg">
+          <div className="p-3 bg-red-600/90 border border-red-400 text-white font-bold text-xs text-center rounded-xl shadow-lg break-words">
             {error}
           </div>
         )}

@@ -42,19 +42,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const formattedPhone = formatPhone(phone);
     const syntheticEmail = `${formattedPhone.replace('+', '')}@appuser.local`;
 
-    // Pehle phone se login try karein
-    let res = await supabase.auth.signInWithPassword({
-      phone: formattedPhone,
+    // Direct Login using Synthetic Email to bypass Supabase Phone Auth restrictions
+    const res = await supabase.auth.signInWithPassword({
+      email: syntheticEmail,
       password: password,
     });
-
-    // Agar phone login fail ho toh synthetic email se fallback karein
-    if (res.error) {
-      res = await supabase.auth.signInWithPassword({
-        email: syntheticEmail,
-        password: password,
-      });
-    }
 
     if (res.error) {
       throw new Error(res.error.message);

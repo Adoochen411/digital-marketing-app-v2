@@ -6,8 +6,7 @@ export const AuthPage: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
 
   // Form Fields
-  const [countryCode, setCountryCode] = useState('+92');
-  const [phone, setPhone] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
@@ -42,26 +41,23 @@ export const AuthPage: React.FC = () => {
 
     setLoading(true);
 
-    // Combine Country Code + Phone (e.g. +923001234567)
-    const formattedPhone = `${countryCode}${phone.trim()}`;
-
     try {
       if (isLogin) {
-        // LOGIN FLOW - Format phone with country code
-        await signIn(formattedPhone, password);
+        // LOGIN FLOW
+        await signIn(username, password);
 
         // Local Storage Session Backup
-        localStorage.setItem('user_registered_phone', formattedPhone);
+        localStorage.setItem('user_registered_username', username);
         localStorage.setItem('user_registered_pass', password);
 
-        // Force redirect to root/dashboard
+        // Direct Redirection to Dashboard
         window.location.href = '/'; 
       } else {
         // REGISTER FLOW
-        await signUp(formattedPhone, password);
+        await signUp(username, password);
 
         // Store Session Locally
-        localStorage.setItem('user_registered_phone', formattedPhone);
+        localStorage.setItem('user_registered_username', username);
         if (email) localStorage.setItem('user_registered_email', email);
         localStorage.setItem('user_registered_pass', password);
         if (invitationCode) {
@@ -73,7 +69,7 @@ export const AuthPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Auth Error:', err);
-      setError(err?.message || 'Authentication failed. Please check your phone number and password.');
+      setError(err?.message || 'Authentication failed. Please check your username and password.');
       generateCaptcha();
     } finally {
       setLoading(false);
@@ -122,32 +118,19 @@ export const AuthPage: React.FC = () => {
         {/* Form Fields */}
         <form onSubmit={handleSubmit} className="space-y-3">
           
-          {/* Phone Number Input */}
+          {/* Username Input */}
           <div>
             <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
-              PHONE NUMBER
+              USERNAME
             </label>
-            <div className="flex gap-2">
-              <select
-                value={countryCode}
-                onChange={(e) => setCountryCode(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-              >
-                <option value="+92">Pakistan (+92)</option>
-                <option value="+1">USA (+1)</option>
-                <option value="+44">UK (+44)</option>
-                <option value="+971">UAE (+971)</option>
-              </select>
-
-              <input
-                type="text"
-                placeholder="3001234567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Enter your username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
+            />
           </div>
 
           {/* Email Address Input (Shown in Register Only) */}

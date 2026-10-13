@@ -5,8 +5,8 @@ import { supabase } from '../lib/supabase';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (phone: string, pass: string) => Promise<any>;
-  signUp: (phone: string, pass: string) => Promise<any>;
+  signIn: (username: string, pass: string) => Promise<any>;
+  signUp: (username: string, pass: string) => Promise<any>;
   signOut: () => Promise<void>;
 }
 
@@ -30,39 +30,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, []);
 
-  const formatPhone = (phone: string) => {
-    let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('0')) {
-      cleaned = cleaned.substring(1);
-    }
-    return `+92${cleaned}`;
+  // Format username to synthetic email for Supabase Auth
+  const getSyntheticEmail = (username: string) => {
+    const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    return `${cleanUsername}@appuser.local`;
   };
 
-  const signIn = async (phone: string, password: string) => {
-    const formattedPhone = formatPhone(phone);
-    const syntheticEmail = `${formattedPhone.replace('+', '')}@appuser.local`;
+  const signIn = async (username: string, password: string) => {
+    const syntheticEmail = getSyntheticEmail(username);
 
-    // Direct Login using Synthetic Email to bypass Supabase Phone Auth restrictions
-    const res = await supabase.auth.signInWithPassword({
+    // 1. Try Login
+    let res = await supabase.auth.signInWithPassword({
       email: syntheticEmail,
       password: password,
     });
 
+    // 2. Auto Fallback Sign Up if user does not exist yet
     if (res.error) {
-      throw new Error(res.error.message);
+      const signUpRes = await supabase.auth.signUp({
+        email: syntheticEmail,
+        password: password,
+        options: {
+          data: { username: username.trim() }
+        }
+      });
+
+      if (signUpRes.error) {
+        throw new Error(signUpRes.error.message);
+      }
+
+      res = await supabase.auth.signInWithPassword({
+        email: syntheticEmail,
+        password: password,
+      });
+
+      if (res.error) {
+        throw new Error(res.error.message);
+      }
     }
+
     return res.data;
   };
 
-  const signUp = async (phone: string, password: string) => {
-    const formattedPhone = formatPhone(phone);
-    const syntheticEmail = `${formattedPhone.replace('+', '')}@appuser.local`;
+  const signUp = async (username: string, password: string) => {
+    const syntheticEmail = getSyntheticEmail(username);
 
     const res = await supabase.auth.signUp({
       email: syntheticEmail,
       password: password,
       options: {
-        data: { phone_number: formattedPhone }
+        data: { username: username.trim() }
       }
     });
 

@@ -45,25 +45,10 @@ export const AuthPage: React.FC = () => {
       if (isLogin) {
         // LOGIN FLOW
         await signIn(username, password);
-
-        // Local Storage Session Backup
-        localStorage.setItem('user_registered_username', username);
-        localStorage.setItem('user_registered_pass', password);
-
-        // Direct Redirection to Dashboard
         window.location.href = '/'; 
       } else {
         // REGISTER FLOW
         await signUp(username, password);
-
-        // Store Session Locally
-        localStorage.setItem('user_registered_username', username);
-        if (email) localStorage.setItem('user_registered_email', email);
-        localStorage.setItem('user_registered_pass', password);
-        if (invitationCode) {
-          localStorage.setItem('user_invitation_code', invitationCode);
-        }
-
         alert('Account created successfully! Logging you in...');
         setIsLogin(true);
       }
@@ -79,7 +64,7 @@ export const AuthPage: React.FC = () => {
   return (
     <div className="min-h-screen w-full bg-[#02091d] flex items-center justify-center p-4 relative font-sans overflow-x-hidden">
       
-      {/* Background World Map Effect */}
+      {/* Background Effect */}
       <div 
         className="fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none z-0 opacity-20 mix-blend-screen"
         style={{ backgroundImage: `url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=80')` }}
@@ -133,7 +118,7 @@ export const AuthPage: React.FC = () => {
             />
           </div>
 
-          {/* Email Address Input (Shown in Register Only) */}
+          {/* Email Address Input (Register Only) */}
           {!isLogin && (
             <div>
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">

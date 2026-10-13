@@ -32,7 +32,6 @@ export const AuthPage: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    // Captcha Validation only for Login
     if (isLogin && userCaptchaInput !== captchaCode) {
       setError('Invalid Verification Code (Captcha)');
       generateCaptcha();
@@ -43,18 +42,16 @@ export const AuthPage: React.FC = () => {
 
     try {
       if (isLogin) {
-        // LOGIN FLOW
         await signIn(username, password);
-        window.location.href = '/'; 
+        window.location.href = '/dashboard'; 
       } else {
-        // REGISTER FLOW
         await signUp(username, password);
         alert('Account created successfully! Logging you in...');
         setIsLogin(true);
       }
     } catch (err: any) {
       console.error('Auth Error:', err);
-      setError(err?.message || 'Authentication failed. Please check your username and password.');
+      setError(err?.message || 'Authentication failed. Please check your details.');
       generateCaptcha();
     } finally {
       setLoading(false);
@@ -80,7 +77,7 @@ export const AuthPage: React.FC = () => {
             🎯
           </div>
           <h1 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-200 to-blue-400 uppercase tracking-wide">
-            Digital Marketing
+            Digital Marketing - TEST
           </h1>
           <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest border-t border-b border-blue-900/60 py-0.5 inline-block px-3">
             E COMMERCE
@@ -118,7 +115,7 @@ export const AuthPage: React.FC = () => {
             />
           </div>
 
-          {/* Email Address Input (Register Only) */}
+          {/* Email Input (Register Only) */}
           {!isLogin && (
             <div>
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">

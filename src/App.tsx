@@ -9,29 +9,29 @@ import { AuthPage } from './pages/AuthPage';
 import { CustomerDashboard } from './pages/CustomerDashboard';
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Customer Routes */}
-          <Route path="/" element={<AuthPage />} />
-          <Route path="/dashboard" element={<CustomerDashboard />} />
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Customer Routes */}
+          <Route path="/" element={<AuthPage />} />
+          <Route path="/dashboard" element={<CustomerDashboard />} />
 
-          {/* Admin Routes */}
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route 
-            path="/admin/dashboard" 
-            element={
-              <AdminRoute>
-                <AdminDashboard /> {/* <-- Yahan component laga dein */}
-              </AdminRoute>
-            } 
-          />
+          {/* Admin Routes */}
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route 
+            path="/admin/dashboard" 
+            element={
+              <AdminRoute>
+                <AdminDashboard /> {/* <-- Yahan component laga dein */}
+              </AdminRoute>
+               } 
+          />
 
-          {/* Redirect unknown routes */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
-  );
+          {/* Redirect unknown routes */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
 }

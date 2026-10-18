@@ -12,27 +12,38 @@ export const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const checkAdminStatus = async () => {
     try {
+      // 1. Pehle Local Storage check karein (Sub-admin ke liye sabse fast aur secure method)
+      const subAdminEmail = localStorage.getItem('sub_admin_logged_in');
+      const adminRole = localStorage.getItem('current_admin_role');
+
+      if (subAdminEmail || adminRole) {
+        setIsAdmin(true);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Agar local storage mein nahi hai, toh Supabase Session check karein
       const { data: { user } } = await supabase.auth.getUser();
       
       if (user) {
         const allowedAdmins = ['admin@gmail.com', 'adoochen64@gmail.com'];
         const userEmail = (user.email || '').toLowerCase().trim();
 
-        // 1. Direct Email Check
+        // Direct Email Check
         if (allowedAdmins.includes(userEmail)) {
           setIsAdmin(true);
           setLoading(false);
           return;
         }
 
-        // 2. Database Profile Role Check
+        // Database Profile Role Check
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', user.id)
           .single();
 
-        // 3. Sub-Admin Check
+        // Sub-Admin Database Check
         const { data: subAdmin } = await supabase
           .from('sub_admins')
           .select('id')

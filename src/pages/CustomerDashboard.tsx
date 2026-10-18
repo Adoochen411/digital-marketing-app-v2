@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface ProductTask {
   id: number;
@@ -9,67 +10,62 @@ interface ProductTask {
   commission: number;
   rating: number;
   imageUrl: string;
+  isLucky?: boolean;
 }
 
 interface ChatMessage {
-  id: number;
-  sender: 'user' | 'agent';
-  text: string;
-  time: string;
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  message: string;
+  created_at: string;
+  is_admin: boolean;
 }
 
-const EXPENSIVE_PRODUCTS = [
-  {
-    name: 'Apple MacBook Pro 16" M3 Max Ultra Promotion',
-    store: 'Amazon' as const,
-    price: 2499.00,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&q=80',
-  },
-  {
-    name: 'Sony Alpha A7 IV Full-Frame Camera Kit',
-    store: 'Shopify' as const,
-    price: 1899.50,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500&q=80',
-  },
-  {
-    name: 'DJI Mavic 3 Pro Drone Combo Digital Ads',
-    store: 'AliExpress' as const,
-    price: 1599.00,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1527977966376-1c8408f9f108?w=500&q=80',
-  },
-  {
-    name: 'Samsung Odyssey Neo G9 Curved Monitor',
-    store: 'Amazon' as const,
-    price: 1299.99,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500&q=80',
-  },
-  {
-    name: 'iPhone 15 Pro Max 1TB Titanium Edition',
-    store: 'Shopify' as const,
-    price: 1399.00,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=500&q=80',
-  },
-  {
-    name: 'Bang & Olufsen Beoplay H95 Headphones',
-    store: 'AliExpress' as const,
-    price: 899.00,
-    rating: 5,
-    imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80',
-  },
+const STRICT_UNIQUE_INVENTORY = [
+  { name: "Rolex Daytona Platinum Edition", store: "Amazon" as const, price: 185, imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=600&q=80" },
+  { name: "Patek Philippe Nautilus Gold", store: "Shopify" as const, price: 210, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80" },
+  { name: "Audemars Piguet Royal Oak Chrono", store: "AliExpress" as const, price: 190, imageUrl: "https://images.unsplash.com/photo-1547996160-01ff60023531?w=600&q=80" },
+  { name: "Leica M11 Digital Camera", store: "Amazon" as const, price: 150, imageUrl: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80" },
+  { name: "Apple Vision Pro 1TB Gold", store: "Amazon" as const, price: 220, imageUrl: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=600&q=80" },
+  { name: "Chanel Classic Flap Black Bag", store: "AliExpress" as const, price: 130, imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=600&q=80" },
+  { name: "Cartier Santos Gold Watch", store: "Shopify" as const, price: 175, imageUrl: "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=600&q=80" },
+  { name: "Louis Vuitton Leather Travel Trunk", store: "Amazon" as const, price: 160, imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&q=80" },
+  { name: "Prada Saffiano Leather Handbag", store: "Shopify" as const, price: 115, imageUrl: "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=600&q=80" },
+  { name: "Hermes Birkin 30 Togo Leather", store: "Amazon" as const, price: 240, imageUrl: "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=600&q=80" },
+  { name: "Gucci Marmont Velvet Shoulder Bag", store: "AliExpress" as const, price: 95, imageUrl: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80" },
+  { name: "Bvlgari Serpenti Tubogas Watch", store: "Shopify" as const, price: 200, imageUrl: "https://images.unsplash.com/photo-1533139502658-0198f920d8e8?w=600&q=80" }
 ];
 
-const INITIAL_TRANSACTIONS = [
-  { id: 1, user: 'usr_7857***', amount: 500, type: 'Live Order Commission' },
-  { id: 2, user: 'usr_8660***', amount: 1500, type: 'Live Order Commission' },
-  { id: 3, user: 'usr_1508***', amount: 400, type: 'Live Order Commission' },
-  { id: 4, user: 'usr_7173***', amount: 500, type: 'Live Order Commission' },
-  { id: 5, user: 'usr_9743***', amount: 300, type: 'Live Order Commission' },
-  { id: 6, user: 'usr_5746***', amount: 300, type: 'Live Order Commission' },
+const INTERNAL_PRODUCT_INVENTORY = Array.from({ length: 125 }, (_, index) => {
+  const base = STRICT_UNIQUE_INVENTORY[index % STRICT_UNIQUE_INVENTORY.length];
+  const variationNumber = Math.floor(index / STRICT_UNIQUE_INVENTORY.length) + 1;
+  const nameModifier = variationNumber > 1 ? ` (Model ${variationNumber})` : '';
+
+  return {
+    id: index + 1,
+    name: `${base.name}${nameModifier}`,
+    store: base.store,
+    price: base.price,
+    rating: 5,
+    imageUrl: base.imageUrl
+  };
+});
+
+const INITIAL_7_TRANSACTIONS = [
+  { id: 1, user: 'usr_7857***', amount: 500, time: '10 sec ago' },
+  { id: 2, user: 'usr_8660***', amount: 1500, time: '22 sec ago' },
+  { id: 3, user: 'usr_1508***', amount: 400, time: '35 sec ago' },
+  { id: 4, user: 'usr_9421***', amount: 820, time: '48 sec ago' },
+  { id: 5, user: 'usr_3310***', amount: 1250, time: '1 min ago' },
+  { id: 6, user: 'usr_6204***', amount: 310, time: '1 min ago' },
+  { id: 7, user: 'usr_4819***', amount: 2100, time: '2 min ago' },
+];
+
+const SUPPORTED_LANGUAGES = [
+  'English', 'Arabic', 'Persian', 'Italian', 'Spanish', 
+  'Turkish', 'Russian', 'Urdu', 'Chinese', 'French', 
+  'German', 'Portuguese', 'Japanese', 'Korean', 'Hindi'
 ];
 
 export const CustomerDashboard: React.FC = () => {
@@ -77,30 +73,32 @@ export const CustomerDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'support' | 'grabbing' | 'records' | 'vip' | 'mine'>('mine');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const userPhone = user?.user_metadata?.phone_number || '+92 300 1234567';
-  const accountStatus = 'Normal / Active';
+  const [userEmail, setUserEmail] = useState(user?.email || '');
+  const [userPhone, setUserPhone] = useState('');
+  
+  // Permanent Invite Code State
+  const [myInviteCode, setMyInviteCode] = useState('');
 
-  const [balance, setBalance] = useState<number>(14.90);
-  const [completedTasks, setCompletedTasks] = useState<number>(3);
-  const [todayCommission, setTodayCommission] = useState<number>(14.90);
-  const [yesterdayEarned] = useState<number>(0.00);
-  const [cashGap] = useState<number>(0.00);
-  const [activeVipLevel, setActiveVipLevel] = useState<'normal' | 'vip1' | 'vip2' | 'vip3'>('normal');
+  const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
+  const emailDisplay = userEmail.includes('@appuser.local') ? `${usernameDisplay} (Active)` : userEmail;
+
+  const [balance, setBalance] = useState<number>(0.00);
+  const [completedTasks, setCompletedTasks] = useState<number>(0);
+  const [todayCommission, setTodayCommission] = useState<number>(0.00);
+  const [runningTasksVal, setRunningTasksVal] = useState<number>(0);
+  const [activeVipLevel, setActiveVipLevel] = useState<string>('VIP 0 - Regular');
 
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
   const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
   const [showFullPageTask, setShowFullPageTask] = useState<boolean>(false);
 
   const [recordsList, setRecordsList] = useState<ProductTask[]>([]);
-  const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
+  const [liveFeed, setLiveFeed] = useState(INITIAL_7_TRANSACTIONS);
+  const [dbProducts, setDbProducts] = useState<any[]>([]);
 
-  // Live Chat States
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { id: 1, sender: 'agent', text: 'Hello! How can I assist with your tasks or withdrawals today?', time: 'Just now' },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
 
-  // Modals
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showWalletBindModal, setShowWalletBindModal] = useState(false);
@@ -109,864 +107,1418 @@ export const CustomerDashboard: React.FC = () => {
   const [infoModal, setInfoModal] = useState<{ title: string; text: string } | null>(null);
   const [showCertModal, setShowCertModal] = useState(false);
 
-  // Form Fields
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [withdrawPassword, setWithdrawPassword] = useState('');
+  const [withdrawPasswordInput, setWithdrawPasswordInput] = useState('');
+  const [withdrawLockedMsg, setWithdrawLockedMsg] = useState('');
+
   const [trc20Address, setTrc20Address] = useState('');
   const [erc20Address, setErc20Address] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [currentPass, setCurrentPass] = useState('');
-  const [newPass, setNewPass] = useState('');
-  const [withdrawPass, setWithdrawPass] = useState('');
+  const [isWalletAlreadyBound, setIsWalletAlreadyBound] = useState(false);
 
-  const quickAmounts = [30, 50, 100, 500, 1000, 2000, 5000, 10000];
+  const [adminTrc20DepositAddress, setAdminTrc20DepositAddress] = useState('TYA83kNx9XmR2pQz1L7W4sV6B0c9e5F8dH');
+  const [depositHistory, setDepositHistory] = useState<any[]>([]);
+  const [withdrawHistory, setWithdrawHistory] = useState<any[]>([]);
 
-  const ABOUT_TEXT = `Digital Marketing Global Network
-Operating legally since 2002 under international digital e-commerce authorization.
-Our Finance & Audit Department manages seamless global merchant task routing and daily merchant commissions.
-We partner directly with leading international platforms including Amazon, AliExpress, and Shopify.
-Authorized financial management ensuring secure USDT escrow settlements.`;
+  const [newLoginPass, setNewLoginPass] = useState('');
+  const [newWithdrawPass, setNewWithdrawPass] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('English');
 
-  const HOW_IT_WORKS_TEXT = `1. Register and secure your profile using phone and email credentials.
-2. Initialize minimum account working deposit starting from $30 USDT.
-3. Access the Automatic Grabbing tab from the bottom navigation menu.
-4. Click "START GRABBING" to initiate global product matching.
-5. System inventory matches targeted promotional product orders in real-time.
-6. Verify matched product price, live ratings, and commission yield.
-7. Click "COMPLETE" to submit order settlement.
-8. Commission profits instantly credit to your live account balance.
-9. Higher VIP levels automatically boost daily task yield percentages.
-10. System automatically logs high-value tasks into Records.
-11. Submit withdrawal requests anytime to your bound USDT TRC20/ERC20 wallet.
-12. 24/7 Support Agent available for real-time order routing help.
-13. Daily task quota resets automatically every 24 hours.
-14. System protects merchant rating integrity through encrypted tasks.
-15. Seamless automatic auto-login maintains continuous task sessions.`;
+  const quickDepositAmounts = [30, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 7000, 10000];
 
-  const RULES_TEXT = `1. Minimum deposit amount starts strictly at $30 USDT.
-2. Each account is allocated 25 order tasks daily.
-3. Standard task commission yields default to normal dynamic percentages.
-4. VIP 1 (Amazon) requires $1000 minimum balance for 10% - 30% yield boost.
-5. VIP 2 (AliExpress) requires $2000 minimum balance for 30% - 60% yield boost.
-6. VIP 3 (Shopify) requires $5000 minimum balance for 60% - 100% yield boost.
-7. Single withdrawal requests exceeding $5000 require security verification.
-8. Account frozen status occurs if suspicious access or fraud is detected.
-9. Frozen accounts require support identity verification to unfreeze.
-10. Deposits or withdrawals rejected due to incorrect wallet binding will refund.
-11. All tasks must be completed sequentially before initiating new grabs.
-12. Order commission profits are non-transferable between accounts.
-13. TRC20 and ERC20 wallet details must be bound accurately in Security.
-14. Withdrawal passwords must be configured prior to cash-out requests.
-15. Platform reserves legal rights to enforce automated finance safety rules.`;
+  const ABOUT_TEXT = `ABOUT DIGITALMARKETING
+Digital Marketing is an international legal platform offering genuine earning opportunities through Digital Marketing. We work as a trusted partner with AliExpress, Amazon and Shopify, and manage the finance department to ensure safe, smooth and secure transactions for all our users.`;
+
+  const HOW_IT_WORKS_TEXT = `HOW DIGITALMARKETING WORKS
+01. Recharge your account with $30 (minimum).[cite: 14]
+02. Your total balance will be activated up to $10,000.[cite: 14]
+03. Start with 25 tasks (complete all to earn).[cite: 14]
+04. Get lucky orders (randomly) for extra high commissions.[cite: 14]
+05. Place orders on AliExpress, Amazon or Shopify (as per task).[cite: 14]
+06. Complete tasks and get commission.[cite: 14]
+07. Withdraw your earnings (after completing 25 tasks).[cite: 14]
+08. Keep working and upgrade to higher VIP levels for more profit.[cite: 14]`;
+
+  const RULES_TEXT = `PLATFORM RULES & REGULATIONS
+01. Start balance is $30.00. Anyone can recharge and start earning immediately.[cite: 14]
+02. Complete 25 tasks to get your withdrawal.[cite: 14]
+03. If your amount is high and digital marketing is required for withdrawal, you must complete customer verification (KYC).[cite: 14]
+04. Without verification, your withdrawal will be blocked and deactivated.[cite: 14]
+05. Keep your account active and follow all platform rules.[cite: 14]
+06. Use only official platform methods for recharge & withdrawal.[cite: 14]
+07. Do not share your account details with anyone.[cite: 14]
+08. Any illegal activity will result in permanent ban.[cite: 14]
+09. Follow the terms, guidelines and rules strictly.[cite: 14]
+10. We are not responsible for any false information or third-party activities. Use the platform wisely and safely.[cite: 14]`;
+
+  const formatDateWithTime = (dateStr?: string) => {
+    const d = dateStr ? new Date(dateStr) : new Date();
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const amounts = [200, 300, 400, 500, 700, 789, 1200, 1500];
-      const randomAmt = amounts[Math.floor(Math.random() * amounts.length)];
+    const timer = setInterval(() => {
       const randomUser = `usr_${Math.floor(1000 + Math.random() * 9000)}***`;
-      const newTx = {
-        id: Date.now(),
-        user: randomUser,
-        amount: randomAmt,
-        type: 'Live Order Commission',
-      };
-      setTransactions((prev) => [newTx, ...prev.slice(0, 5)]);
-    }, 3000);
+      const randomAmt = Math.floor(250 + Math.random() * 2500);
+      const newEntry = { id: Date.now(), user: randomUser, amount: randomAmt, time: 'Just now' };
 
-    return () => clearInterval(interval);
+      setLiveFeed((prev) => [newEntry, ...prev.slice(0, 5)]);
+    }, 2500);
+
+    return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchUserProfileAndData = async () => {
+      const { data: prodData } = await supabase.from('products').select('*');
+      if (prodData && prodData.length > 0) {
+        setDbProducts(prodData);
+      }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+console.log('Dashboard profile:', data);
+console.log('Saved invite code:', data?.user_invite_code);
+console.log('Saved invitation code:', data?.invitation_code);
+console.log('Logged-in user ID:', user.id);
+      if (data) {
+        setBalance(Number(data.balance) || 0.00);
+        setTodayCommission(Number(data.total_profits) || 0.00);
+        setRunningTasksVal(Number(data.running_tasks) || 0.00);
+        if (data.email) setUserEmail(data.email);
+        if (data.phone) setUserPhone(data.phone);
+
+      
+        // Customer ka saved Invite Code load karein
+      const currentCode = String(
+  data.user_invite_code || data.invitation_code || ''
+).trim();
+
+setMyInviteCode(currentCode);
+        if (currentCode) {
+          setMyInviteCode(currentCode);
+        } else {
+          console.error(
+            'Customer Invite Code missing. Profile ID:',
+            user.id
+          );
+          setMyInviteCode('');
+        }
+
+
+        if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
+        if (data.vip_level) setActiveVipLevel(data.vip_level);
+        if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
+
+        if (data.pending_task) {
+          setCurrentTask(data.pending_task);
+        }
+
+        if (data.trc20 || data.trc20_address || data.account_number || data.bank_name) {
+          setTrc20Address(data.trc20_address || data.trc20 || '');
+          setErc20Address(data.erc20 || '');
+          setBankName(data.bank_name || '');
+          setAccountNumber(data.account_number || '');
+          setIsWalletAlreadyBound(true);
+        }
+      }
+
+      const { data: settingsData } = await supabase
+        .from('system_settings')
+        .select('*')
+        .maybeSingle();
+
+      if (settingsData?.deposit_trc20_address) {
+        setAdminTrc20DepositAddress(settingsData.deposit_trc20_address);
+      }
+
+      const { data: depData } = await supabase.from('deposits').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (depData) setDepositHistory(depData);
+
+      const { data: witData } = await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (witData) setWithdrawHistory(witData);
+
+      const { data: chatData } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order('created_at', { ascending: true });
+      if (chatData) setChatMessages(chatData);
+    };
+
+    fetchUserProfileAndData();
+
+    const syncInterval = setInterval(async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (data) {
+        setBalance(Number(data.balance) || 0.00);
+        setTodayCommission(Number(data.total_profits) || 0.00);
+        setRunningTasksVal(Number(data.running_tasks) || 0.00);
+        if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
+        if (data.vip_level) setActiveVipLevel(data.vip_level);
+        if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
+      }
+    }, 2000);
+
+    const channel = supabase
+      .channel(`customer-room-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        (payload) => {
+          if (payload.new) {
+            setBalance(Number(payload.new.balance) || 0.00);
+            setTodayCommission(Number(payload.new.total_profits) || 0.00);
+            setRunningTasksVal(Number(payload.new.running_tasks) || 0.00);
+            if (payload.new.completed_tasks !== undefined) setCompletedTasks(payload.new.completed_tasks);
+            if (payload.new.vip_level) setActiveVipLevel(payload.new.vip_level);
+            if (payload.new.withdraw_message) setWithdrawLockedMsg(payload.new.withdraw_message);
+            if (payload.new.pending_task) {
+              setCurrentTask(payload.new.pending_task);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(syncInterval);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3500);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || !user) return;
 
-    const newMsg: ChatMessage = {
-      id: Date.now(),
-      sender: 'user',
-      text: inputMessage,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    const currentTxt = inputMessage.trim();
+    const tempMsgObj: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      sender_id: user.id,
+      receiver_id: 'admin',
+      message: currentTxt,
+      created_at: new Date().toISOString(),
+      is_admin: false,
     };
 
-    setChatMessages((prev) => [...prev, newMsg]);
+    setChatMessages((prev) => [...prev, tempMsgObj]);
     setInputMessage('');
 
-    setTimeout(() => {
-      const replyMsg: ChatMessage = {
-        id: Date.now() + 1,
-        sender: 'agent',
-        text: 'Thank you for reaching out! Our financial support team is reviewing your query.',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setChatMessages((prev) => [...prev, replyMsg]);
-    }, 1200);
+    await supabase.from('chat_messages').insert([
+      {
+        sender_id: user.id,
+        receiver_id: 'admin',
+        message: currentTxt,
+        is_admin: false,
+      }
+    ]);
   };
 
-  const handleVipUnlock = (requiredAmount: number, level: 'vip1' | 'vip2' | 'vip3', levelName: string) => {
-    if (balance < requiredAmount) {
-      showToast(`Required amount $${requiredAmount} needed for ${levelName}!`, 'error');
-    } else {
-      setActiveVipLevel(level);
-      showToast(`Congratulations! You upgraded to ${levelName}.`);
+  const handleSelectVipLevel = async (vipName: string, minReq: number) => {
+    if (balance < minReq) {
+      showToast(`Insufficient balance! Minimum required balance for ${vipName} is $${minReq}`, 'error');
+      setShowDepositModal(true);
+      return;
     }
+
+    setActiveVipLevel(vipName);
+    await supabase.from('profiles').update({ vip_level: vipName }).eq('id', user?.id);
+    showToast(`Successfully switched to ${vipName}!`);
+    setActiveTab('grabbing');
   };
 
-  const handleGrabTask = () => {
+  const handleGrabTask = async () => {
     if (completedTasks >= 25) {
-      showToast('Daily task limit (25/25) completed!', 'error');
+      showToast('Daily task limit (25/25) completed! Please contact customer service.', 'error');
+      return;
+    }
+
+    if (isGrabbing) return;
+
+    if (currentTask && runningTasksVal < 0) {
+      setShowFullPageTask(true);
       return;
     }
 
     setIsGrabbing(true);
+    const nextTaskNum = completedTasks + 1;
 
-    setTimeout(() => {
-      const randomProduct = EXPENSIVE_PRODUCTS[Math.floor(Math.random() * EXPENSIVE_PRODUCTS.length)];
-      
-      let baseRate = 0.02;
-      if (activeVipLevel === 'vip1') baseRate = 0.15;
-      else if (activeVipLevel === 'vip2') baseRate = 0.40;
-      else if (activeVipLevel === 'vip3') baseRate = 0.80;
+    const { data: customTaskData } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', user?.id)
+      .eq('task_number', nextTaskNum)
+      .eq('is_active', true)
+      .maybeSingle();
 
-      const normalComm = parseFloat((Math.random() * (7.0 - 0.5) + 0.5).toFixed(2));
-      const calculatedComm = activeVipLevel === 'normal' 
-        ? normalComm 
-        : parseFloat((randomProduct.price * baseRate).toFixed(2));
+    setTimeout(async () => {
+      let grabbedProduct: ProductTask;
+      const activePool = dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
 
-      const newTask: ProductTask = {
-        id: completedTasks + 1,
-        ...randomProduct,
-        commission: calculatedComm,
-      };
+      if (customTaskData) {
+        const minAmt = Number(customTaskData.min_amount) || 50;
+        const maxAmt = Number(customTaskData.max_amount) || 60;
+        const targetLuckyAmount = parseFloat((Math.random() * (maxAmt - minAmt) + minAmt).toFixed(2));
+        
+        const exactCommRate = Number(customTaskData.commission_rate ?? customTaskData.commission ?? 5);
+        const taskComm = parseFloat(((targetLuckyAmount * exactCommRate) / 100).toFixed(2));
 
-      setCurrentTask(newTask);
+        const displayNegativeAmt = -Math.abs(targetLuckyAmount);
+        const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
+        const selectedLuckyProd = activePool[luckyProdIndex];
+
+        grabbedProduct = {
+          id: nextTaskNum,
+          name: selectedLuckyProd.name,
+          store: selectedLuckyProd.store || 'Amazon',
+          price: targetLuckyAmount,
+          commission: taskComm,
+          rating: 5,
+          imageUrl: selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
+          isLucky: true,
+        };
+
+        await supabase
+          .from('profiles')
+          .update({ running_tasks: displayNegativeAmt, pending_task: grabbedProduct })
+          .eq('id', user?.id);
+
+        setRunningTasksVal(displayNegativeAmt);
+      } else {
+        if (balance <= 0) {
+          showToast('Insufficient balance! Please make a deposit request.', 'error');
+          setIsGrabbing(false);
+          setShowDepositModal(true);
+          return;
+        }
+
+        const uniquePoolIndex = (completedTasks + (Math.floor(completedTasks / activePool.length) * 7)) % activePool.length;
+        const selectedOfficialProd = activePool[uniquePoolIndex];
+
+        let minPerc = 0.56;
+        let maxPerc = 0.75;
+
+        if (activeVipLevel.includes('Amazon VIP 1')) {
+          minPerc = 1.0; maxPerc = 10.0;
+        } else if (activeVipLevel.includes('AliExpress VIP 2')) {
+          minPerc = 1.0; maxPerc = 20.0;
+        } else if (activeVipLevel.includes('Shopify VIP 3')) {
+          minPerc = 1.0; maxPerc = 30.0;
+        } else {
+          minPerc = 0.56; maxPerc = 0.75;
+        }
+
+        const chosenPercent = Math.random() * (maxPerc - minPerc) + minPerc;
+        const itemPrice = Number(selectedOfficialProd.price);
+        const calculatedCommission = parseFloat(((itemPrice * chosenPercent) / 100).toFixed(2));
+
+        grabbedProduct = {
+          id: nextTaskNum,
+          name: selectedOfficialProd.name,
+          store: selectedOfficialProd.store || 'Amazon',
+          price: itemPrice,
+          commission: Math.max(calculatedCommission, 0.10),
+          rating: 5,
+          imageUrl: selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
+          isLucky: false,
+        };
+
+        await supabase
+          .from('profiles')
+          .update({ pending_task: grabbedProduct, running_tasks: 0 })
+          .eq('id', user?.id);
+
+        setRunningTasksVal(0);
+      }
+
+      setCurrentTask(grabbedProduct);
       setIsGrabbing(false);
       setShowFullPageTask(true);
-    }, 1500);
+    }, 1000);
   };
+  
+  const handleConfirmTask = async () => {
+    if (!currentTask || !user) return;
 
-  const handleConfirmTask = () => {
-    if (!currentTask) return;
-
-    setCompletedTasks((prev) => prev + 1);
-    setTodayCommission((prev) => parseFloat((prev + currentTask.commission).toFixed(2)));
-    setBalance((prev) => parseFloat((prev + currentTask.commission).toFixed(2)));
-
-    if (currentTask.commission >= 5.0) {
-      setRecordsList((prev) => [currentTask, ...prev]);
+    if (runningTasksVal < 0 || balance < 0) {
+      showToast('Your lucky order is pending please complete your recharge and contact with customer service for approval your order', 'error');
+      setShowFullPageTask(false);
+      setShowDepositModal(true);
+      return;
     }
+
+    const newCompletedCount = completedTasks + 1;
+    const newComm = parseFloat((todayCommission + currentTask.commission).toFixed(2));
+    const newBal = parseFloat((balance + currentTask.commission).toFixed(2));
+
+    setCompletedTasks(newCompletedCount);
+    setTodayCommission(newComm);
+    setBalance(newBal);
+    setRunningTasksVal(0);
+
+    await supabase
+      .from('profiles')
+      .update({ 
+        balance: newBal, 
+        total_profits: newComm, 
+        completed_tasks: newCompletedCount, 
+        running_tasks: 0, 
+        pending_task: null 
+      })
+      .eq('id', user.id);
+
+    await supabase
+      .from('custom_tasks')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('task_number', currentTask.id);
+
+    setRecordsList((prev) => [currentTask, ...prev]);
 
     showToast(`Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`);
     setCurrentTask(null);
     setShowFullPageTask(false);
   };
 
-  const handleDepositSubmit = (e: React.FormEvent) => {
+  const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!depositAmount || Number(depositAmount) <= 0) {
+    if (!depositAmount || Number(depositAmount) <= 0 || !user) {
       showToast('Please enter a valid deposit amount', 'error');
       return;
     }
-    showToast(`Deposit request for $${depositAmount} submitted!`);
-    setShowDepositModal(false);
-    setDepositAmount('');
+
+    const { error } = await supabase.from('deposits').insert([
+      {
+        user_id: user.id,
+        amount: Number(depositAmount),
+        trc20_address: adminTrc20DepositAddress,
+        status: 'pending'
+      }
+    ]);
+
+    if (!error) {
+      showToast(`Deposit request of $${depositAmount} submitted successfully!`);
+      setShowDepositModal(false);
+      setDepositAmount('');
+      const { data: depData } = await supabase.from('deposits').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (depData) setDepositHistory(depData);
+    } else {
+      showToast(`Deposit Error: ${error.message}`, 'error');
+    }
   };
 
-  const handleWithdrawSubmit = (e: React.FormEvent) => {
+  const handleWalletBindSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!withdrawAmount || !withdrawPassword) {
+    if (!user) return;
+
+    if (isWalletAlreadyBound) {
+      showToast('Please contact with customer service for replace your account', 'error');
+      setShowWalletBindModal(false);
+      return;
+    }
+
+    if (!trc20Address && !bankName) {
+      showToast('Please enter your TRC20 or Bank account details', 'error');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        trc20: trc20Address,
+        trc20_address: trc20Address,
+        erc20: erc20Address,
+        bank_name: bankName,
+        account_number: accountNumber
+      })
+      .eq('id', user.id);
+
+    if (!error) {
+      setIsWalletAlreadyBound(true);
+      showToast('Wallet and Bank details bound successfully!');
+      setShowWalletBindModal(false);
+    } else {
+      showToast(`Wallet Bind Error: ${error.message}`, 'error');
+    }
+  };
+
+  const handleSecurityUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    await supabase.from('profiles').update({ email: userEmail, phone: userPhone }).eq('id', user.id);
+
+    if (newLoginPass) {
+      const { error } = await supabase.auth.updateUser({ password: newLoginPass });
+      if (error) {
+        showToast(`Login Pass Error: ${error.message}`, 'error');
+        return;
+      }
+    }
+
+    if (newWithdrawPass) {
+      await supabase
+        .from('profiles')
+        .update({ withdraw_password: newWithdrawPass })
+        .eq('id', user.id);
+    }
+
+    showToast('Profile credentials updated successfully!');
+    setShowSettingsModal(false);
+    setNewLoginPass('');
+    setNewWithdrawPass('');
+  };
+
+  const handleWithdrawSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(withdrawAmount);
+
+    if (withdrawLockedMsg) {
+      showToast(`Withdrawal Locked: ${withdrawLockedMsg}`, 'error');
+      return;
+    }
+
+    if (completedTasks < 25) {
+      showToast('Withdrawal Locked: Complete all 25 daily tasks first!', 'error');
+      return;
+    }
+
+    if (!withdrawAmount || amt <= 0 || !withdrawPasswordInput || !user) {
       showToast('Please enter amount and withdrawal password', 'error');
       return;
     }
-    showToast(`Withdrawal request for $${withdrawAmount} submitted!`);
-    setShowWithdrawModal(false);
-    setWithdrawAmount('');
-    setWithdrawPassword('');
+
+    if (amt > balance) {
+      showToast('Insufficient balance for withdrawal!', 'error');
+      return;
+    }
+
+    const { error } = await supabase.from('withdrawals').insert([
+      {
+        user_id: user.id,
+        amount: amt,
+        trc20_address: trc20Address || 'User Wallet',
+        status: 'pending'
+      }
+    ]);
+
+    if (!error) {
+      showToast(`Withdrawal request for $${withdrawAmount} processed!`);
+      setShowWithdrawModal(false);
+      setWithdrawAmount('');
+      setWithdrawPasswordInput('');
+      const { data: witData } = await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (witData) setWithdrawHistory(witData);
+    } else {
+      showToast(`Withdrawal Error: ${error.message}`, 'error');
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    showToast('TRC20 Address copied!');
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#02091d] text-white pb-28 relative font-sans overflow-x-hidden">
+    <div className="min-h-screen w-full bg-[#050508] text-amber-100 pb-28 relative font-sans overflow-x-hidden">
       
-      {/* FULL-PAGE WORLD MAP TECH BACKGROUND */}
-      <div 
-        className="fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none z-0 opacity-25 mix-blend-screen"
-        style={{ backgroundImage: `url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=80')` }}
-      ></div>
-      <div className="fixed inset-0 bg-gradient-to-b from-[#02091d]/90 via-[#051642]/85 to-[#010617]/95 pointer-events-none z-0"></div>
+      {/* GLOBAL HEADER LOGO */}
+      <div className="pt-4 pb-2 px-4 text-center border-b border-[#d4af37]/30 bg-gradient-to-b from-[#181408] to-transparent">
+        <div className="inline-flex items-center space-x-2">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] flex items-center justify-center shadow-[0_0_15px_rgba(212,175,55,0.4)]">
+            <span className="text-xl font-black text-black">📈</span>
+          </div>
+          <div className="text-left">
+            <h1 className="text-lg font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37]">
+              DigitalMarketing
+            </h1>
+            <p className="text-[8px] font-bold text-[#d4af37] tracking-widest uppercase">
+              GROW • EARN • SUCCEED[cite: 14]
+            </p>
+          </div>
+        </div>
+      </div>
 
-      <div className="max-w-md mx-auto w-full px-4 pt-5 space-y-5 relative z-10">
+      <div className="max-w-md mx-auto w-full px-4 pt-4 space-y-4 relative z-10">
         
         {message && (
           <div
             className={`p-3.5 text-xs font-bold text-center rounded-2xl shadow-xl border backdrop-blur-md ${
               message.type === 'error'
-                ? 'bg-red-600/90 border-red-400 text-white'
-                : 'bg-emerald-600/90 border-emerald-400 text-white'
+                ? 'bg-red-950/90 border-red-500 text-white'
+                : 'bg-[#181408]/90 border-[#d4af37] text-[#f3e5ab]'
             }`}
           >
             {message.text}
           </div>
         )}
 
-        {/* 1. HOME TAB */}
-        {activeTab === 'home' && (
-          <div className="space-y-6 pt-2">
+        {/* PROFILE TAB */}
+        {activeTab === 'mine' && (
+          <div className="space-y-4">
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37]/70 rounded-3xl p-4 shadow-xl flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] p-0.5 shadow-lg">
+                  <div className="w-full h-full bg-black rounded-[14px] flex items-center justify-center text-xl">
+                    👤
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white tracking-wide">{usernameDisplay}</h3>
+                  <p className="text-[10px] text-[#f3e5ab] font-medium mt-0.5">● {emailDisplay}</p>
+                  {userPhone && <p className="text-[10px] text-gray-400 font-medium">📞 {userPhone}</p>}
+                </div>
+              </div>
+              <div className="text-right space-y-1">
+                <div className="px-3 py-1 bg-[#d4af37]/10 border border-[#d4af37] text-[#f3e5ab] text-[10px] font-bold rounded-full">
+                  👑 {activeVipLevel}
+                </div>
+                <div className="text-[9px] font-mono text-emerald-400 font-bold px-1">
+                  Invite Code: {myInviteCode || 'Loading...'}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37]/70 rounded-3xl p-5 shadow-2xl space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-center divide-x divide-[#d4af37]/30">
+                <div>
+                  <p className="text-[9px] text-[#d4af37] uppercase font-bold tracking-wider">TOTAL BALANCE</p>
+                  <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] to-[#d4af37] mt-0.5">
+                    ${balance.toFixed(2)}
+                  </h3>
+                </div>
+                <div className="pl-4">
+                  <p className="text-[9px] text-[#d4af37] uppercase font-bold tracking-wider">TOTAL PROFITS</p>
+                  <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] to-[#d4af37] mt-0.5">
+                    ${todayCommission.toFixed(2)}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  onClick={() => setShowDepositModal(true)}
+                  className="py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow-lg flex items-center justify-center space-x-1.5 uppercase tracking-wider"
+                >
+                  <span>👛</span>
+                  <span>DEPOSIT</span>
+                </button>
+                <button
+                  onClick={() => setShowWithdrawModal(true)}
+                  className="py-3 bg-[#18150a] border-2 border-[#d4af37] text-[#f3e5ab] font-black text-xs rounded-2xl shadow flex items-center justify-center space-x-1.5 uppercase tracking-wider"
+                >
+                  <span>🏦</span>
+                  <span>WITHDRAW</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-[#0b0c10] border border-[#d4af37]/50 rounded-3xl shadow-xl overflow-hidden divide-y divide-[#d4af37]/20">
+              <button
+                onClick={() => setShowHistoryModal('deposit')}
+                className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
+              >
+                <span className="flex items-center space-x-3">
+                  <span className="text-base text-[#d4af37]">🪙</span>
+                  <div>
+                    <div className="text-left">Deposit History</div>
+                    <div className="text-[9px] text-gray-400 font-normal">View your deposit records</div>
+                  </div>
+                </span>
+                <span className="text-[#d4af37]">➔</span>
+              </button>
+
+              <button
+                onClick={() => setShowHistoryModal('withdraw')}
+                className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
+              >
+                <span className="flex items-center space-x-3">
+                  <span className="text-base text-[#d4af37]">👛</span>
+                  <div>
+                    <div className="text-left">Withdraw History</div>
+                    <div className="text-[9px] text-gray-400 font-normal">View your withdrawal records</div>
+                  </div>
+                </span>
+                <span className="text-[#d4af37]">➔</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (isWalletAlreadyBound) {
+                    showToast('Please contact with customer service for replace your account', 'error');
+                  } else {
+                    setShowWalletBindModal(true);
+                  }
+                }}
+                className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
+              >
+                <span className="flex items-center space-x-3">
+                  <span className="text-base text-[#d4af37]">🔗</span>
+                  <div>
+                    <div className="text-left">Wallet Bind (TRC20 / ERC20 / Bank)</div>
+                    <div className="text-[9px] text-gray-400 font-normal">Manage your wallet addresses</div>
+                  </div>
+                </span>
+                <span className="text-[#d4af37]">➔</span>
+              </button>
+
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
+              >
+                <span className="flex items-center space-x-3">
+                  <span className="text-base text-[#d4af37]">📧</span>
+                  <div>
+                    <div className="text-left">Profile Settings & Passwords</div>
+                    <div className="text-[9px] text-gray-400 font-normal">Update login and withdraw passwords</div>
+                  </div>
+                </span>
+                <span className="text-[#d4af37]">➔</span>
+              </button>
+            </div>
+
+            <div className="bg-[#0b0c10] border border-[#d4af37]/50 p-4 rounded-3xl shadow-xl flex justify-between items-center">
+              <span className="text-xs font-bold text-white flex items-center space-x-2">
+                <span className="text-base text-[#d4af37]">🌐</span>
+                <div>
+                  <div>Select Language</div>
+                  <div className="text-[9px] text-gray-400 font-normal">Choose preferred language</div>
+                </div>
+              </span>
+              <select
+                value={selectedLanguage}
+                onChange={(e) => {
+                  setSelectedLanguage(e.target.value);
+                  showToast(`Language set to ${e.target.value}`);
+                }}
+                className="bg-[#18150a] border border-[#d4af37] text-[#f3e5ab] font-bold text-xs rounded-xl px-3 py-1.5 focus:outline-none"
+              >
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang} value={lang}>{lang}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={signOut}
+              className="w-full py-3.5 bg-gradient-to-r from-red-900 via-red-600 to-red-900 border border-red-500 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider flex items-center justify-center space-x-2"
+            >
+              <span>🔒</span>
+              <span>LOG OUT ACCOUNT</span>
+            </button>
+
+          </div>
+        )}
+
+        {/* HOME TAB */}
+        {activeTab === 'home' && (
+          <div className="space-y-4 font-sans text-amber-100">
+            
+            <div className="grid grid-cols-4 gap-2 text-center">
               <button
                 onClick={() => setInfoModal({ title: 'About Us', text: ABOUT_TEXT })}
-                className="p-5 bg-slate-950/80 border border-blue-500/30 rounded-3xl shadow-lg hover:border-amber-400/60 transition flex flex-col items-center space-y-2.5 backdrop-blur-xl"
+                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-3xl p-3 bg-blue-500/20 text-blue-300 rounded-2xl border border-blue-400/30">ℹ️</span>
-                <span className="text-sm font-black text-white">About Us</span>
+                <span className="text-lg">👥</span>
+                <span className="text-[9px] font-black text-[#f3e5ab]">About Us</span>
               </button>
 
               <button
                 onClick={() => setInfoModal({ title: 'Platform Rules', text: RULES_TEXT })}
-                className="p-5 bg-slate-950/80 border border-blue-500/30 rounded-3xl shadow-lg hover:border-amber-400/60 transition flex flex-col items-center space-y-2.5 backdrop-blur-xl"
+                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-3xl p-3 bg-amber-500/20 text-amber-300 rounded-2xl border border-amber-400/30">📜</span>
-                <span className="text-sm font-black text-white">Rules</span>
+                <span className="text-lg">📋</span>
+                <span className="text-[9px] font-black text-[#f3e5ab]">Rules</span>
               </button>
 
               <button
                 onClick={() => setInfoModal({ title: 'How It Works', text: HOW_IT_WORKS_TEXT })}
-                className="p-5 bg-slate-950/80 border border-blue-500/30 rounded-3xl shadow-lg hover:border-amber-400/60 transition flex flex-col items-center space-y-2.5 backdrop-blur-xl"
+                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-3xl p-3 bg-indigo-500/20 text-indigo-300 rounded-2xl border border-indigo-400/30">⚙️</span>
-                <span className="text-sm font-black text-white">How Works</span>
+                <span className="text-lg">⚙️</span>
+                <span className="text-[9px] font-black text-[#f3e5ab]">How Works</span>
               </button>
 
               <button
                 onClick={() => setShowCertModal(true)}
-                className="p-5 bg-slate-950/80 border border-emerald-500/40 rounded-3xl shadow-lg hover:border-emerald-400 transition flex flex-col items-center space-y-2.5 backdrop-blur-xl"
+                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-3xl p-3 bg-emerald-500/20 text-emerald-300 rounded-2xl border border-emerald-400/30">🏅</span>
-                <span className="text-sm font-black text-white">Certificate</span>
+                <span className="text-lg">📜</span>
+                <span className="text-[9px] font-black text-[#f3e5ab]">Certificate</span>
               </button>
             </div>
 
-            <div className="bg-slate-950/80 border border-blue-500/30 p-5 rounded-3xl shadow-2xl backdrop-blur-xl space-y-3">
-              <div className="flex justify-between items-center border-b border-blue-900/60 pb-2.5">
-                <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                  <span>LIVE TRANSACTIONS FEED</span>
-                </h3>
-                <span className="text-[10px] font-mono text-slate-400">Real-Time</span>
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
+              <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
+                <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
+                  👥
+                </div>
+                <h3 className="text-base font-black text-[#f3e5ab] tracking-wider">About Us</h3>
               </div>
 
-              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                {transactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="p-2.5 bg-blue-950/40 border border-blue-800/40 rounded-xl flex items-center justify-between text-xs"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <span className="text-cyan-400 font-mono font-bold">{tx.user}</span>
-                      <span className="text-[10px] text-slate-400">({tx.type})</span>
-                    </div>
-                    <span className="font-mono font-black text-emerald-400">+${tx.amount} USDT</span>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Digital Marketing is an <span className="text-[#f3e5ab] font-bold">international legal</span> platform offering genuine earning opportunities through <span className="text-[#f3e5ab] font-bold">Digital Marketing</span>[cite: 14]. We work as a trusted partner with <span className="text-red-400 font-bold">AliExpress</span>, <span className="text-amber-400 font-bold">Amazon</span> and <span className="text-emerald-400 font-bold">Shopify</span>, and manage the finance department to ensure safe, smooth and secure transactions for all our users[cite: 14].
+              </p>
+
+              <div className="bg-[#18150a] border border-[#d4af37]/50 p-2.5 rounded-2xl flex justify-around items-center">
+                <span className="font-black text-red-500 text-xs">AliExpress</span>
+                <span className="text-gray-600">|</span>
+                <span className="font-black text-amber-400 text-xs">amazon</span>
+                <span className="text-gray-600">|</span>
+                <span className="font-black text-emerald-400 text-xs">shopify</span>
+              </div>
+
+              <div className="grid grid-cols-5 gap-1 text-center pt-1">
+                <div className="space-y-1">
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🛡️</div>
+                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">100% Legal & Trusted</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🔒</div>
+                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Secure Transactions</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🎧</div>
+                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">24/7 Support</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🌐</div>
+                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Global Platform</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🤝</div>
+                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Long Term Partnership</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
+                <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
+                  <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
+                    👑
                   </div>
-                ))}
+                  <div>
+                    <h3 className="text-sm font-black text-[#f3e5ab] tracking-wider">VIP Levels & Commission</h3>
+                    <p className="text-[8px] text-gray-400">Higher Level = Higher Commission</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">👑</span>
+                      <span className="font-bold text-white text-[11px]">VIP 0 (Regular)</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$30.00</span>
+                      <p className="text-[8px] text-emerald-400 font-bold">0.56% – 0.75% / Order</p>
+                    </div>
+                  </div>
+
+                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-5 h-5 rounded-md bg-amber-500 text-black font-black flex items-center justify-center text-[10px]">a</span>
+                      <span className="font-bold text-white text-[11px]">Amazon VIP 1</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$1,000.00</span>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% – 10% / Order</p>
+                    </div>
+                  </div>
+
+                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-5 h-5 rounded-md bg-red-600 text-white font-black flex items-center justify-center text-[9px]">Ali</span>
+                      <span className="font-bold text-white text-[11px]">AliExpress VIP 2</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$2,000.00</span>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% – 20% / Order</p>
+                    </div>
+                  </div>
+
+                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-5 h-5 rounded-md bg-emerald-600 text-white font-black flex items-center justify-center text-[10px]">S</span>
+                      <span className="font-bold text-white text-[11px]">Shopify VIP 3</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$5,000.00</span>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% – 30% / Order</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-3.5 rounded-3xl shadow-xl space-y-2 flex flex-col justify-between">
+                <div className="flex justify-between items-center border-b border-[#d4af37]/20 pb-2">
+                  <h3 className="text-xs font-extrabold text-[#f3e5ab] tracking-wider flex items-center space-x-1.5">
+                    <span className="text-sm text-[#d4af37]">📈</span>
+                    <span>LIVE TRANSACTIONS</span>
+                  </h3>
+                  <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-bold rounded-full animate-pulse">
+                    Real-Time
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 overflow-hidden flex-1">
+                  {liveFeed.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="p-2 bg-[#18150a] border border-[#d4af37]/30 rounded-xl flex items-center justify-between text-xs transition duration-300"
+                    >
+                      <div>
+                        <span className="font-bold text-white text-[10px]">{tx.user}</span>
+                        <p className="text-[7px] text-gray-400">(Commission)</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-black text-[#50e3c2] text-[11px]">+${tx.amount} USDT</span>
+                        <p className="text-[7px] text-gray-500">{tx.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            <div className="bg-gradient-to-r from-[#181408] via-[#241c0c] to-[#181408] border-2 border-[#d4af37] rounded-3xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-[#d4af37] text-black flex items-center justify-center font-bold text-lg shadow">
+                  🛡️
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-[#f3e5ab]">Why Choose Us?</h4>
+                  <p className="text-[8px] text-gray-300">Real Earning | Genuine Platform | Global Opportunities</p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 text-center text-[9px]">
+                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
+                  🔒 Secure Payments
+                </div>
+                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
+                  👥 Verified Users
+                </div>
+                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
+                  🎧 Dedicated Support
+                </div>
+              </div>
+
+              <div className="w-full text-center border-t border-[#d4af37]/30 pt-2">
+                <span className="text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider italic">
+                  📈 Build Your Future With Us
+                </span>
               </div>
             </div>
 
           </div>
         )}
 
-        {/* 2. SUPPORT TAB WITH OPEN LIVE CHAT BOX */}
+        {/* SUPPORT TAB */}
         {activeTab === 'support' && (
-          <div className="space-y-4 pt-2">
-            <div className="bg-slate-950/85 p-5 rounded-3xl border border-blue-500/30 shadow-2xl space-y-4 backdrop-blur-xl">
-              <div className="text-center space-y-1 border-b border-blue-900/60 pb-3">
-                <h2 className="text-base font-bold text-cyan-400">Customer Support Center</h2>
-                <p className="text-[11px] text-slate-400">24/7 Channels & Live Support Agent</p>
+          <div className="space-y-4">
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-4 rounded-3xl shadow-2xl space-y-4 min-h-[75vh] flex flex-col justify-between">
+              
+              <div className="space-y-3">
+                <div className="text-center space-y-1 border-b border-[#d4af37]/30 pb-3">
+                  <h2 className="text-base font-extrabold text-[#f3e5ab]">Customer Support Center</h2>
+                  <p className="text-[10px] text-gray-400">24/7 Official Support Channels & Live Agent</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <a
+                    href="https://t.me"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-3 px-3 bg-[#18150a] border border-sky-400/50 text-sky-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-sky-950/30"
+                  >
+                    <span>✈️</span>
+                    <span>Telegram</span>
+                  </a>
+
+                  <a
+                    href="https://whatsapp.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-3 px-3 bg-[#18150a] border border-emerald-400/50 text-emerald-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-emerald-950/30"
+                  >
+                    <span>💬</span>
+                    <span>WhatsApp</span>
+                  </a>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <a
-                  href="https://t.me"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-3 px-3 bg-sky-500/20 border border-sky-400/40 text-sky-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2"
-                >
-                  <span>✈️</span>
-                  <span>Telegram</span>
-                </a>
-
-                <a
-                  href="https://whatsapp.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-3 px-3 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2"
-                >
-                  <span>💬</span>
-                  <span>WhatsApp</span>
-                </a>
-              </div>
-
-              <div className="bg-slate-900/90 border border-cyan-500/40 rounded-2xl p-3.5 space-y-3 shadow-inner">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <div className="bg-[#18150a] border-2 border-[#d4af37]/60 rounded-2xl p-4 space-y-3 flex-1 flex flex-col justify-between shadow-inner">
+                <div className="flex justify-between items-center border-b border-[#d4af37]/30 pb-2">
                   <div className="flex items-center space-x-2">
                     <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                    <span className="text-xs font-bold text-cyan-300">Live Assistant Portal</span>
+                    <span className="text-xs font-black text-[#f3e5ab]">Live Assistant Portal</span>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">Online</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">● Online</span>
                 </div>
 
-                <div className="h-44 overflow-y-auto space-y-2 pr-1 text-xs">
-                  {chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-                    >
+                <div className="flex-1 min-h-[320px] max-h-[450px] overflow-y-auto space-y-2.5 pr-1 text-xs">
+                  {chatMessages.length === 0 ? (
+                    <div className="text-center text-gray-500 text-xs py-16">No messages yet. Send a message to support!</div>
+                  ) : (
+                    chatMessages.map((msg) => (
                       <div
-                        className={`max-w-[85%] p-2.5 rounded-2xl ${
-                          msg.sender === 'user'
-                            ? 'bg-cyan-600 text-white rounded-br-none'
-                            : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-none'
-                        }`}
+                        key={msg.id}
+                        className={`flex flex-col ${!msg.is_admin ? 'items-end' : 'items-start'}`}
                       >
-                        <p className="leading-snug">{msg.text}</p>
-                        <span className="text-[8px] opacity-70 block text-right mt-1 font-mono">{msg.time}</span>
+                        <div
+                          className={`max-w-[85%] p-3 rounded-2xl shadow ${
+                            !msg.is_admin
+                              ? 'bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-semibold rounded-br-none'
+                              : 'bg-black text-gray-200 border border-[#d4af37]/50 rounded-bl-none'
+                          }`}
+                        >
+                          <p className="leading-snug text-xs">{msg.message}</p>
+                          <span className="text-[8px] opacity-75 block text-right mt-1 font-mono">
+                            {formatDateWithTime(msg.created_at)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
 
-                <form onSubmit={handleSendMessage} className="flex gap-2 pt-1 border-t border-slate-800">
+                <form onSubmit={handleSendMessage} className="flex gap-2 pt-2 border-t border-[#d4af37]/30">
                   <input
                     type="text"
-                    placeholder="Type your question here..."
+                    placeholder="Type your message..."
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    className="flex-1 bg-black border border-[#d4af37]/60 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow"
+                    className="px-5 py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider"
                   >
                     Send
                   </button>
                 </form>
               </div>
+
             </div>
           </div>
         )}
 
-        {/* 3. GRABBING TAB */}
+        {/* GRABBING TAB */}
         {activeTab === 'grabbing' && (
-          <div className="space-y-4 pt-2">
-            <div className="bg-slate-950/90 text-white p-6 rounded-3xl border border-blue-500/40 shadow-xl text-center space-y-1 backdrop-blur-xl">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ACCOUNT BALANCE</p>
-              <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-sky-200">
-                {balance.toFixed(2)} <span className="text-sm font-bold text-cyan-400">USDT</span>
+          <div className="space-y-4">
+            
+            {activeVipLevel.includes('Amazon') && (
+              <div className="bg-gradient-to-r from-amber-950 via-[#2a1a08] to-amber-950 border-2 border-amber-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-amber-400 tracking-wider">amazon VIP 1</h3>
+                  <p className="text-[10px] text-amber-200">Exclusive Amazon Grabbing Portal (1% - 10% Commission)</p>
+                </div>
+                <div className="w-12 h-12 bg-amber-500 text-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg">
+                  a
+                </div>
+              </div>
+            )}
+
+            {activeVipLevel.includes('AliExpress') && (
+              <div className="bg-gradient-to-r from-red-950 via-[#2a0808] to-red-950 border-2 border-red-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-red-400 tracking-wider">AliExpress VIP 2</h3>
+                  <p className="text-[10px] text-red-200">Exclusive AliExpress Grabbing Portal (1% - 20% Commission)</p>
+                </div>
+                <div className="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center font-black text-lg shadow-lg">
+                  Ali
+                </div>
+              </div>
+            )}
+
+            {activeVipLevel.includes('Shopify') && (
+              <div className="bg-gradient-to-r from-emerald-950 via-[#082a18] to-emerald-950 border-2 border-emerald-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-emerald-400 tracking-wider">shopify VIP 3</h3>
+                  <p className="text-[10px] text-emerald-200">Exclusive Shopify Grabbing Portal (1% - 30% Commission)</p>
+                </div>
+                <div className="w-12 h-12 bg-emerald-500 text-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg">
+                  S
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#0b0c10] text-white p-6 rounded-3xl border-2 border-[#d4af37]/70 shadow-xl text-center space-y-1">
+              <p className="text-[10px] font-bold text-[#d4af37] uppercase tracking-widest">ACCOUNT BALANCE</p>
+              <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37]">
+                ${balance.toFixed(2)} <span className="text-sm font-bold text-[#d4af37]">USDT</span>
               </h2>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
+              <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-amber-400 text-xs">🕒</span>
+                  <span className="text-[#d4af37] text-xs">🕒</span>
                   <span className="text-sm font-black text-white">25</span>
                 </div>
-                <p className="text-[10px] text-slate-400 font-medium">Total Tasks</p>
+                <p className="text-[10px] text-gray-400 font-medium">Total Tasks</p>
               </div>
 
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
+              <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-cyan-400 text-xs">☑️</span>
+                  <span className="text-[#d4af37] text-xs">☑️</span>
                   <span className="text-sm font-black text-white">{completedTasks}/25</span>
                 </div>
-                <p className="text-[10px] text-slate-400 font-medium">Completed</p>
+                <p className="text-[10px] text-gray-400 font-medium">Completed</p>
               </div>
 
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
+              <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-emerald-400 text-xs">💲</span>
-                  <span className="text-sm font-black text-emerald-400">${todayCommission.toFixed(2)}</span>
+                  <span className="text-[#50e3c2] text-xs">💲</span>
+                  <span className="text-sm font-black text-[#50e3c2]">${todayCommission.toFixed(2)}</span>
                 </div>
-                <p className="text-[10px] text-slate-400 font-medium">Earned</p>
+                <p className="text-[10px] text-gray-400 font-medium">Today Earnings</p>
               </div>
 
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
+              <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-amber-400 text-xs">📈</span>
-                  <span className="text-xs font-bold text-amber-400">
-                    {activeVipLevel === 'normal' ? 'Active' : activeVipLevel.toUpperCase()}
-                  </span>
+                  <span className="text-[#d4af37] text-xs">📈</span>
+                  <span className="text-xs font-bold text-[#f3e5ab] line-clamp-1">{activeVipLevel}</span>
                 </div>
-                <p className="text-[10px] text-slate-400 font-medium">Status</p>
-              </div>
-
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
-                <div className="flex items-center space-x-2">
-                  <span className="text-cyan-400 text-xs">📊</span>
-                  <span className="text-sm font-black text-white">${cashGap.toFixed(2)}</span>
-                </div>
-                <p className="text-[10px] text-slate-400 font-medium">Cash Gap</p>
-              </div>
-
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-900/50 shadow-md space-y-1">
-                <div className="flex items-center space-x-2">
-                  <span className="text-slate-400 text-xs">🔒</span>
-                  <span className="text-sm font-black text-white">${yesterdayEarned.toFixed(2)}</span>
-                </div>
-                <p className="text-[10px] text-slate-400 font-medium">Yesterday</p>
+                <p className="text-[10px] text-gray-400 font-medium">Status</p>
               </div>
             </div>
 
-            <div className="bg-slate-950/80 p-6 rounded-3xl border border-blue-500/40 shadow-xl text-center space-y-4 backdrop-blur-xl">
-              <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/10 border border-amber-500/40 flex items-center justify-center text-3xl text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+            <div className="bg-[#0b0c10] p-6 rounded-3xl border-2 border-[#d4af37]/70 shadow-2xl text-center space-y-4">
+              <div className="w-16 h-16 mx-auto rounded-full bg-[#18150a] border-2 border-[#d4af37] flex items-center justify-center text-3xl text-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.4)]">
                 ⚡
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Automatic Task Grabbing</h3>
-                <p className="text-xs text-slate-400 mt-1">Click below to start matching order tasks from system inventory.</p>
+                <h3 className="text-base font-extrabold text-[#f3e5ab]">Automatic Task Grabbing</h3>
+                <p className="text-xs text-gray-400 mt-1">Click below to start matching order tasks from inventory.</p>
               </div>
 
               <button
                 onClick={handleGrabTask}
                 disabled={isGrabbing}
-                className="w-full py-3.5 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-[0_0_25px_rgba(245,158,11,0.5)] transition uppercase tracking-wider"
+                className="w-full py-4 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl shadow-[0_0_25px_rgba(212,175,55,0.5)] transition uppercase tracking-wider"
               >
-                {isGrabbing ? 'Matching Order Tasks...' : 'Start Grabbing'}
+                {isGrabbing ? 'Matching Order Tasks...' : currentTask ? 'VIEW PENDING LUCKY ORDER' : 'START GRABBING'}
               </button>
             </div>
           </div>
         )}
 
-        {/* 4. RECORDS TAB */}
+        {/* RECORDS TAB */}
         {activeTab === 'records' && (
-          <div className="space-y-4 pt-2">
-            <div className="bg-slate-950/80 p-6 rounded-3xl border border-blue-500/30 shadow-xl space-y-4 backdrop-blur-xl">
-              <div className="border-b border-blue-900/60 pb-3">
-                <h2 className="text-base font-bold text-cyan-400">Task Records History</h2>
-                <p className="text-xs text-slate-400">View high-commission ($5.00+) and special task records here.</p>
+          <div className="space-y-4">
+            <div className="bg-[#0b0c10] p-6 rounded-3xl border border-[#d4af37]/60 shadow-xl space-y-4">
+              <div className="border-b border-[#d4af37]/20 pb-3">
+                <h2 className="text-base font-extrabold text-[#f3e5ab]">Task Records History</h2>
+                <p className="text-xs text-gray-400">View official completed and pending order records.</p>
               </div>
 
-              {recordsList.length === 0 ? (
-                <div className="py-8 text-center space-y-2">
-                  <p className="text-xs text-slate-400">No special high-commission task records saved yet.</p>
+              {currentTask && (
+                <div className="p-4 bg-gradient-to-r from-red-950/80 via-[#2a0808] to-red-950/80 border-2 border-red-500 rounded-2xl space-y-3 shadow-lg">
+                  <div className="flex justify-between items-center border-b border-red-800/40 pb-2">
+                    <span className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1">
+                      <span>🎁</span> PENDING LUCKY ORDER #{currentTask.id}
+                    </span>
+                    <span className="text-[10px] bg-red-600/40 border border-red-500 text-red-200 px-2 py-0.5 rounded-full font-bold animate-pulse">
+                      Action Required
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <img src={currentTask.imageUrl} alt={currentTask.name} className="w-12 h-12 rounded-xl object-cover border border-red-500/50" />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-white line-clamp-1">{currentTask.name}</p>
+                      <p className="text-[10px] text-red-300 font-mono mt-0.5">
+                        Required Recharge: -${Math.abs(runningTasksVal).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
                   <button
-                    onClick={() => setActiveTab('grabbing')}
-                    className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-bold text-xs rounded-xl"
+                    onClick={() => setShowFullPageTask(true)}
+                    className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider flex items-center justify-center space-x-1"
                   >
-                    Continue Grabbing ➔
+                    <span>⚡ OPEN & COMPLETE LUCKY ORDER</span>
                   </button>
+                </div>
+              )}
+
+              {recordsList.length === 0 && !currentTask ? (
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-xs text-gray-500">No task records completed yet.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {recordsList.map((rec, i) => (
-                    <div key={i} className="p-3 bg-blue-950/40 border border-blue-800/40 rounded-2xl flex justify-between items-center text-xs">
+                    <div key={i} className="p-3 bg-[#18150a] border border-[#d4af37]/30 rounded-2xl flex justify-between items-center text-xs">
                       <div>
                         <p className="font-bold text-white">{rec.name}</p>
-                        <p className="text-[10px] text-slate-400">{rec.store} Promotion</p>
+                        <p className="text-[10px] text-gray-400">{rec.store} Official Category</p>
                       </div>
-                      <span className="font-mono font-bold text-emerald-400">+${rec.commission.toFixed(2)}</span>
+                      <span className="font-mono font-bold text-[#50e3c2]">+${rec.commission.toFixed(2)}</span>
                     </div>
                   ))}
-                  <button
-                    onClick={() => setActiveTab('grabbing')}
-                    className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow"
-                  >
-                    Back to Grabbing Page ➔
-                  </button>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* 5. VIP TAB */}
+        {/* VIP TAB */}
         {activeTab === 'vip' && (
-          <div className="space-y-5 pt-2">
+          <div className="space-y-4">
             <div className="text-center space-y-1">
-              <h2 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-sky-200">
-                VIP Membership Levels
+              <div className="flex justify-center">
+                <span className="text-2xl text-[#d4af37]">👑</span>
+              </div>
+              <h2 className="text-lg font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37]">
+                VIP MEMBERSHIP LEVELS
               </h2>
-              <p className="text-xs text-slate-400">Upgrade to unlock multiplied task profits (10% to 100%).</p>
+              <p className="text-[10px] text-gray-400">Boost commission yield percentage per VIP level</p>
             </div>
 
-            <div className="bg-slate-950/90 p-5 rounded-3xl border border-amber-500/50 shadow-xl space-y-4 backdrop-blur-xl">
-              <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-center text-3xl font-black text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-                  a
+            <div className="space-y-3">
+              <div className="p-4 bg-[#0b0c10] rounded-3xl border-2 border-[#d4af37] shadow-lg space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-10 h-10 rounded-xl bg-[#18150a] border border-[#d4af37] flex flex-col items-center justify-center">
+                      <span className="text-xs">👑</span>
+                      <span className="text-[7px] font-black text-[#d4af37]">VIP 0</span>
+                    </div>
+                    <span className="text-xs font-black text-[#f3e5ab]">VIP 0 - Regular</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-gray-300">Min Balance: $30.00</span>
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-base font-black text-amber-400">VIP 1 — AMAZON</h3>
-                  <p className="text-xs text-slate-300 font-medium">Commission Rate: 10% - 30%</p>
-                  <span className="inline-block mt-1 px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold rounded-full">
-                    $1000 Required Balance
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleVipUnlock(1000, 'vip1', 'VIP 1 Amazon')}
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition uppercase tracking-wider"
-              >
-                Upgrade to VIP 1 ($1000)
-              </button>
-            </div>
 
-            <div className="bg-slate-950/90 p-5 rounded-3xl border border-red-500/50 shadow-xl space-y-4 backdrop-blur-xl">
-              <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/40 flex items-center justify-center text-3xl text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-                  🛍️
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-300">Earn with high commission:</span>
+                  <span className="font-bold text-[#f3e5ab]">0.56% – 0.75% / Order</span>
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-base font-black text-red-400">VIP 2 — AliExpress</h3>
-                  <p className="text-xs text-slate-300 font-medium">Commission Rate: 30% - 60%</p>
-                  <span className="inline-block mt-1 px-2.5 py-0.5 bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-bold rounded-full">
-                    $2000 Required Balance
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleVipUnlock(2000, 'vip2', 'VIP 2 AliExpress')}
-                className="w-full py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white font-black text-xs rounded-xl shadow-lg transition uppercase tracking-wider"
-              >
-                Upgrade to VIP 2 ($2000)
-              </button>
-            </div>
 
-            <div className="bg-slate-950/90 p-5 rounded-3xl border border-emerald-500/50 shadow-xl space-y-4 backdrop-blur-xl">
-              <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 flex items-center justify-center text-3xl text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                  🛒
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-base font-black text-emerald-400">VIP 3 — Shopify</h3>
-                  <p className="text-xs text-slate-300 font-medium">Commission Rate: 60% - 100%</p>
-                  <span className="inline-block mt-1 px-2.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-full">
-                    $5000 Required Balance
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleVipUnlock(5000, 'vip3', 'VIP 3 Shopify')}
-                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition uppercase tracking-wider"
-              >
-                Upgrade to VIP 3 ($5000)
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 6. MINE TAB WITH SOLID RED LOGOUT BUTTON */}
-        {activeTab === 'mine' && (
-          <div className="space-y-4 pt-2">
-            <div className="bg-slate-950/90 p-5 rounded-3xl border border-blue-500/40 shadow-xl flex items-center justify-between backdrop-blur-xl">
-              <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-400/50 flex items-center justify-center text-2xl text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                  👤
-                </div>
-                <div className="overflow-hidden space-y-0.5">
-                  <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">PROFILE</p>
-                  <h2 className="text-sm font-black text-white">{userPhone}</h2>
-                  <p className="text-xs text-slate-400 font-mono truncate">{user?.email || 'user@example.com'}</p>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <span className="inline-block px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-[10px] font-bold">
-                  {accountStatus}
-                </span>
-              </div>
-            </div>
-
-            <div className="bg-slate-950/90 p-6 rounded-3xl border border-blue-500/40 shadow-xl text-center space-y-4 backdrop-blur-xl">
-              <div className="grid grid-cols-2 gap-3 pb-3 border-b border-blue-900/60">
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TOTAL BALANCE</p>
-                  <p className="text-2xl font-black text-blue-400 mt-1">${balance.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TOTAL PROFITS</p>
-                  <p className="text-2xl font-black text-emerald-400 mt-1">${todayCommission.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => setShowDepositModal(true)}
-                  className="py-3.5 px-4 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition uppercase tracking-wider"
+                  onClick={() => handleSelectVipLevel('VIP 0 - Regular', 30)}
+                  className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow flex items-center justify-center space-x-1"
                 >
-                  📥 Deposit
-                </button>
-                <button
-                  onClick={() => setShowWithdrawModal(true)}
-                  className="py-3.5 px-4 bg-white text-slate-950 font-black text-xs rounded-xl shadow-lg transition uppercase tracking-wider"
-                >
-                  📤 Withdraw
+                  <span>👑</span>
+                  <span>Active Level</span>
                 </button>
               </div>
+
+              <div className="p-4 bg-[#0b0c10] rounded-3xl border border-[#d4af37]/50 shadow-lg space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-10 h-10 rounded-xl bg-black border border-[#d4af37]/40 flex items-center justify-center text-xl font-bold text-amber-400">a</div>
+                    <div>
+                      <span className="text-xs font-black text-white">Amazon VIP 1</span>
+                      <p className="text-[9px] text-gray-400">Partner E-Commerce</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-gray-300">Min Balance: $1,000.00</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-300">Earn with high commission:</span>
+                  <span className="font-bold text-[#f3e5ab]">1% to 10% / Order</span>
+                </div>
+
+                <button
+                  onClick={() => handleSelectVipLevel('Amazon VIP 1', 1000)}
+                  className={`w-full py-2.5 rounded-2xl text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                    balance >= 1000
+                      ? 'bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black'
+                      : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
+                  }`}
+                >
+                  <span>{balance >= 1000 ? '⚡ Unlock & Open Amazon VIP' : '🔒 Locked (Min $1000)'}</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#0b0c10] rounded-3xl border border-[#d4af37]/50 shadow-lg space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-10 h-10 rounded-xl bg-red-600 border border-[#d4af37]/40 flex items-center justify-center text-xs font-black text-white">Ali</div>
+                    <div>
+                      <span className="text-xs font-black text-white">AliExpress VIP 2</span>
+                      <p className="text-[9px] text-gray-400">Partner E-Commerce</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-gray-300">Min Balance: $2,000.00</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-300">Earn with high commission:</span>
+                  <span className="font-bold text-[#f3e5ab]">1% to 20% / Order</span>
+                </div>
+
+                <button
+                  onClick={() => handleSelectVipLevel('AliExpress VIP 2', 2000)}
+                  className={`w-full py-2.5 rounded-2xl text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                    balance >= 2000
+                      ? 'bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black'
+                      : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
+                  }`}
+                >
+                  <span>{balance >= 2000 ? '⚡ Unlock & Open AliExpress VIP' : '🔒 Locked (Min $2000)'}</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#0b0c10] rounded-3xl border border-[#d4af37]/50 shadow-lg space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 border border-[#d4af37]/40 flex items-center justify-center text-base font-black text-white">S</div>
+                    <div>
+                      <span className="text-xs font-black text-white">Shopify VIP 3</span>
+                      <p className="text-[9px] text-gray-400">Partner E-Commerce</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-gray-300">Min Balance: $5,000.00</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-300">Earn with high commission:</span>
+                  <span className="font-bold text-[#f3e5ab]">1% to 30% / Order</span>
+                </div>
+
+                <button
+                  onClick={() => handleSelectVipLevel('Shopify VIP 3', 5000)}
+                  className={`w-full py-2.5 rounded-2xl text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                    balance >= 5000
+                      ? 'bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black'
+                      : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
+                  }`}
+                >
+                  <span>{balance >= 5000 ? '⚡ Unlock & Open Shopify VIP' : '🔒 Locked (Min $5000)'}</span>
+                </button>
+              </div>
             </div>
-
-            <div className="bg-slate-950/90 rounded-3xl border border-blue-500/30 shadow-xl divide-y divide-blue-900/50 overflow-hidden backdrop-blur-xl">
-              <button
-                onClick={() => setShowHistoryModal('deposit')}
-                className="w-full p-4 flex items-center justify-between text-xs font-semibold text-slate-200 hover:bg-blue-900/30 transition"
-              >
-                <div className="flex items-center space-x-3">
-                  <span className="text-base">📜</span>
-                  <span>Deposit History</span>
-                </div>
-                <span className="text-slate-500">➔</span>
-              </button>
-
-              <button
-                onClick={() => setShowHistoryModal('withdraw')}
-                className="w-full p-4 flex items-center justify-between text-xs font-semibold text-slate-200 hover:bg-blue-900/30 transition"
-              >
-                <div className="flex items-center space-x-3">
-                  <span className="text-base">📊</span>
-                  <span>Withdraw History</span>
-                </div>
-                <span className="text-slate-500">➔</span>
-              </button>
-
-              <button
-                onClick={() => setShowWalletBindModal(true)}
-                className="w-full p-4 flex items-center justify-between text-xs font-semibold text-slate-200 hover:bg-blue-900/30 transition"
-              >
-                <div className="flex items-center space-x-3">
-                  <span className="text-base">💳</span>
-                  <span>Wallet Bind (TRC20 / ERC20 / Bank)</span>
-                </div>
-                <span className="text-slate-500">➔</span>
-              </button>
-
-              <button
-                onClick={() => setShowSettingsModal(true)}
-                className="w-full p-4 flex items-center justify-between text-xs font-semibold text-slate-200 hover:bg-blue-900/30 transition"
-              >
-                <div className="flex items-center space-x-3">
-                  <span className="text-base">⚙️</span>
-                  <span>Security Settings (Passwords)</span>
-                </div>
-                <span className="text-slate-500">➔</span>
-              </button>
-            </div>
-
-            <button
-              onClick={signOut}
-              className="w-full py-3.5 bg-gradient-to-r from-red-600 via-red-500 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black text-xs rounded-2xl transition flex items-center justify-center space-x-2 shadow-[0_0_20px_rgba(239,68,68,0.5)] uppercase tracking-wider"
-            >
-              <span>🔒 Log Out Account</span>
-            </button>
           </div>
         )}
 
       </div>
 
-      {/* OFFICIAL CERTIFICATION DOCUMENT MODAL */}
-      {showCertModal && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
-          <div className="bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border-2 border-amber-400/90 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-[0_0_50px_rgba(245,158,11,0.4)] text-center relative overflow-hidden">
-            
-            <div className="absolute top-0 left-0 right-0 h-2.5 bg-gradient-to-r from-amber-500 via-yellow-200 to-amber-500"></div>
+      {/* BOTTOM NAVIGATION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0b0c10]/95 border-t-2 border-[#d4af37]/60 backdrop-blur-2xl py-2 px-3 flex justify-around items-center z-50 shadow-[0_-5px_20px_rgba(212,175,55,0.2)]">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'home' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <span className="text-lg">🏠</span>
+          <span className="text-[9px] font-bold">Home</span>
+        </button>
 
-            <div className="flex justify-between items-center border-b border-amber-500/30 pb-3">
-              <div className="flex items-center space-x-2">
-                <span className="text-2xl">🏅</span>
-                <span className="text-xs font-black text-amber-400 uppercase tracking-widest">CERTIFICATE OF AUTHORIZATION</span>
-              </div>
-              <button onClick={() => setShowCertModal(false)} className="text-slate-400 text-xs font-bold hover:text-white">✕</button>
-            </div>
+        <button onClick={() => setActiveTab('support')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'support' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <span className="text-lg">🎧</span>
+          <span className="text-[9px] font-bold">Support</span>
+        </button>
 
-            <div className="space-y-3.5 text-left bg-slate-950/90 p-4.5 rounded-2xl border border-slate-800 text-xs font-sans relative">
-              
-              <div className="absolute top-3 right-3 w-12 h-12 rounded-full border-2 border-amber-400/60 bg-amber-500/10 flex flex-col items-center justify-center text-[8px] font-black text-amber-300 text-center uppercase leading-tight shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                <span>OFFICIAL</span>
-                <span className="text-[10px]">★ SEAL ★</span>
-              </div>
-
-              <div className="border-b border-slate-800 pb-2">
-                <h3 className="text-xs font-black text-white uppercase tracking-wider leading-snug pr-14">
-                  INTERNATIONAL DIGITAL E-COMMERCE COUNCIL
-                </h3>
-                <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">ESTABLISHED & REGISTERED SINCE 2002</p>
-              </div>
-
-              <div className="space-y-1.5 text-[11px]">
-                <p className="flex justify-between">
-                  <span className="text-slate-400">License Number:</span>
-                  <span className="font-mono font-bold text-cyan-400">#DM-2002-984271-INT</span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="text-slate-400">Financial Audit Ref:</span>
-                  <span className="font-mono font-bold text-emerald-400">#FA-99201-GLOBAL</span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="text-slate-400">Auth Status:</span>
-                  <span className="font-bold text-emerald-400">Verified Legal Global Partner</span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="text-slate-400">Platforms:</span>
-                  <span className="font-bold text-white">Amazon | AliExpress | Shopify</span>
-                </p>
-              </div>
-
-              <div className="pt-3 border-t border-slate-800 grid grid-cols-2 gap-2 text-center">
-                <div className="space-y-0.5">
-                  <p className="text-amber-300 font-serif italic text-base tracking-widest border-b border-amber-400/40 pb-0.5 inline-block px-1">
-                    J. R. Sterling
-                  </p>
-                  <p className="text-slate-300 font-bold text-[9px] uppercase mt-1">Managing Director</p>
-                  <p className="text-[8px] text-slate-500 font-mono">Executive Board</p>
-                </div>
-
-                <div className="space-y-0.5">
-                  <p className="text-amber-300 font-serif italic text-base tracking-widest border-b border-amber-400/40 pb-0.5 inline-block px-1">
-                    A. M. Vance
-                  </p>
-                  <p className="text-slate-300 font-bold text-[9px] uppercase mt-1">Chief Financial Officer</p>
-                  <p className="text-[8px] text-slate-500 font-mono">Finance Dept.</p>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-slate-800/80 text-[9px] text-slate-400 text-center font-mono">
-                📍 7 World Trade Center, 250 Greenwich St, New York, NY 10007, USA
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowCertModal(false)}
-              className="w-full py-3 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.4)] uppercase tracking-wider"
-            >
-              Close Certificate
-            </button>
+        <button onClick={() => setActiveTab('grabbing')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'grabbing' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <div className={`p-2 rounded-xl ${activeTab === 'grabbing' ? 'bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black shadow-lg' : 'bg-[#18150a] text-[#d4af37]'}`}>
+            <span className="text-base">⚡</span>
           </div>
-        </div>
-      )}
+          <span className="text-[9px] font-bold">Grabbing</span>
+        </button>
 
-      {/* FULL-PAGE MATCHED ORDER TASK MODAL */}
-      {showFullPageTask && currentTask && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/50 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-[0_0_50px_rgba(6,182,212,0.4)]">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <span className="text-xs font-black text-cyan-400 uppercase">Matched Order Task #{currentTask.id}</span>
-              <span className="px-2.5 py-0.5 bg-cyan-500/10 text-cyan-300 rounded-full text-[10px] font-bold border border-cyan-500/30">
-                {currentTask.store} Promotion
-              </span>
-            </div>
+        <button onClick={() => setActiveTab('records')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'records' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <span className="text-lg">📋</span>
+          <span className="text-[9px] font-bold">Records</span>
+        </button>
 
-            <div className="space-y-3">
-              <div className="w-full h-44 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950">
-                <img src={currentTask.imageUrl} alt={currentTask.name} className="w-full h-full object-cover" />
-              </div>
+        <button onClick={() => setActiveTab('vip')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'vip' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <span className="text-lg">👑</span>
+          <span className="text-[9px] font-bold">VIP</span>
+        </button>
 
-              <div>
-                <h4 className="text-sm font-bold text-white leading-snug">{currentTask.name}</h4>
-                <p className="text-[11px] text-cyan-400 font-medium mt-0.5">Promoted by Digital Marketing Network</p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-xs text-center">
-                <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                  <p className="text-[9px] text-slate-400">Product Price</p>
-                  <p className="font-mono font-bold text-white mt-0.5">${currentTask.price.toFixed(2)}</p>
-                </div>
-                <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                  <p className="text-[9px] text-amber-400">Rating</p>
-                  <p className="font-bold text-amber-300 mt-0.5">★ 5.0</p>
-                </div>
-                <div className="bg-emerald-950/40 p-2 rounded-xl border border-emerald-500/30">
-                  <p className="text-[9px] text-emerald-400 font-bold">Task Profit</p>
-                  <p className="font-mono font-black text-emerald-300 mt-0.5">+${currentTask.commission.toFixed(2)}</p>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={handleConfirmTask}
-              className="w-full py-3.5 bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black text-sm rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.5)] transition uppercase tracking-wider"
-            >
-              COMPLETE
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* INFO POPUP MODAL */}
-      {infoModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl text-center max-h-[80vh] overflow-y-auto">
-            <h3 className="text-sm font-bold text-cyan-400 uppercase">{infoModal.title}</h3>
-            <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line py-2 text-left font-sans">{infoModal.text}</p>
-            <button
-              onClick={() => setInfoModal(null)}
-              className="w-full py-2.5 bg-cyan-500 text-slate-950 font-bold text-xs rounded-xl"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+        <button onClick={() => setActiveTab('mine')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'mine' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
+          <span className="text-lg">👤</span>
+          <span className="text-[9px] font-bold">Profile</span>
+        </button>
+      </div>
 
       {/* DEPOSIT MODAL */}
       {showDepositModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase">Deposit USDT (TRC20)</h3>
-              <button onClick={() => setShowDepositModal(false)} className="text-slate-400 text-xs">✕</button>
-            </div>
-
-            <div className="flex flex-col items-center space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <div className="w-32 h-32 bg-white border border-slate-200 p-2 rounded-xl flex items-center justify-center text-slate-950 font-mono font-bold text-xs text-center">
-                [QR Code Admin Update]
-              </div>
-              <p className="text-[10px] text-slate-400 font-mono">TRC20: TAdminDepositAddressTRC20123</p>
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Deposit USDT Funds</h3>
+            
+            <div className="text-center space-y-2 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+              <p className="text-[10px] text-[#d4af37] uppercase font-bold">TRC20 Deposit Address</p>
+              <p className="text-xs font-mono text-white break-all select-all">{adminTrc20DepositAddress}</p>
+              
               <button
-                onClick={() => showToast('Address copied to clipboard!')}
-                className="px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded-lg"
+                type="button"
+                onClick={() => copyToClipboard(adminTrc20DepositAddress)}
+                className="py-1.5 px-3 bg-[#d4af37]/20 border border-[#d4af37] text-[#f3e5ab] font-bold text-xs rounded-xl shadow transition"
               >
-                Copy TRC20 Address
+                📋 Copy TRC20 Address
               </button>
+
+              <div className="flex justify-center my-2">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(adminTrc20DepositAddress)}`} 
+                  alt="TRC20 QR Code" 
+                  className="w-32 h-32 rounded-xl border border-[#d4af37] bg-white p-1"
+                />
+              </div>
             </div>
 
             <form onSubmit={handleDepositSubmit} className="space-y-3">
-              <label className="block text-xs font-bold text-slate-300 uppercase">Select Preset Amount</label>
-              <div className="grid grid-cols-4 gap-2">
-                {quickAmounts.map((amt) => (
-                  <button
-                    key={amt}
-                    type="button"
-                    onClick={() => setDepositAmount(amt.toString())}
-                    className={`py-1.5 text-xs font-bold rounded-xl border transition ${
-                      depositAmount === amt.toString()
-                        ? 'bg-amber-400 text-slate-950 border-amber-400'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-amber-400/50'
-                    }`}
-                  >
-                    ${amt}
-                  </button>
-                ))}
-              </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Manual Amount ($)</label>
-                <input
-                  type="number"
-                  placeholder="Enter custom deposit amount"
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-400"
-                />
+                <label className="text-[10px] text-gray-400 block mb-1">Select Quick Amount ($)</label>
+                <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1 bg-black rounded-xl border border-[#d4af37]/30">
+                  {quickDepositAmounts.map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setDepositAmount(amt.toString())}
+                      className={`py-1.5 rounded-lg text-[10px] font-mono font-bold transition border ${
+                        depositAmount === amt.toString()
+                          ? 'bg-[#d4af37] text-black border-[#d4af37]'
+                          : 'bg-[#18150a] border-[#d4af37]/30 text-[#f3e5ab]'
+                      }`}
+                    >
+                      ${amt}
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow uppercase"
-              >
-                Submit Deposit Request
-              </button>
+              <input
+                type="number"
+                placeholder="Enter amount"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowDepositModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Submit</button>
+              </div>
             </form>
           </div>
         </div>
@@ -974,44 +1526,33 @@ Authorized financial management ensuring secure USDT escrow settlements.`;
 
       {/* WITHDRAW MODAL */}
       {showWithdrawModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase">Withdraw Funds</h3>
-              <button onClick={() => setShowWithdrawModal(false)} className="text-slate-400 text-xs">✕</button>
-            </div>
-
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Withdraw Funds</h3>
+            {withdrawLockedMsg && (
+              <div className="p-3 bg-red-950/80 border border-red-600 rounded-xl text-red-300 text-xs text-center font-bold">
+                ⚠️ Withdrawal Locked: {withdrawLockedMsg}
+              </div>
+            )}
             <form onSubmit={handleWithdrawSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Withdraw Amount ($)</label>
-                <input
-                  type="number"
-                  placeholder="Enter amount to withdraw"
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
+              <input
+                type="number"
+                placeholder="Amount ($)"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+              />
+              <input
+                type="password"
+                placeholder="Withdrawal Password"
+                value={withdrawPasswordInput}
+                onChange={(e) => setWithdrawPasswordInput(e.target.value)}
+                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowWithdrawModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Submit</button>
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Withdrawal Password</label>
-                <input
-                  type="password"
-                  placeholder="Enter withdrawal password"
-                  value={withdrawPassword}
-                  onChange={(e) => setWithdrawPassword(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-white text-slate-950 font-black text-xs rounded-xl shadow uppercase"
-              >
-                Confirm Withdrawal
-              </button>
             </form>
           </div>
         </div>
@@ -1019,205 +1560,382 @@ Authorized financial management ensuring secure USDT escrow settlements.`;
 
       {/* WALLET BIND MODAL */}
       {showWalletBindModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase">Bind Wallet Details</h3>
-              <button onClick={() => setShowWalletBindModal(false)} className="text-slate-400 text-xs">✕</button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                showToast('Wallet details bound successfully!');
-                setShowWalletBindModal(false);
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">TRC20 Address</label>
-                <input
-                  type="text"
-                  placeholder="Enter TRC20 Address"
-                  value={trc20Address}
-                  onChange={(e) => setTrc20Address(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Wallet & Bank Binding</h3>
+            {isWalletAlreadyBound && (
+              <p className="text-[11px] text-amber-300 text-center bg-[#18150a] p-2 rounded-xl border border-[#d4af37]/40">
+                Please contact with customer service for replace your account
+              </p>
+            )}
+            <form onSubmit={handleWalletBindSubmit} className="space-y-3">
+              <input
+                type="text"
+                placeholder="TRC20 Address"
+                value={trc20Address}
+                disabled={isWalletAlreadyBound}
+                onChange={(e) => setTrc20Address(e.target.value)}
+                className={`w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white font-mono ${isWalletAlreadyBound ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
+              <input
+                type="text"
+                placeholder="ERC20 Address"
+                value={erc20Address}
+                disabled={isWalletAlreadyBound}
+                onChange={(e) => setErc20Address(e.target.value)}
+                className={`w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white font-mono ${isWalletAlreadyBound ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
+              <input
+                type="text"
+                placeholder="Bank Name"
+                value={bankName}
+                disabled={isWalletAlreadyBound}
+                onChange={(e) => setBankName(e.target.value)}
+                className={`w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white ${isWalletAlreadyBound ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
+              <input
+                type="text"
+                placeholder="Account Number"
+                value={accountNumber}
+                disabled={isWalletAlreadyBound}
+                onChange={(e) => setAccountNumber(e.target.value)}
+                className={`w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white font-mono ${isWalletAlreadyBound ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowWalletBindModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
+                {!isWalletAlreadyBound && (
+                  <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Save</button>
+                )}
               </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">ERC20 Address</label>
-                <input
-                  type="text"
-                  placeholder="Enter ERC20 Address"
-                  value={erc20Address}
-                  onChange={(e) => setErc20Address(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">Bank Name</label>
-                <input
-                  type="text"
-                  placeholder="Enter Bank Name"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">Account Number</label>
-                <input
-                  type="text"
-                  placeholder="Enter Account Number"
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow uppercase"
-              >
-                Save Wallet Details
-              </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* SECURITY SETTINGS MODAL */}
+      {/* FULL PAGE TASK MODAL */}
+      {showFullPageTask && currentTask && (
+        <div className="fixed inset-0 bg-[#06060a] z-50 flex flex-col justify-between p-4 overflow-y-auto font-sans text-white border-4 border-[#d4af37]/30 shadow-2xl">
+          <div className="flex justify-between items-center py-2 border-b border-[#332a15]">
+            <button
+              onClick={() => setShowFullPageTask(false)}
+              className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1"
+            >
+              <span>⬅ Back</span>
+            </button>
+            <h2 className="text-base font-extrabold text-[#f3e5ab] tracking-wider">
+              Product Task #{currentTask.id}
+            </h2>
+            <button
+              onClick={() => setShowFullPageTask(false)}
+              className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1 rounded-xl"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="space-y-3 my-auto max-w-md mx-auto w-full">
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-2xl p-3 flex gap-3 shadow-[0_0_20px_rgba(212,175,55,0.15)] relative overflow-hidden">
+              <div className="w-1/2 aspect-square rounded-xl bg-black border border-[#332a15] overflow-hidden flex items-center justify-center">
+                <img 
+                  src={currentTask.imageUrl} 
+                  alt={currentTask.name} 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              
+              <div className="w-1/2 flex flex-col justify-between py-1">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">
+                    👑 {currentTask.store}
+                  </div>
+                  <h3 className="text-sm font-bold text-white leading-tight line-clamp-2 mt-0.5">
+                    {currentTask.name}
+                  </h3>
+                  <p className="text-[9px] text-gray-400 mt-0.5">
+                    Verified Digital Item | Premium Quality
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-1 text-amber-400 text-xs mt-1">
+                    ★★★★★ <span className="text-[9px] text-gray-300 font-bold">4.9 (1,248 reviews)</span>
+                  </div>
+                  
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-base font-black text-[#f3e5ab] font-mono">
+                      ${currentTask.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="mt-1 inline-flex items-center gap-1 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black text-[9px] px-2 py-0.5 rounded-md shadow">
+                    👑 Premium Product
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {currentTask.isLucky && (
+              <div className="bg-gradient-to-r from-[#1a1508] via-[#332a15] to-[#1a1508] border-2 border-[#f3e5ab] rounded-2xl p-3 flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(243,229,171,0.3)] animate-pulse">
+                <div className="text-3xl">🎁</div>
+                <div className="text-center">
+                  <div className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wide uppercase">
+                    Congratulations
+                  </div>
+                  <div className="text-sm font-bold text-[#f3e5ab]">
+                    You have got a lucky order!
+                  </div>
+                  <div className="text-[9px] text-gray-300 mt-0.5">
+                    Please complete your high commission lucky order complete and continue next tasks
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#0b0c10] border border-[#d4af37]/60 rounded-2xl p-3 grid grid-cols-3 gap-2 text-center shadow-lg">
+              <div className="border-r border-[#332a15] pr-1 flex flex-col items-center justify-center">
+                <div className="text-amber-400 text-lg">⭐</div>
+                <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">High Commission Rating</div>
+                <div className="text-[10px] font-black text-amber-400 mt-0.5">★★★★★ 4.9/5</div>
+              </div>
+
+              <div className="border-r border-[#332a15] px-1 flex flex-col items-center justify-center">
+                <div className="text-amber-400 text-lg">📣</div>
+                <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">With Digital Marketing</div>
+                <div className="text-amber-400 text-xs mt-0.5">📈</div>
+              </div>
+
+              <div className="pl-1 flex flex-col items-center justify-center">
+                <div className="text-amber-400 text-lg">🏅</div>
+                <div className="text-[9px] font-bold text-gray-300 leading-tight">Commission Earned</div>
+                <div className="text-xs font-black text-[#50e3c2] font-mono mt-0.5">
+                  +${currentTask.commission.toLocaleString('en-US', { minimumFractionDigits: 2 })} ↗
+                </div>
+              </div>
+            </div>
+
+            {currentTask.isLucky && runningTasksVal < 0 && (
+              <div className="bg-gradient-to-r from-[#2a0808] via-[#4a0e0e] to-[#2a0808] border-2 border-red-600/80 rounded-2xl p-3 flex justify-between items-center shadow-[0_0_20px_rgba(220,38,38,0.4)]">
+                <div className="flex items-center gap-2">
+                  <div className="text-2xl">👛</div>
+                  <div>
+                    <div className="text-xs font-bold text-red-400">Recharge Amount</div>
+                    <div className="text-[9px] text-red-300/80 font-medium">(Negative Balance Locked)</div>
+                  </div>
+                </div>
+                <div className="text-xl font-black text-red-500 font-mono tracking-tight">
+                  - ${Math.abs(runningTasksVal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleConfirmTask}
+              className="w-full py-3.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl border-2 border-[#f3e5ab] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition flex items-center justify-center gap-2 uppercase tracking-wider"
+            >
+              <span>📋</span>
+              <span>CONTINUE TASKS</span>
+              <span>➔</span>
+            </button>
+          </div>
+
+          <div className="text-center py-2 border-t border-[#332a15]">
+            <p className="text-[10px] text-gray-400 font-medium">
+              Keep going! More orders = More commission!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* SETTINGS MODAL */}
       {showSettingsModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase">Security Settings</h3>
-              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 text-xs">✕</button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                showToast('Security settings updated successfully!');
-                setShowSettingsModal(false);
-              }}
-              className="space-y-3"
-            >
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Update Profile & Settings</h3>
+            <form onSubmit={handleSecurityUpdateSubmit} className="space-y-3">
               <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">Current Password</label>
+                <label className="text-[10px] text-gray-400 block mb-1">Customer Email Address</label>
                 <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={currentPass}
-                  onChange={(e) => setCurrentPass(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
+                  type="email"
+                  placeholder="Enter email address"
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
                 />
               </div>
-
               <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">New Password</label>
+                <label className="text-[10px] text-gray-400 block mb-1">Phone Number</label>
                 <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={newPass}
-                  onChange={(e) => setNewPass(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
+                  type="text"
+                  placeholder="Enter phone number"
+                  value={userPhone}
+                  onChange={(e) => setUserPhone(e.target.value)}
+                  className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
                 />
               </div>
-
               <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">Withdrawal Password</label>
+                <label className="text-[10px] text-gray-400 block mb-1">New Login Password</label>
                 <input
                   type="password"
-                  placeholder="••••••••"
-                  value={withdrawPass}
-                  onChange={(e) => setWithdrawPass(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-400"
+                  placeholder="New Login Password"
+                  value={newLoginPass}
+                  onChange={(e) => setNewLoginPass(e.target.value)}
+                  className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
                 />
               </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow uppercase"
-              >
-                Update Security Settings
-              </button>
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">New Withdrawal Password</label>
+                <input
+                  type="password"
+                  placeholder="New Withdrawal Password"
+                  value={newWithdrawPass}
+                  onChange={(e) => setNewWithdrawPass(e.target.value)}
+                  className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowSettingsModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Save Changes</button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* HISTORY MODAL */}
-      {showHistoryModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl text-center">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase">
-                {showHistoryModal === 'deposit' ? 'Deposit History' : 'Withdraw History'}
-              </h3>
-              <button onClick={() => setShowHistoryModal(null)} className="text-slate-400 text-xs">✕</button>
+      {/* INFO MODALS */}
+      {infoModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl max-h-[80vh] flex flex-col">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] border-b border-[#d4af37]/30 pb-2">{infoModal.title}</h3>
+            <div className="flex-1 overflow-y-auto pr-1">
+              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-line">{infoModal.text}</p>
             </div>
-            <p className="text-xs text-slate-400 py-6">No {showHistoryModal} records found.</p>
+            <button onClick={() => setInfoModal(null)} className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black text-xs rounded-xl shadow">Close</button>
           </div>
         </div>
       )}
 
-      {/* BOTTOM NAVIGATION BAR */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#020d26]/95 border-t-2 border-emerald-500/80 backdrop-blur-2xl py-3 px-2 z-40 shadow-[0_-10px_25px_rgba(16,185,129,0.2)]">
-        <div className="max-w-md mx-auto flex justify-between items-center px-1">
-          <button
-            onClick={() => setActiveTab('home')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'home' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">🏠</span>
-            <span className="text-[9px]">Home</span>
-          </button>
+      {/* CERTIFICATE MODAL */}
+      {showCertModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-4 border-[#d4af37] rounded-3xl p-6 w-full max-w-md space-y-4 text-center shadow-[0_0_50px_rgba(212,175,55,0.4)] text-xs max-h-[85vh] overflow-y-auto relative">
+            <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none">
+              <span className="text-8xl font-black text-[#d4af37]">DM</span>
+            </div>
 
-          <button
-            onClick={() => setActiveTab('support')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'support' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">🎧</span>
-            <span className="text-[9px]">Support</span>
-          </button>
+            <div className="p-4 bg-[#141008] border-2 border-[#d4af37]/60 rounded-2xl space-y-3 text-left relative z-10">
+              <div className="text-center border-b-2 border-[#d4af37]/40 pb-3">
+                <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] flex items-center justify-center text-2xl shadow-lg text-black">
+                  👑
+                </div>
+                <div className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider">
+                  DIGITAL MARKETING
+                </div>
+                <p className="text-[9px] text-[#d4af37] font-bold uppercase tracking-widest mt-0.5">
+                  INTERNATIONAL E-COMMERCE & DIGITAL MARKETING
+                </p>
+                <h4 className="text-xs font-black text-white mt-1 uppercase tracking-wide">
+                  CERTIFICATE OF PROFESSIONAL EXPERTISE
+                </h4>
+              </div>
 
-          <button
-            onClick={() => setActiveTab('grabbing')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'grabbing' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">⚡</span>
-            <span className="text-[9px]">Grabbing</span>
-          </button>
+              <div className="space-y-1 font-mono text-[10px] bg-black p-2.5 rounded-xl border border-[#d4af37]/40 shadow-inner">
+                <p className="text-[#f3e5ab] font-bold">CERTIFICATE REF NO: <span className="text-white">SA11962535-VS-3383</span></p>
+                <p className="text-[#f3e5ab] font-bold">REFERENCE YEAR: <span className="text-white">2009</span></p>
+              </div>
 
-          <button
-            onClick={() => setActiveTab('records')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'records' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">📋</span>
-            <span className="text-[9px]">Records</span>
-          </button>
+              <div>
+                <h5 className="font-extrabold text-[#f3e5ab] text-[11px] mb-1">LEADERSHIP & PROFESSIONAL PROFILE</h5>
+                <p className="text-gray-300 text-[10px]">• CEO of VaynerMedia</p>
+                <p className="text-gray-300 text-[10px]">• Serial Entrepreneur | Digital Marketing Strategist</p>
+                <p className="text-gray-300 text-[10px]">• Content Marketing & SEO Leader</p>
+              </div>
 
-          <button
-            onClick={() => setActiveTab('vip')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'vip' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">👑</span>
-            <span className="text-[9px]">VIP</span>
-          </button>
+              <div>
+                <h5 className="font-extrabold text-[#f3e5ab] text-[11px] mb-1">CORE AREAS OF EXPERTISE</h5>
+                <ul className="list-disc pl-4 text-gray-300 text-[10px] space-y-0.5">
+                  <li>Digital Marketing & Brand Strategy</li>
+                  <li>Content Marketing & SEO Leadership</li>
+                  <li>E-Commerce Marketing</li>
+                  <li>Digital Advertising & Campaign Management</li>
+                  <li>Affiliate Marketing Strategies</li>
+                  <li>International Market Research</li>
+                  <li>Business Development & Performance Analytics</li>
+                </ul>
+              </div>
 
-          <button
-            onClick={() => setActiveTab('mine')}
-            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'mine' ? 'text-emerald-400 scale-105 font-black' : 'text-slate-400'}`}
-          >
-            <span className="text-base">👤</span>
-            <span className="text-[9px]">Mine</span>
-          </button>
+              <div>
+                <h5 className="font-extrabold text-[#f3e5ab] text-[11px] mb-1">E-COMMERCE PLATFORMS</h5>
+                <p className="text-[#f3e5ab] font-bold text-[10px]">Shopify | Amazon | AliExpress</p>
+                <p className="text-[8px] text-gray-400">Platform names listed for identification purposes.</p>
+              </div>
+
+              <div className="pt-3 border-t border-[#d4af37]/40 space-y-2 text-[10px]">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <p className="text-gray-400 text-[8px]">Issuing Organization:</p>
+                    <p className="text-white font-bold text-[10px]">DigitalMarketing Network</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-gray-400 text-[8px]">Authorized Representative:</p>
+                    <p className="text-[#f3e5ab] font-black text-[11px] underline">Gary Vaynerchuk</p>
+                  </div>
+                </div>
+                <p className="text-[8px] text-gray-400 italic text-center">
+                  DigitalMarketing with partner VaynerMedia is supported by Gary Vaynerchuk.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowCertModal(false)}
+              className="w-full py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow-[0_0_20px_rgba(212,175,55,0.4)] uppercase tracking-wider"
+            >
+              Close Official Certificate
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
+      {/* HISTORY MODALS */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4">
+            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center uppercase">{showHistoryModal} History</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {showHistoryModal === 'deposit' ? (
+                depositHistory.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">No deposit history found.</p> :
+                depositHistory.map((d: any) => (
+                  <div key={d.id} className="p-3 bg-[#18150a] border border-[#d4af37]/30 rounded-xl space-y-1">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-white font-bold">${d.amount} USDT</span>
+                      <span className="text-[#f3e5ab] font-bold uppercase">{d.status}</span>
+                    </div>
+                    <div className="text-[9px] text-gray-400 font-mono">
+                      {formatDateWithTime(d.created_at)}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                withdrawHistory.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">No withdrawal history found.</p> :
+                withdrawHistory.map((w: any) => (
+                  <div key={w.id} className="p-3 bg-[#18150a] border border-[#d4af37]/30 rounded-xl space-y-1">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-white font-bold">${w.amount} USDT</span>
+                      <span className="text-[#f3e5ab] font-bold uppercase">{w.status}</span>
+                    </div>
+                    <div className="text-[9px] text-gray-400 font-mono">
+                      {formatDateWithTime(w.created_at)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => setShowHistoryModal(null)} className="w-full py-2 bg-[#18150a] border border-[#d4af37]/40 text-white text-xs font-bold rounded-xl">Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+export default CustomerDashboard;

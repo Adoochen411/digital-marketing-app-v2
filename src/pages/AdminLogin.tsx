@@ -2,114 +2,107 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
-export const AdminLogin: React.FC = () => {
+export function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
     setLoading(true);
+    setError('');
 
     try {
-      // 1. Supabase Auth Login
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const userEmail = (email || '').toLowerCase().trim();
+const allowedAdmins = ['adoochen64@gmail.com'];
+      // 1. Check if Main Admin
+      if (allowedAdmins.includes(userEmail)) {
+        const { error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (error || !data.user) {
-        setErrorMsg('Invalid login credentials. Please try again.');
+        if (authError) throw authError;
+
+        localStorage.setItem('current_admin_role', 'admin');
+        navigate('/admin/dashboard');
+        return;
+      }
+
+      // 2. Check Sub-Admin table directly (with password check)
+      const { data: subAdmin, error: subErr } = await supabase
+        .from('sub_admins')
+        .select('*')
+        .eq('email', userEmail)
+        .maybeSingle();
+
+      if (subErr || !subAdmin) {
+        setError('Unauthorized access. Email not found in sub-admins.');
         setLoading(false);
         return;
       }
 
-      // 2. Direct Allowed Admin Emails Check (Bypasses any database permission block)
-      const allowedAdmins = ['admin@gmail.com', 'adoochen64@gmail.com'];
-      const normalizedEmail = email.toLowerCase().trim();
-
-      if (allowedAdmins.includes(normalizedEmail)) {
-        navigate('/admin/dashboard');
+      // Password check for Sub-Admin
+      if (subAdmin.password && subAdmin.password !== password) {
+        setError('Invalid password for sub-admin.');
+        setLoading(false);
         return;
       }
 
-      // 3. Fallback: Check Role in Profiles Table
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
-
-      if (profile?.role === 'admin') {
-        navigate('/admin/dashboard');
-      } else {
-        await supabase.auth.signOut();
-        setErrorMsg('Access Denied: You do not have admin permissions.');
-      }
+      localStorage.setItem('sub_admin_logged_in', userEmail);
+      localStorage.setItem('current_admin_role', 'subadmin');
+      navigate('/sub-admin/dashboard'); // 👈 Correct path with hyphen matching App.tsx
     } catch (err: any) {
-      setErrorMsg('An unexpected error occurred during login.');
+      setError(err.message || 'Invalid login credentials');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-blue-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
-        <h2 className="text-2xl font-bold text-center text-blue-900 mb-1">
-          Admin Control Panel
-        </h2>
-        <p className="text-xs text-center text-gray-500 mb-6 font-medium">
-          Authorized Personnel Only
-        </p>
+    <div className="min-h-screen bg-[#02091d] flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-[#0a1535] border border-cyan-500/30 rounded-2xl p-8 shadow-xl">
+        <h2 className="text-2xl font-bold text-cyan-400 text-center mb-2">Admin Control Portal</h2>
+        <p className="text-gray-400 text-center text-xs mb-6">Sign in with administrator credentials</p>
 
-        {errorMsg && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg text-xs font-semibold text-center">
-            {errorMsg}
-          </div>
-        )}
+        {error && <div className="bg-red-500/10 border border-red-500 text-red-400 text-xs p-3 rounded mb-4">{error}</div>}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">
-              Admin Email
-            </label>
+            <label className="block text-xs font-mono text-cyan-300 mb-1 uppercase">Admin Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
+              className="w-full bg-[#02091d] border border-cyan-500/30 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+              placeholder="admin@gmail.com"
             />
           </div>
-
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-xs font-mono text-cyan-300 mb-1 uppercase">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
+              className="w-full bg-[#02091d] border border-cyan-500/30 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+              placeholder="••••••••"
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md mt-2"
+            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold py-2.5 rounded shadow-lg hover:from-amber-400 hover:to-amber-500 transition duration-200 mt-2 text-sm"
           >
-            {loading ? 'Logging in...' : 'Login to Admin Dashboard'}
+            {loading ? 'Signing In...' : 'SIGN IN AS ADMIN'}
           </button>
         </form>
       </div>
     </div>
   );
-};
+}
+
+export default AdminLogin;

@@ -1,40 +1,50 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 export const AuthPage: React.FC = () => {
-  const { signIn, signUp } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
+  const { signIn } = useAuth();
 
-  // Form Fields
+  const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [captchaCode, setCaptchaCode] = useState('');
   const [userCaptchaInput, setUserCaptchaInput] = useState('');
-
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Random 4-Digit Captcha Generator
   const generateCaptcha = () => {
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-    setCaptchaCode(code);
+    setCaptchaCode(
+      Math.floor(1000 + Math.random() * 9000).toString()
+    );
   };
 
   useEffect(() => {
-    if (isLogin) {
-      generateCaptcha();
-    }
+    generateCaptcha();
   }, [isLogin]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (isLogin && userCaptchaInput !== captchaCode) {
-      setError('Invalid Verification Code (Captcha)');
+    if (loading) return;
+
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const userEnteredCode = invitationCode.trim().toUpperCase();
+
+    if (!cleanUsername || !password) {
+      setError('Please enter your username and password.');
+      return;
+    }
+
+    if (isLogin && userCaptchaInput.trim() !== captchaCode) {
+      setError('Invalid Verification Code (Captcha).');
       generateCaptcha();
+      setUserCaptchaInput('');
       return;
     }
 
@@ -42,17 +52,215 @@ export const AuthPage: React.FC = () => {
 
     try {
       if (isLogin) {
-        await signIn(username, password);
-        window.location.href = '/dashboard'; 
-      } else {
-        await signUp(username, password);
-        alert('Account created successfully! Logging you in...');
-        setIsLogin(true);
+        await signIn(cleanUsername, password);
+        window.location.href = '/dashboard';
+        return;
       }
+
+      // Registration validation
+      if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
+        throw new Error(
+          'Username must be 3-30 characters and contain only English letters, numbers, or underscores.'
+        );
+      }
+
+      if (password.length < 6) {
+        throw new Error('Password must contain at least 6 characters.');
+      }
+
+      if (!userEnteredCode) {
+        throw new Error('Invitation Code is required to register.');
+      }
+
+      // Check username before creating an Auth account.
+      const { data: usernameMatch, error: usernameCheckError } =
+        await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('username', cleanUsername)
+          .limit(1);
+
+      if (usernameCheckError) {
+        console.error('Username check error:', usernameCheckError.message);
+        throw new Error(
+          'Could not verify username availability. Please try again.'
+        );
+      }
+
+      if (usernameMatch && usernameMatch.length > 0) {
+        throw new Error(
+          'This username is already registered. Please change your username and try again.'
+        );
+      }
+
+      // Validate invitation code.
+      let matchedSubAdminId: string | null = null;
+
+      const { data: mainSetting, error: settingError } = await supabase
+        .from('system_settings')
+        .select('main_invite_code')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (settingError) {
+        console.error('Main invitation lookup error:', settingError.message);
+        throw new Error('Could not verify the invitation code. Please try again.');
+      }
+
+      
+const { data: subAdminMatch, error: subAdminError } = await supabase
+  .from('sub_admins')
+  .select('id, invite_code')
+  .ilike('invite_code', userEnteredCode)
+  .maybeSingle();
+
+if (subAdminError) {
+  console.error('Sub-admin invitation lookup error:', subAdminError.message);
+  throw new Error(
+    'Could not verify the invitation code. Please try again.'
+  );
+}
+
+      const isValidMain =
+        !!mainSetting?.main_invite_code &&
+        mainSetting.main_invite_code.toUpperCase() === userEnteredCode;
+
+   const isValidSub = !!subAdminMatch;
+      if (!isValidMain && !isValidSub) {
+        throw new Error('Invalid, disabled, or expired Invitation Code.');
+      }
+
+      if (isValidSub && subAdminMatch) {
+        matchedSubAdminId = subAdminMatch.id;
+      }
+
+      // If email is provided, check for an existing profile email.
+      if (cleanEmail) {
+        const { data: emailMatch, error: emailCheckError } = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('email', cleanEmail)
+          .limit(1);
+
+        if (emailCheckError) {
+          console.error('Email check error:', emailCheckError.message);
+          throw new Error(
+            'Could not verify email availability. Please try again.'
+          );
+        }
+
+        if (emailMatch && emailMatch.length > 0) {
+          throw new Error(
+            'This email is already registered. Please use another email.'
+          );
+        }
+      }
+
+      // Use the supplied email, or synthetic email for username-only signup.
+      const userEmail =
+        cleanEmail || `${cleanUsername.toLowerCase()}@appuser.local`;
+
+      // Generate a unique customer invite code.
+      const uniqueOwnDashboardCode =
+        'M' + Math.floor(10000 + Math.random() * 90000);
+
+      const { data: authData, error: authErr } = await supabase.auth.signUp({
+        email: userEmail,
+        password,
+        options: {
+          data: {
+            full_name: cleanUsername,
+            username: cleanUsername,
+            invite_code: uniqueOwnDashboardCode,
+            invitation_code: uniqueOwnDashboardCode,
+            user_invite_code: uniqueOwnDashboardCode,
+            referred_by_code: userEnteredCode,
+          },
+        },
+      });
+
+      if (authErr) {
+        if (authErr.message.toLowerCase().includes('already registered')) {
+          throw new Error(
+            'This email is already registered. Please use another email or log in.'
+          );
+        }
+
+        throw new Error(authErr.message);
+      }
+
+      if (!authData.user) {
+        throw new Error(
+          'Account creation could not be confirmed. Please check your email or try logging in.'
+        );
+      }
+
+     
+      // Insert only; never overwrite an existing customer profile.
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          full_name: cleanUsername,
+          username: cleanUsername,
+          email: userEmail,
+          invitation_code: uniqueOwnDashboardCode,
+          invite_code: uniqueOwnDashboardCode,
+          user_invite_code: uniqueOwnDashboardCode,
+          referred_by_code: userEnteredCode,
+          sub_admin_id: matchedSubAdminId,
+          balance: 0,
+          completed_tasks: 0,
+          vip_level: 'VIP 0 - Regular',
+        });
+
+      if (profileErr) {
+        console.error('Profile save error details:', {
+          message: profileErr.message,
+          code: profileErr.code,
+          details: profileErr.details,
+          hint: profileErr.hint,
+        });
+
+        if (
+          profileErr.code === '23505' &&
+          profileErr.message.toLowerCase().includes('username')
+        ) {
+          throw new Error(
+            'Profile save failed: this username already exists. Choose another username.'
+          );
+        }
+
+        throw new Error(
+          `Profile save failed: ${profileErr.message}. ` +
+          `Code: ${profileErr.code || 'unknown'}. ` +
+          `Details: ${profileErr.details || 'none'}. ` +
+          `Hint: ${profileErr.hint || 'none'}. ` +
+          'Your Auth account already exists. Do not register again.'
+        );
+      }
+
+      // A real email may require email confirmation in Supabase.
+      if (!authData.session) {
+        setError(
+          'Account created. Please check your email for confirmation, then log in.'
+        );
+        setIsLogin(true);
+        setPassword('');
+        setUserCaptchaInput('');
+        generateCaptcha();
+        return;
+      }
+
+      // Sign in using the actual registered email.
+      await signIn(userEmail, password);
+      window.location.href = '/dashboard';
     } catch (err: any) {
-      console.error('Auth Error:', err);
-      setError(err?.message || 'Authentication failed. Please check your details.');
+      console.error('Authentication error:', err);
+
+      setError(err?.message || 'Authentication failed.');
       generateCaptcha();
+      setUserCaptchaInput('');
     } finally {
       setLoading(false);
     }
@@ -60,54 +268,50 @@ export const AuthPage: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full bg-[#02091d] flex items-center justify-center p-4 relative font-sans overflow-x-hidden">
-      
-      {/* Background Effect */}
-      <div 
+      <div
         className="fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none z-0 opacity-20 mix-blend-screen"
-        style={{ backgroundImage: `url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=80')` }}
-      ></div>
-      <div className="fixed inset-0 bg-gradient-to-b from-[#02091d]/90 via-[#051642]/85 to-[#010617]/95 pointer-events-none z-0"></div>
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&q=80')",
+        }}
+      />
 
-      {/* Main Card Container */}
+      <div className="fixed inset-0 bg-gradient-to-b from-[#02091d]/90 via-[#051642]/85 to-[#010617]/95 pointer-events-none z-0" />
+
       <div className="bg-slate-950/90 border border-blue-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-[0_0_50px_rgba(6,182,212,0.25)] relative z-10 backdrop-blur-xl">
-        
-        {/* Branding Header */}
         <div className="text-center space-y-1">
           <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-2xl shadow-[0_0_15px_rgba(6,182,212,0.3)]">
             🎯
           </div>
+
           <h1 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-200 to-blue-400 uppercase tracking-wide">
             Digital Marketing - TEST
           </h1>
+
           <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest border-t border-b border-blue-900/60 py-0.5 inline-block px-3">
             E COMMERCE
           </p>
+
           <h2 className="text-xs font-bold text-white pt-2">
             {isLogin ? 'Login to Your Account' : 'Register New Account'}
           </h2>
-          <p className="text-[11px] text-slate-400">
-            {isLogin ? 'Access your dashboard and start growing your online business.' : 'Fill details below to setup your account.'}
-          </p>
         </div>
 
-        {/* Error Notification */}
         {error && (
           <div className="p-3 bg-red-600/90 border border-red-400 text-white font-bold text-xs text-center rounded-xl shadow-lg break-words">
             {error}
           </div>
         )}
 
-        {/* Form Fields */}
         <form onSubmit={handleSubmit} className="space-y-3">
-          
-          {/* Username Input */}
           <div>
             <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
-              USERNAME
+              USERNAME / EMAIL
             </label>
             <input
               type="text"
-              placeholder="Enter your username"
+              autoComplete="username"
+              placeholder="Enter your username or email"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -115,7 +319,6 @@ export const AuthPage: React.FC = () => {
             />
           </div>
 
-          {/* Email Input (Register Only) */}
           {!isLogin && (
             <div>
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
@@ -123,6 +326,7 @@ export const AuthPage: React.FC = () => {
               </label>
               <input
                 type="email"
+                autoComplete="email"
                 placeholder="user@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -131,13 +335,13 @@ export const AuthPage: React.FC = () => {
             </div>
           )}
 
-          {/* Password Input */}
           <div>
             <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
               PASSWORD
             </label>
             <input
               type="password"
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -146,7 +350,6 @@ export const AuthPage: React.FC = () => {
             />
           </div>
 
-          {/* Invitation Code (Register Only) */}
           {!isLogin && (
             <div>
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
@@ -157,19 +360,19 @@ export const AuthPage: React.FC = () => {
                 placeholder="Enter Invitation Code"
                 value={invitationCode}
                 onChange={(e) => setInvitationCode(e.target.value)}
-                required={!isLogin}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
+                required
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono uppercase"
               />
             </div>
           )}
 
-          {/* Security Captcha Box (Login Only) */}
           {isLogin && (
             <div className="space-y-1.5 pt-1">
               <div className="flex justify-between items-center">
                 <label className="block text-[10px] font-bold text-slate-300 uppercase">
                   SECURITY CAPTCHA CODE
                 </label>
+
                 <button
                   type="button"
                   onClick={generateCaptcha}
@@ -179,7 +382,7 @@ export const AuthPage: React.FC = () => {
                 </button>
               </div>
 
-              <div 
+              <div
                 onClick={generateCaptcha}
                 className="w-full py-2.5 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 border border-cyan-500/50 rounded-xl text-center text-amber-400 font-mono font-black text-lg tracking-[0.3em] select-none shadow-inner cursor-pointer hover:border-amber-400/80 transition"
               >
@@ -191,36 +394,44 @@ export const AuthPage: React.FC = () => {
                 placeholder="Enter numbers shown above"
                 value={userCaptchaInput}
                 onChange={(e) => setUserCaptchaInput(e.target.value)}
-                required={isLogin}
+                required
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono text-center tracking-wider"
               />
             </div>
           )}
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3.5 bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-black text-xs rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)] transition uppercase tracking-wider mt-2"
+            className="w-full py-3.5 bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-black text-xs rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)] transition uppercase tracking-wider mt-2 disabled:opacity-60"
           >
-            {loading ? 'Processing...' : isLogin ? 'LOGIN ➔' : 'REGISTER ACCOUNT ➔'}
+            {loading
+              ? 'Processing...'
+              : isLogin
+                ? 'LOGIN ➔'
+                : 'REGISTER ACCOUNT ➔'}
           </button>
         </form>
 
-        {/* Toggle Login / Register */}
         <div className="pt-2 text-center border-t border-slate-900">
           <button
+            type="button"
             onClick={() => {
               setIsLogin(!isLogin);
               setError(null);
+              setPassword('');
+              setUserCaptchaInput('');
             }}
             className="text-xs font-semibold text-cyan-400 hover:underline"
           >
-            {isLogin ? 'New here? Create an account' : 'Already have an account? Login here'}
+            {isLogin
+              ? 'New here? Create an account'
+              : 'Already have an account? Login here'}
           </button>
         </div>
-
       </div>
     </div>
   );
 };
+
+export default AuthPage;

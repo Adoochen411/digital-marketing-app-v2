@@ -149,6 +149,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const newUser = data.user;
 
     if (newUser) {
+      // Supabase ka handle_new_user() trigger profile banata hai.
+      // Yahan dobara INSERT nahi karna, warna duplicate primary key error aa sakta hai.
       const { data: existingProfile, error: checkError } = await supabase
         .from('profiles')
         .select('id')
@@ -158,33 +160,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (checkError) {
         console.error('Profile check error:', checkError.message);
         throw new Error(
-          'Account create hua ho sakta hai, lekin profile verify nahi hui. Dobara signup na karein.'
+          'Account create ho gaya ho sakta hai, lekin profile verify nahi hui. Dobara signup na karein; pehle profile check karein.'
         );
       }
 
       if (!existingProfile) {
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert({
-            id: newUser.id,
-            username: cleanUsername,
-            email: syntheticEmail,
-            balance: 0,
-            total_profits: 0,
-            completed_tasks: 0,
-            vip_level: 'VIP 0 - Regular',
-          });
-
-        if (insertError) {
-          console.error('Profile insert error:', insertError.message);
-          throw new Error(
-            'Account create hua ho sakta hai, lekin profile save nahi hui. Dobara signup se pehle issue check karein.'
-          );
-        }
+        console.warn(
+          'Auth account exists, but its profile is not visible yet. No duplicate insert attempted.'
+        );
       }
     }
 
-    return data;
+      return data;
   };
 
   const signOut = async () => {

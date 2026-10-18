@@ -51,13 +51,14 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
 
     try {
+      // LOGIN
       if (isLogin) {
         await signIn(cleanUsername, password);
         window.location.href = '/dashboard';
         return;
       }
 
-      // Registration validation
+      // REGISTRATION VALIDATION
       if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
         throw new Error(
           'Username must be 3-30 characters and contain only English letters, numbers, or underscores.'
@@ -65,14 +66,18 @@ export const AuthPage: React.FC = () => {
       }
 
       if (password.length < 6) {
-        throw new Error('Password must contain at least 6 characters.');
+        throw new Error(
+          'Password must contain at least 6 characters.'
+        );
       }
 
       if (!userEnteredCode) {
-        throw new Error('Invitation Code is required to register.');
+        throw new Error(
+          'Invitation Code is required to register.'
+        );
       }
 
-      // Check username before creating an Auth account.
+      // CHECK USERNAME
       const { data: usernameMatch, error: usernameCheckError } =
         await supabase
           .from('profiles')
@@ -81,7 +86,7 @@ export const AuthPage: React.FC = () => {
           .limit(1);
 
       if (usernameCheckError) {
-        console.error('Username check error:', usernameCheckError.message);
+        console.error('Username check error:', usernameCheckError);
         throw new Error(
           'Could not verify username availability. Please try again.'
         );
@@ -89,61 +94,68 @@ export const AuthPage: React.FC = () => {
 
       if (usernameMatch && usernameMatch.length > 0) {
         throw new Error(
-          'This username is already registered. Please change your username and try again.'
+          'This username is already registered. Please choose another username.'
         );
       }
 
-      // Validate invitation code.
+      // VALIDATE MAIN ADMIN OR SUB-ADMIN INVITATION CODE
       let matchedSubAdminId: string | null = null;
 
-      const { data: mainSetting, error: settingError } = await supabase
-        .from('system_settings')
-        .select('main_invite_code')
-        .eq('id', 1)
-        .maybeSingle();
+      const { data: mainSetting, error: settingError } =
+        await supabase
+          .from('system_settings')
+          .select('main_invite_code')
+          .eq('id', 1)
+          .maybeSingle();
 
       if (settingError) {
-        console.error('Main invitation lookup error:', settingError.message);
-        throw new Error('Could not verify the invitation code. Please try again.');
+        console.error('Main invitation lookup error:', settingError);
+        throw new Error(
+          'Could not verify the invitation code. Please try again.'
+        );
       }
 
-      
-const { data: subAdminMatch, error: subAdminError } = await supabase
-  .from('sub_admins')
-  .select('id, invite_code')
-  .ilike('invite_code', userEnteredCode)
-  .maybeSingle();
+      const { data: subAdminMatch, error: subAdminError } =
+        await supabase
+          .from('sub_admins')
+          .select('id, invite_code')
+          .ilike('invite_code', userEnteredCode)
+          .maybeSingle();
 
-if (subAdminError) {
-  console.error('Sub-admin invitation lookup error:', subAdminError.message);
-  throw new Error(
-    'Could not verify the invitation code. Please try again.'
-  );
-}
+      if (subAdminError) {
+        console.error('Sub-admin invitation lookup error:', subAdminError);
+        throw new Error(
+          'Could not verify the invitation code. Please try again.'
+        );
+      }
 
       const isValidMain =
         !!mainSetting?.main_invite_code &&
         mainSetting.main_invite_code.toUpperCase() === userEnteredCode;
 
-   const isValidSub = !!subAdminMatch;
+      const isValidSub = !!subAdminMatch;
+
       if (!isValidMain && !isValidSub) {
-        throw new Error('Invalid, disabled, or expired Invitation Code.');
+        throw new Error(
+          'Invalid, disabled, or expired Invitation Code.'
+        );
       }
 
       if (isValidSub && subAdminMatch) {
         matchedSubAdminId = subAdminMatch.id;
       }
 
-      // If email is provided, check for an existing profile email.
+      // CHECK EMAIL IF PROVIDED
       if (cleanEmail) {
-        const { data: emailMatch, error: emailCheckError } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('email', cleanEmail)
-          .limit(1);
+        const { data: emailMatch, error: emailCheckError } =
+          await supabase
+            .from('profiles')
+            .select('id')
+            .ilike('email', cleanEmail)
+            .limit(1);
 
         if (emailCheckError) {
-          console.error('Email check error:', emailCheckError.message);
+          console.error('Email check error:', emailCheckError);
           throw new Error(
             'Could not verify email availability. Please try again.'
           );
@@ -156,33 +168,45 @@ if (subAdminError) {
         }
       }
 
-      // Use the supplied email, or synthetic email for username-only signup.
+      // USE SUPPLIED EMAIL OR USERNAME-BASED EMAIL
       const userEmail =
-        cleanEmail || `${cleanUsername.toLowerCase()}@appuser.local`;
+        cleanEmail ||
+        `${cleanUsername.toLowerCase()}@appuser.local`;
 
-      // Generate a unique customer invite code.
+      // GENERATE CUSTOMER INVITATION CODE
       const uniqueOwnDashboardCode =
         'M' + Math.floor(10000 + Math.random() * 90000);
 
-      const { data: authData, error: authErr } = await supabase.auth.signUp({
-        email: userEmail,
-        password,
-        options: {
-          data: {
-            full_name: cleanUsername,
-            username: cleanUsername,
-            invite_code: uniqueOwnDashboardCode,
-            invitation_code: uniqueOwnDashboardCode,
-            user_invite_code: uniqueOwnDashboardCode,
-            referred_by_code: userEnteredCode,
+      // CREATE AUTH ACCOUNT
+      // The database trigger creates the profiles row.
+      // Do not insert/upsert the same profile again from the browser.
+      const { data: authData, error: authErr } =
+        await supabase.auth.signUp({
+          email: userEmail,
+          password,
+          options: {
+            data: {
+              full_name: cleanUsername,
+              username: cleanUsername,
+              invite_code: uniqueOwnDashboardCode,
+              invitation_code: uniqueOwnDashboardCode,
+              user_invite_code: uniqueOwnDashboardCode,
+              referred_by_code: userEnteredCode,
+              sub_admin_id: matchedSubAdminId,
+            },
           },
-        },
-      });
+        });
 
       if (authErr) {
-        if (authErr.message.toLowerCase().includes('already registered')) {
+        console.error('Signup error:', authErr);
+
+        if (
+          authErr.message.toLowerCase().includes('already registered') ||
+          authErr.message.toLowerCase().includes('already been registered') ||
+          authErr.message.toLowerCase().includes('already exists')
+        ) {
           throw new Error(
-            'This email is already registered. Please use another email or log in.'
+            'This email/account may already exist. Please log in instead of registering again.'
           );
         }
 
@@ -191,60 +215,16 @@ if (subAdminError) {
 
       if (!authData.user) {
         throw new Error(
-          'Account creation could not be confirmed. Please check your email or try logging in.'
+          'Account creation could not be confirmed. Please try again.'
         );
       }
 
-     
-      // Insert only; never overwrite an existing customer profile.
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          full_name: cleanUsername,
-          username: cleanUsername,
-          email: userEmail,
-          invitation_code: uniqueOwnDashboardCode,
-          invite_code: uniqueOwnDashboardCode,
-          user_invite_code: uniqueOwnDashboardCode,
-          referred_by_code: userEnteredCode,
-          sub_admin_id: matchedSubAdminId,
-          balance: 0,
-          completed_tasks: 0,
-          vip_level: 'VIP 0 - Regular',
-        });
-
-      if (profileErr) {
-        console.error('Profile save error details:', {
-          message: profileErr.message,
-          code: profileErr.code,
-          details: profileErr.details,
-          hint: profileErr.hint,
-        });
-
-        if (
-          profileErr.code === '23505' &&
-          profileErr.message.toLowerCase().includes('username')
-        ) {
-          throw new Error(
-            'Profile save failed: this username already exists. Choose another username.'
-          );
-        }
-
-        throw new Error(
-          `Profile save failed: ${profileErr.message}. ` +
-          `Code: ${profileErr.code || 'unknown'}. ` +
-          `Details: ${profileErr.details || 'none'}. ` +
-          `Hint: ${profileErr.hint || 'none'}. ` +
-          'Your Auth account already exists. Do not register again.'
-        );
-      }
-
-      // A real email may require email confirmation in Supabase.
+      // EMAIL CONFIRMATION MAY BE REQUIRED BY SUPABASE
       if (!authData.session) {
         setError(
           'Account created. Please check your email for confirmation, then log in.'
         );
+
         setIsLogin(true);
         setPassword('');
         setUserCaptchaInput('');
@@ -252,13 +232,18 @@ if (subAdminError) {
         return;
       }
 
-      // Sign in using the actual registered email.
+      // SIGN IN AFTER REGISTRATION
       await signIn(userEmail, password);
       window.location.href = '/dashboard';
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Authentication error:', err);
 
-      setError(err?.message || 'Authentication failed.');
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Authentication failed. Please try again.';
+
+      setError(message);
       generateCaptcha();
       setUserCaptchaInput('');
     } finally {
@@ -293,7 +278,9 @@ if (subAdminError) {
           </p>
 
           <h2 className="text-xs font-bold text-white pt-2">
-            {isLogin ? 'Login to Your Account' : 'Register New Account'}
+            {isLogin
+              ? 'Login to Your Account'
+              : 'Register New Account'}
           </h2>
         </div>
 
@@ -372,7 +359,6 @@ if (subAdminError) {
                 <label className="block text-[10px] font-bold text-slate-300 uppercase">
                   SECURITY CAPTCHA CODE
                 </label>
-
                 <button
                   type="button"
                   onClick={generateCaptcha}

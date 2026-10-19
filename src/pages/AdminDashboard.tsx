@@ -756,14 +756,57 @@ const handleFetchLiveProductsFromAPI = async () => {
   try {
     showToast("AI is generating premium products...");
 
-    const { data, error } = await supabase.functions.invoke(
-      "ai-product-generator",
-      {
-        body: {
-          category: newProdCategory || "Premium Watches",
-        },
-      }
+   
+const {
+  data: { session },
+  error: sessionError,
+} = await supabase.auth.getSession();
+
+if (sessionError || !session?.access_token) {
+  showToast("Please sign in again.", "error");
+  return;
+}
+
+const { data, error } = await supabase.functions.invoke(
+  "ai-product-generator",
+  {
+    body: {
+      category: newProdCategory || "Premium Watches",
+    },
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  }
+);
+
+if (error) {
+  console.error("AI product generator error:", error);
+
+  
+if (error) {
+  console.error("AI product generator error:", error);
+
+  const response = error.context;
+
+  if (response instanceof Response) {
+    console.error("HTTP status:", response.status);
+    console.error(
+      "Edge Function response body:",
+      await response.clone().text()
     );
+  }
+
+  showToast("AI product generation failed. Check console.", "error");
+  return;
+}
+
+
+  showToast("AI product generation failed. Check console.", "error");
+  return;
+}
+
+console.log("AI product generator response:", data);
+
 
     if (error) {
       console.error("AI product generator error:", error);

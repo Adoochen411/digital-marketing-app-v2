@@ -1,4 +1,3 @@
-
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigins = [
@@ -297,7 +296,7 @@ ${Array.from(existingNames).join("\n")}
 `;
 
     const aiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
       {
         method: "POST",
         headers: {
@@ -390,6 +389,9 @@ ${Array.from(existingNames).join("\n")}
       is_premium_catalog: boolean;
     }> = [];
 
+    const brandOptions = ["Amazon", "AliExpress", "Shopify"];
+    let brandIndex = 0;
+
     for (const item of parsed) {
       if (inserts.length >= remaining) break;
 
@@ -424,15 +426,20 @@ ${Array.from(existingNames).join("\n")}
       }
 
       existingNames.add(name.toLowerCase());
+      
+      const assignedStore = brandOptions[brandIndex % brandOptions.length];
+      brandIndex++;
 
-    inserts.push({
-  name,
-  store: "Amazon",
-  price: Number(price.toFixed(2)),
-  image_url: imageUrl,
-  category,
-  is_premium_catalog: true,
-});
+      inserts.push({
+        name,
+        store: assignedStore,
+        price: Number(price.toFixed(2)),
+        image_url: imageUrl,
+        category,
+        is_premium_catalog: true,
+      });
+    }
+
     if (inserts.length === 0) {
       console.error(
         "Gemini output contained no valid, unique products.",

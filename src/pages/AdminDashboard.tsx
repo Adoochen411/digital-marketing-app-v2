@@ -44,6 +44,7 @@ interface DepositRecord {
   custom_id?: number;
   amount: number;
   status: 'pending' | 'approved' | 'rejected';
+  custom_task_id?: string | null;
   created_at: string;
   trc20_address: string;
 }
@@ -65,7 +66,9 @@ interface ProductItem {
   price: number;
   image_url: string;
   created_at?: string;
+category?: string | null;
 }
+
 
 interface SubAdminUser {
   id: string;
@@ -106,7 +109,6 @@ export const AdminDashboard: React.FC = () => {
   >('tasks');
 
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'zh' | 'ur' | 'ar'>('en');
-
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteSearchQuery, setDeleteSearchQuery] = useState('');
   const [depositSearchQuery, setDepositSearchQuery] = useState('');
@@ -114,8 +116,8 @@ export const AdminDashboard: React.FC = () => {
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
-
-  const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
+const [newProdCategory, setNewProdCategory] = useState('Beauty & Skincare');  
+const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
   const [isMainAdmin, setIsMainAdmin] = useState(true);
   const [subAdminDbId, setSubAdminDbId] = useState('');
   const [subAdminInviteCode, setSubAdminInviteCode] = useState('');
@@ -411,6 +413,30 @@ const [scannerResult, setScannerResult] = useState<any>(null);
     }
   };
 
+const handleDeleteCustomTask = async (taskId: string) => {
+  try {
+    const { error } = await supabase
+      .from('custom_tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) {
+      throw error;
+    }
+
+    showToast('Lucky Order deleted successfully.');
+
+    if (selectedUserForModal) {
+      await fetchUserCustomTasks(selectedUserForModal.id);
+    }
+  } catch (err: any) {
+    showToast(
+      err?.message || 'Could not delete Lucky Order.',
+      'error'
+    );
+  }
+};
+
   const handleResetUserTasks = async (user: CustomerProfile) => {
     await supabase.from('profiles').update({ completed_tasks: 0, running_tasks: 0 }).eq('id', user.id);
     await supabase.from('custom_tasks').delete().eq('user_id', user.id);
@@ -429,23 +455,81 @@ const [scannerResult, setScannerResult] = useState<any>(null);
     if (data) setCustomTasksList(data);
   };
 
-  const handlePublishLuckyOrder = async () => {
-    if (!selectedUserForModal) return;
+const handlePublishLuckyOrder = async () => {
+  if (!selectedUserForModal) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
 
-    if (!slotTaskNum || !slotMinAmount) {
-      showToast('Task Number and Min Amount are required!', 'error');
+  const taskNum = Number(slotTaskNum);
+  const minAmt = Number(slotMinAmount);
+  const maxAmt =
+    slotMaxAmount.trim() !== ''
+      ? Number(slotMaxAmount)
+      : minAmt;
+
+  const commPercent =
+    slotCommPercent.trim() !== ''
+      ? Number(slotCommPercent)
+      : 10;
+
+  // Validate inputs.
+  if (
+    !Number.isInteger(taskNum) ||
+    taskNum < 1 ||
+    !Number.isFinite(minAmt) ||
+    !Number.isFinite(maxAmt) ||
+    minAmt <= 0 ||
+    maxAmt < minAmt ||
+    !Number.isFinite(commPercent) ||
+    commPercent < 0 ||
+    commPercent > 100
+  ) {
+    showToast(
+      'Enter a valid task number, amount range, and commission (0–100%).',
+      'error'
+    );
+    return;
+  }
+
+  // Select one exact amount within the range, to 2 decimal places.
+  const minCents = Math.round(minAmt * 100);
+  const maxCents = Math.round(maxAmt * 100);
+
+  if (
+    Math.abs(minAmt * 100 - minCents) > 0.000001 ||
+    Math.abs(maxAmt * 100 - maxCents) > 0.000001
+  ) {
+    showToast('Amounts can have a maximum of 2 decimal places.', 'error');
+    return;
+  }
+
+  const exactAmount = Number(
+  ((minAmt + maxAmt) / 2).toFixed(2)
+);
+
+  try {
+    // Prevent another active order in the same task slot.
+    const { data: existingTask, error: checkError } = await supabase
+      .from('custom_tasks')
+      .select('id')
+      .eq('user_id', selectedUserForModal.id)
+      .eq('task_number', taskNum)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existingTask) {
+      showToast(
+        `An active order already exists for Task #${taskNum}.`,
+        'error'
+      );
       return;
     }
 
-    const taskNum = Number(slotTaskNum);
-    const minAmt = Number(slotMinAmount);
-    const maxAmt = slotMaxAmount ? Number(slotMaxAmount) : minAmt;
-    const commPercent = Number(slotCommPercent || 10);
-
-    const negativeBalanceValue = -minAmt;
-    await supabase.from('profiles').update({ running_tasks: negativeBalanceValue }).eq('id', selectedUserForModal.id);
-
-    const { error } = await supabase
+    // Save the range AND the one exact amount selected for this order.
+    const { data: savedTask, error: insertError } = await supabase
       .from('custom_tasks')
       .insert([
         {
@@ -453,178 +537,317 @@ const [scannerResult, setScannerResult] = useState<any>(null);
           task_number: taskNum,
           min_amount: minAmt,
           max_amount: maxAmt,
-          task_amount: minAmt,
+          task_amount: exactAmount,
           commission: commPercent,
           commission_rate: commPercent,
-          is_active: true
-        }
-      ]);
+          is_lucky_order: true,
+          status: 'pending',
+          is_active: true,
+          funding_status: 'pending',
+          funded_at: null,
+        },
+      ])
+      .select()
+      .single();
 
-    if (!error) {
-      setCustomers(prev => prev.map(c => c.id === selectedUserForModal.id ? { ...c, running_tasks: negativeBalanceValue } : c));
-      showToast(`Professional Lucky Order for Task #${taskNum} ($${minAmt}) published & synchronized!`);
-      setSlotTaskNum('');
-      setSlotMinAmount('');
-      setSlotMaxAmount('');
-      setSlotCommPercent('');
-      fetchUserCustomTasks(selectedUserForModal.id);
-    } else {
-      showToast(`Error: ${error.message}`, 'error');
-    }
-  };
+    if (insertError) throw insertError;
 
-  const handleResetAutoSlots = () => {
-    setAutoSlots([
-      { id: 1, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 2, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 3, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 4, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 5, active: false, taskNum: '', amount: '', comm: '' },
-    ]);
-    showToast('5 Auto Slots boxes reset successfully!');
-  };
+    showToast(
+      `Lucky Order #${savedTask.task_number} saved: $${Number(
+        savedTask.task_amount
+      ).toFixed(2)}`
+    );
 
-  const handleDeleteCustomTask = async (taskId: string) => {
-    const { error } = await supabase.from('custom_tasks').delete().eq('id', taskId);
+    setSlotTaskNum('');
+    setSlotMinAmount('');
+    setSlotMaxAmount('');
+    setSlotCommPercent('');
 
-    if (!error) {
-      if (selectedUserForModal) {
-        await supabase.from('profiles').update({ running_tasks: 0 }).eq('id', selectedUserForModal.id);
-        setCustomers(prev => prev.map(c => c.id === selectedUserForModal.id ? { ...c, running_tasks: 0 } : c));
-      }
-      showToast('Lucky order slot deleted and balance normalized successfully!');
-      if (selectedUserForModal) {
-        fetchUserCustomTasks(selectedUserForModal.id);
-      }
-    } else {
-      showToast(`Delete error: ${error.message}`, 'error');
-    }
-  };
+    await fetchUserCustomTasks(selectedUserForModal.id);
+  } catch (err: any) {
+    showToast(
+      err?.message || 'Could not save the Lucky Order.',
+      'error'
+    );
+  }
+};
 
-  const handleAddProductSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProdName || !newProdPrice || !newProdImageUrl) {
-      showToast('Please fill all product fields!', 'error');
+const handleResetAutoSlots = () => {
+  setAutoSlots([
+    { id: 1, active: false, taskNum: '', amount: '', comm: '' },
+    { id: 2, active: false, taskNum: '', amount: '', comm: '' },
+    { id: 3, active: false, taskNum: '', amount: '', comm: '' },
+    { id: 4, active: false, taskNum: '', amount: '', comm: '' },
+    { id: 5, active: false, taskNum: '', amount: '', comm: '' },
+  ]);
+
+  showToast('5 Auto Slots boxes reset successfully!');
+};
+
+const handleFileUpload = async (
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith(".csv")) {
+    showToast("Please select a CSV file.", "error");
+    event.target.value = "";
+    return;
+  }
+
+  try {
+    const text = await file.text();
+
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter((line) => line.trim() !== "");
+
+    if (lines.length < 2) {
+      showToast("CSV file has no product records.", "error");
       return;
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .insert([{
-        name: newProdName,
-        store: newProdStore,
-        price: Number(newProdPrice),
-        image_url: newProdImageUrl
-      }])
-      .select();
+    const parseCSVLine = (line: string): string[] => {
+      const result: string[] = [];
+      let value = "";
+      let inQuotes = false;
 
-    if (!error && data) {
-      setProductsList(prev => [data[0], ...prev]);
-      setNewProdName('');
-      setNewProdPrice('');
-      setNewProdImageUrl('');
-      showToast('Product added successfully!');
-    } else {
-      showToast(`Error: ${error?.message}`, 'error');
-    }
-  };
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
 
-  const handleFetchLiveProductsFromAPI = async () => {
-    setIsFetchingLive(true);
-    try {
-      const uniqueVerifiedVault = [
-        { name: 'Apple MacBook Pro 16 M3 Max - Space Black', price: 2899.99, store: 'Apple Store', img: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&auto=format&fit=crop&q=60' },
-        { name: 'Alienware m18 Gaming Laptop RTX 4090', price: 3499.99, store: 'Amazon Prime', img: 'https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=800&auto=format&fit=crop&q=60' },
-        { name: 'Razer Blade 17 Studio Edition 4K', price: 3199.99, store: 'Shopify Global', img: 'https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=800&auto=format&fit=crop&q=60' },
-        { name: 'Rolex Submariner Date Oystersteel Watch', price: 14500.00, store: 'Amazon Prime', img: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=60' },
-        { name: 'Hermes Birkin 30 Togo Leather Gold Hardware', price: 15500.00, store: 'Shopify Global', img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=800&auto=format&fit=crop&q=60' },
-        { name: 'Louis Vuitton Trainer Sneaker White Red', price: 1350.00, store: 'Amazon Prime', img: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&auto=format&fit=crop&q=60' }
-      ];
-
-      await supabase.from('products').delete().neq('id', 0);
-      const { data: insertedData, error: insertError } = await supabase
-        .from('products')
-        .insert(uniqueVerifiedVault.map(i => ({ name: i.name, store: i.store, price: i.price, image_url: i.img })))
-        .select();
-
-      if (insertError) throw insertError;
-      if (insertedData) {
-        setProductsList(insertedData);
-        showToast(`Successfully loaded ${insertedData.length} luxury products!`);
+        if (char === '"' && line[i + 1] === '"' && inQuotes) {
+          value += '"';
+          i++;
+        } else if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === "," && !inQuotes) {
+          result.push(value.trim());
+          value = "";
+        } else {
+          value += char;
+        }
       }
-    } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
-    } finally {
-      setIsFetchingLive(false);
-    }
-  };
 
-  const handleDeleteProduct = async (prodId: string) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) return;
-    const { error } = await supabase.from('products').delete().eq('id', prodId);
-    if (!error) {
-      setProductsList((prev) => prev.filter((p) => p.id !== prodId));
-      showToast('Product deleted successfully!');
-    } else {
-      showToast(`Error: ${error.message}`, 'error');
-    }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const text = e.target?.result as string;
-        const rows = text.split('\n');
-        const parsedProducts = [];
-
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i].trim();
-          if (!row) continue;
-          const cols = row.split(',').map(val => val.trim().replace(/^["']|["']$/g, ''));
-          if (cols.length >= 4) {
-            parsedProducts.push({
-              name: cols[0],
-              store: cols[1],
-              price: Number(cols[2]),
-              image_url: cols[3]
-            });
-          }
-        }
-
-        if (parsedProducts.length === 0) {
-          showToast('No valid products found in CSV file!', 'error');
-          return;
-        }
-
-        setIsFetchingLive(true);
-        await supabase.from('products').delete().neq('id', 0);
-        const { data, error } = await supabase.from('products').insert(parsedProducts).select();
-
-        if (error) throw error;
-        if (data) {
-          setProductsList(data);
-          showToast(`Successfully uploaded ${data.length} products from CSV!`);
-        }
-      } catch (err: any) {
-        showToast(`CSV Error: ${err.message}`, 'error');
-      } finally {
-        setIsFetchingLive(false);
-      }
+      result.push(value.trim());
+      return result;
     };
-    reader.readAsText(file);
-  };
+
+    const headers = parseCSVLine(lines[0]).map((header) =>
+      header.trim().toLowerCase().replace(/^\uFEFF/, "")
+    );
+
+    const nameIndex = headers.indexOf("name");
+    const priceIndex = headers.indexOf("price");
+    const imageIndex = headers.indexOf("image_url");
+    const categoryIndex = headers.indexOf("category");
+    const storeIndex = headers.indexOf("store");
+
+    if (
+      nameIndex === -1 ||
+      priceIndex === -1 ||
+      imageIndex === -1
+    ) {
+      showToast(
+        "CSV needs name, price, and image_url columns.",
+        "error"
+      );
+      return;
+    }
+
+    const products = lines.slice(1).map((line) => {
+      const columns = parseCSVLine(line);
+
+      return {
+        name: columns[nameIndex] || "",
+        price: Number(columns[priceIndex]),
+        image_url: columns[imageIndex] || "",
+        category:
+          categoryIndex >= 0 ? columns[categoryIndex] || null : null,
+        store: storeIndex >= 0 ? columns[storeIndex] || "Custom" : "Custom",
+      };
+    });
+
+    if (
+      products.some(
+        (product) =>
+          !product.name ||
+          !Number.isFinite(product.price) ||
+          product.price <= 0 ||
+          !/^https?:\/\//i.test(product.image_url)
+      )
+    ) {
+      showToast(
+        "Check CSV rows: product name, positive price, and valid image URL are required.",
+        "error"
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("products")
+      .insert(products);
+
+    if (error) {
+      console.error("CSV product upload error:", error);
+      showToast("Products could not be uploaded.", "error");
+      return;
+    }
+
+    showToast(`${products.length} products uploaded successfully!`);
+    event.target.value = "";
+  } catch (error) {
+    console.error("CSV upload error:", error);
+    showToast("Unable to read the CSV file.", "error");
+  }
+};
+
+const handleAddProductSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!newProdName.trim() || !newProdPrice || !newProdImageUrl.trim()) {
+    showToast('Please fill all product fields!', 'error');
+    return;
+  }
+
+  if (!Number.isFinite(Number(newProdPrice)) || Number(newProdPrice) <= 0) {
+    showToast('Please enter a valid product price!', 'error');
+    return;
+  }
+
+  if (!newProdCategory) {
+    showToast('Please select a product category!', 'error');
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .insert([{
+      name: newProdName.trim(),
+      store: newProdStore,
+      price: Number(newProdPrice),
+      image_url: newProdImageUrl.trim(),
+      category: newProdCategory
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    return;
+  }
+
+  if (data) {
+    setProductsList(prev => [data, ...prev]);
+    setNewProdName('');
+    setNewProdPrice('');
+    setNewProdImageUrl('');
+    setNewProdCategory('Beauty & Skincare');
+    showToast('Product added successfully!');
+  }
+};
+
+
+const handleFetchLiveProductsFromAPI = async () => {
+  setIsFetchingLive(true);
+
+  try {
+    showToast("AI is generating premium products...");
+
+    const { data, error } = await supabase.functions.invoke(
+      "ai-product-generator",
+      {
+        body: {
+          category: newProdCategory || "Premium Watches",
+        },
+      }
+    );
+
+    if (error) {
+      console.error("AI product generator error:", error);
+      showToast(`AI backend error: ${error.message}`, "error");
+      return;
+    }
+
+    if (!data?.success) {
+      showToast(
+        data?.error || "AI product generation failed.",
+        "error"
+      );
+      return;
+    }
+
+    const generatedProducts = Array.isArray(data.products)
+      ? data.products
+      : [];
+
+    if (generatedProducts.length > 0) {
+      setProductsList((prev) => {
+        const existingIds = new Set(
+          prev.map((product) => String(product.id))
+        );
+
+        const newProducts = generatedProducts.filter(
+          (product: { id: string | number }) =>
+            !existingIds.has(String(product.id))
+        );
+
+        return [...newProducts, ...prev];
+      });
+    }
+
+    showToast(
+      `AI generated ${data.inserted ?? generatedProducts.length} products in ${data.category}.`
+    );
+  } catch (err: unknown) {
+    console.error("AI product generator error:", err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : "Unable to connect to AI backend.",
+      "error"
+    );
+  } finally {
+    setIsFetchingLive(false);
+  }
+};
+
 
   const handleDeleteAllProducts = async () => {
+    
+  
     if (!window.confirm('Are you sure you want to delete all products from inventory?')) return;
     try {
       const { error } = await supabase.from('products').delete().neq('id', 0);
       if (error) throw error;
       setProductsList([]);
       showToast('All products deleted successfully!');
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeleteProduct = async (productId: number | string) => {
+    if (!window.confirm('Are you sure you want to delete this product?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('products') 
+        .delete()
+        .eq('id', productId);
+
+      if (error) throw error;
+
+      setProductsList((prev) =>
+        prev.filter((product) => String(product.id) !== String(productId))
+      );
+
+      showToast('Product deleted successfully!');
     } catch (err: any) {
       showToast(`Error: ${err.message}`, 'error');
     }
@@ -702,12 +925,68 @@ const handleDepositAction = async (
   }
 
   try {
+    let linkedOrder: {
+      id: string;
+      task_amount: number;
+      status: string | null;
+      is_active: boolean | null;
+      funding_status: string;
+    } | null = null;
+
+    // Validate the exact Lucky Order before approving its deposit.
+    if (status === 'approved' && deposit.custom_task_id) {
+      const { data: order, error: orderError } = await supabase
+        .from('custom_tasks')
+        .select('id, task_amount, status, is_active, funding_status')
+        .eq('id', deposit.custom_task_id)
+        .eq('user_id', deposit.user_id)
+        .eq('is_lucky_order', true)
+        .maybeSingle();
+
+      if (orderError) {
+        showToast(`Could not verify Lucky Order: ${orderError.message}`, 'error');
+        return;
+      }
+
+      if (
+        !order ||
+        order.status !== 'pending' ||
+        order.is_active !== true ||
+        order.funding_status === 'funded'
+      ) {
+        showToast(
+          'Lucky Order is unavailable, already funded, or already processed.',
+          'error'
+        );
+        return;
+      }
+
+      if (Number(order.task_amount) !== Number(deposit.amount)) {
+        showToast(
+          'Deposit amount does not match the Lucky Order amount.',
+          'error'
+        );
+        return;
+      }
+
+      linkedOrder = {
+        id: order.id,
+        task_amount: Number(order.task_amount),
+        status: order.status,
+        is_active: order.is_active,
+        funding_status: order.funding_status,
+      };
+    }
+
+    // Approve the deposit once. The existing database trigger
+    // credits the customer's balance; do not credit it here again.
     const { data: updatedDeposit, error: depError } = await supabase
       .from('deposits')
       .update({ status })
       .eq('id', deposit.id)
+      .eq('user_id', deposit.user_id)
       .eq('status', 'pending')
-      .select('id, status')
+      .select('id, status, custom_task_id')
       .maybeSingle();
 
     if (depError) {
@@ -721,13 +1000,39 @@ const handleDepositAction = async (
     }
 
     if (status === 'approved') {
-      // Database trigger credits the deposit amount.
-      // Do not add deposit.amount to balance again.
-      const { error: lockError } = await supabase
-        .from('profiles')
-        .update({ auto_task_lock: false })
-        .eq('id', deposit.user_id);
+      // Mark only the linked Lucky Order as funded.
+      // This does not mark the order completed.
+      if (linkedOrder) {
+        const { data: fundedOrder, error: fundError } = await supabase
+          .from('custom_tasks')
+          .update({
+            funding_status: 'funded',
+            funded_at: new Date().toISOString(),
+          })
+          .eq('id', linkedOrder.id)
+          .eq('user_id', deposit.user_id)
+          .eq('status', 'pending')
+          .eq('is_active', true)
+          .eq('funding_status', 'pending')
+          .select('id')
+          .maybeSingle();
 
+        if (fundError || !fundedOrder) {
+          console.error(
+            'Deposit approved, but Lucky Order funding update failed:',
+            fundError?.message
+          );
+
+          showToast(
+            'Deposit was approved, but the Lucky Order funding update failed. Do not approve this deposit again. Please refresh and check the order.',
+            'error'
+          );
+
+          return;
+        }
+      }
+
+      // Refresh the customer balance from the database.
       const { data: latestProfile, error: fetchErr } = await supabase
         .from('profiles')
         .select('id, balance, auto_task_lock')
@@ -736,46 +1041,47 @@ const handleDepositAction = async (
 
       if (fetchErr || !latestProfile) {
         showToast(
-          'Deposit processed. Refresh the page to check the customer balance.',
+          'Deposit approved. Refresh the page to check the customer balance.',
           'error'
         );
         return;
       }
 
       setCustomers((prev) =>
-        prev.map((c) =>
-          c.id === deposit.user_id
+        prev.map((customer) =>
+          customer.id === deposit.user_id
             ? {
-                ...c,
+                ...customer,
                 balance: Number(latestProfile.balance) || 0,
                 auto_task_lock: latestProfile.auto_task_lock,
               }
-            : c
+            : customer
         )
       );
 
-      if (lockError) {
-        showToast(
-          'Deposit approved, but task lock could not be released.',
-          'error'
-        );
-        return;
-      }
-
-      showToast(`Deposit of $${deposit.amount} approved.`);
+      showToast(
+        linkedOrder
+          ? `Lucky Order deposit of $${Number(deposit.amount).toFixed(2)} approved. The linked order is funded.`
+          : `Deposit of $${Number(deposit.amount).toFixed(2)} approved.`,
+        'success'
+      );
     } else {
-      showToast('Deposit request rejected!');
+      showToast('Deposit request rejected.');
     }
 
     setDeposits((prev) =>
-      prev.map((d) =>
-        d.id === deposit.id ? { ...d, status } : d
+      prev.map((item) =>
+        item.id === deposit.id ? { ...item, status } : item
       )
     );
   } catch (err: any) {
-    showToast(err?.message || 'Could not process deposit.', 'error');
+    showToast(
+      err?.message || 'Could not process the deposit request.',
+      'error'
+    );
   }
 };
+
 
 // TRC20 scanner: separate from deposit approval
 const handleCheckTrc20Transfers = async () => {
@@ -2222,172 +2528,313 @@ const filteredDeposits = deposits.filter((d) => {
           </div>
         )}
 
-        {/* TAB 5: PRODUCTS MANAGEMENT */}
-        {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between">
-              <div className="space-y-1">
-                <h2 className="text-base font-black flex items-center gap-2">
-                  <span>⚡</span> Auto-Import Real-Time E-Commerce Products
-                </h2>
-                <p className="text-xs text-blue-200">
-                  Click the button to instantly fetch verified luxury products with zero duplication.
-                </p>
-              </div>
+      ```tsx
+  {/* TAB 5: PRODUCTS MANAGEMENT */}
+  {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between">
+        <div className="space-y-1">
+          <h2 className="text-base font-black flex items-center gap-2">
+            <span>⚡</span> Auto-Import E-Commerce Products
+          </h2>
+          <p className="text-xs text-blue-200">
+            Import sample catalogue products without duplicating existing entries.
+          </p>
+        </div>
 
-              <button
-                onClick={handleFetchLiveProductsFromAPI}
-                disabled={isFetchingLive}
-                className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider disabled:opacity-50 flex items-center gap-2"
-              >
-                <span>{isFetchingLive ? 'Fetching Live Products...' : '📥 Fetch Live Products'}</span>
-              </button>
-            </div>
+        <button
+          onClick={handleFetchLiveProductsFromAPI}
+          disabled={isFetchingLive}
+          className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider disabled:opacity-50 flex items-center gap-2"
+        >
+          <span>
+            {isFetchingLive ? 'Fetching Products...' : '📥 Fetch Products'}
+          </span>
+        </button>
+      </div>
 
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-              <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
-                <span>📁</span> Upload Custom Products via CSV File
-              </h2>
-              <input 
-                type="file" 
-                accept=".csv" 
-                onChange={handleFileUpload} 
-                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+      {/* AI PREMIUM PRODUCT GENERATOR */}
+      <div className="bg-gradient-to-br from-indigo-950 via-blue-900 to-slate-900 rounded-3xl p-6 text-white shadow-xl space-y-5">
+        <div>
+          <h2 className="text-lg font-black flex items-center gap-2">
+            <span>✨</span> AI Premium Product Generator
+          </h2>
+          <p className="text-sm text-blue-200 mt-2">
+            Generate premium product suggestions with Gemini AI and save them
+            to your Supabase catalogue.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-blue-100 mb-2">
+              Select Product Category
+            </label>
+
+            <select
+              value={newProdCategory}
+              onChange={(e) => setNewProdCategory(e.target.value)}
+              disabled={isFetchingLive}
+              className="w-full rounded-xl bg-white text-slate-900 border border-blue-200 p-3 text-sm font-bold disabled:opacity-60"
+            >
+              <option value="Premium Watches">Premium Watches</option>
+              <option value="Premium Smartphones">Premium Smartphones</option>
+              <option value="Beauty & Skincare">Beauty &amp; Skincare</option>
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={handleFetchLiveProductsFromAPI}
+              disabled={isFetchingLive}
+              className="w-full px-5 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 rounded-xl text-white text-sm font-black shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {isFetchingLive
+                ? "✨ Generating Products..."
+                : "✨ Generate AI Products"}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-blue-200">
+          Products are saved to your existing Supabase products table.
+          Your existing Fetch Products feature remains unchanged.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+        <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
+          <span>📁</span> Upload Custom Products via CSV File
+        </h2>
+        <input
+          type="file"
+          accept=".csv"
+          onChange={handleFileUpload}
+          className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+        />
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+        <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
+          <span>🛍️</span> Add Single Product Manually
+        </h2>
+
+        <form
+          onSubmit={handleAddProductSubmit}
+          className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs"
+        >
+          <div>
+            <label className="font-bold text-slate-600 block mb-1">
+              Product Name
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Premium Watch"
+              value={newProdName}
+              onChange={(e) => setNewProdName(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-600 block mb-1">
+              Store / Platform
+            </label>
+            <select
+              value={newProdStore}
+              onChange={(e) => setNewProdStore(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
+            >
+              <option value="Amazon">Amazon</option>
+              <option value="AliExpress">AliExpress</option>
+              <option value="Shopify">Shopify</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-600 block mb-1">
+              Price ($)
+            </label>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="e.g. 185"
+              value={newProdPrice}
+              onChange={(e) => setNewProdPrice(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-600 block mb-1">
+              Product Category
+            </label>
+            <select
+              value={newProdCategory}
+              onChange={(e) => setNewProdCategory(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
+            >
+              <option value="Premium Laptops">Premium Laptops</option>
+              <option value="Premium Smartphones">Premium Smartphones</option>
+              <option value="Premium Watches">Premium Watches</option>
+              <option value="Luxury Handbags">Luxury Handbags</option>
+              <option value="Fashion & Clothing">Fashion & Clothing</option>
+              <option value="Fragrances">Fragrances</option>
+              <option value="Beauty & Skincare">Beauty & Skincare</option>
+              <option value="Jewelry & Accessories">Jewelry & Accessories</option>
+              <option value="Fitness & Sports Equipment">Fitness & Sports Equipment</option>
+              <option value="Pet Supplies">Pet Supplies</option>
+              <option value="Kitchen Appliances">Kitchen Appliances</option>
+              <option value="Home Decor">Home Decor</option>
+              <option value="Home Furniture">Home Furniture</option>
+              <option value="Audio & Headphones">Audio & Headphones</option>
+              <option value="Gaming & Consoles">Gaming & Consoles</option>
+              <option value="Computer Accessories">Computer Accessories</option>
+              <option value="Tablets">Tablets</option>
+              <option value="Smart Home Devices">Smart Home Devices</option>
+              <option value="Travel & Luggage">Travel & Luggage</option>
+              <option value="Footwear">Footwear</option>
+              <option value="Sunglasses & Eyewear">Sunglasses & Eyewear</option>
+              <option value="Baby & Kids Products">Baby & Kids Products</option>
+              <option value="Outdoor & Camping">Outdoor & Camping</option>
+              <option value="Automotive Accessories">Automotive Accessories</option>
+              <option value="Office & Stationery">Office & Stationery</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-4">
+            <label className="font-bold text-slate-600 block mb-1">
+              Image URL
+            </label>
+            <input
+              type="text"
+              placeholder="https://..."
+              value={newProdImageUrl}
+              onChange={(e) => setNewProdImageUrl(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
+            />
+          </div>
+
+          <div className="md:col-span-4 pt-2">
+            <button
+              type="submit"
+              className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow transition uppercase tracking-wider"
+            >
+              + Add Product to Database
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+        <div className="flex justify-between items-center border-b pb-3 flex-wrap gap-3">
+          <div>
+            <h3 className="text-base font-black text-blue-900">
+              Manage Existing Products
+            </h3>
+            <p className="text-xs text-slate-500">
+              Total Products in Inventory:{' '}
+              <span className="font-bold text-blue-700">
+                {productsList.length}
+              </span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleDeleteAllProducts}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow transition flex items-center gap-1.5"
+            >
+              <span>🗑️</span>
+              <span>Delete All Products</span>
+            </button>
+
+            <div className="w-72">
+              <input
+                type="text"
+                placeholder="Search product name or store..."
+                value={productSearchQuery}
+                onChange={(e) => setProductSearchQuery(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
               />
             </div>
-
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-              <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
-                <span>🛍️</span> Add Single Product Manually
-              </h2>
-              <form onSubmit={handleAddProductSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Product Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Rolex Daytona Watch"
-                    value={newProdName}
-                    onChange={(e) => setNewProdName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Store / Platform</label>
-                  <select
-                    value={newProdStore}
-                    onChange={(e) => setNewProdStore(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
-                  >
-                    <option value="Amazon">Amazon</option>
-                    <option value="AliExpress">AliExpress</option>
-                    <option value="Shopify">Shopify</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Price ($)</label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 185"
-                    value={newProdPrice}
-                    onChange={(e) => setNewProdPrice(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Image URL</label>
-                  <input
-                    type="text"
-                    placeholder="https://..."
-                    value={newProdImageUrl}
-                    onChange={(e) => setNewProdImageUrl(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
-                  />
-                </div>
-                <div className="md:col-span-4 pt-2">
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow transition uppercase tracking-wider"
-                  >
-                    + Add Product to Database
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-              <div className="flex justify-between items-center border-b pb-3 flex-wrap gap-3">
-                <div>
-                  <h3 className="text-base font-black text-blue-900">Manage Existing Products</h3>
-                  <p className="text-xs text-slate-500">Total Products in Inventory: <span className="font-bold text-blue-700">{productsList.length}</span></p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleDeleteAllProducts}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow transition flex items-center gap-1.5"
-                  >
-                    <span>🗑️</span>
-                    <span>Delete All Products</span>
-                  </button>
-                  <div className="w-72">
-                    <input
-                      type="text"
-                      placeholder="Search product name or store..."
-                      value={productSearchQuery}
-                      onChange={(e) => setProductSearchQuery(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-[#1e3a8a] text-white font-bold">
-                      <th className="p-3">Image</th>
-                      <th className="p-3">Product Name</th>
-                      <th className="p-3">Store</th>
-                      <th className="p-3">Price</th>
-                      <th className="p-3 text-right">Remove / Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 font-medium">
-                    {filteredProducts.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="text-center py-6 text-slate-400 italic">No products found. Click "Fetch Live Products" above!</td>
-                      </tr>
-                    ) : (
-                      filteredProducts.map((p) => (
-                        <tr key={p.id} className="hover:bg-slate-50 transition">
-                          <td className="p-3">
-                            <img src={p.image_url} alt={p.name} className="w-10 h-10 object-cover rounded-xl border border-slate-300" />
-                          </td>
-                          <td className="p-3 font-bold text-slate-800">{p.name}</td>
-                          <td className="p-3">
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
-                              {p.store}
-                            </span>
-                          </td>
-                          <td className="p-3 font-mono font-black text-emerald-600">${p.price.toFixed(2)}</td>
-                          <td className="p-3 text-right">
-                            <button
-                              onClick={() => handleDeleteProduct(p.id)}
-                              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-lg shadow transition"
-                            >
-                              🗑️ Remove Product
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
-        )}
+        </div>
 
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#1e3a8a] text-white font-bold">
+                <th className="p-3">Image</th>
+                <th className="p-3">Product Name</th>
+                <th className="p-3">Category</th>
+                <th className="p-3">Store</th>
+                <th className="p-3">Price</th>
+                <th className="p-3 text-right">Remove / Action</th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-slate-200 font-medium">
+              {filteredProducts.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="text-center py-6 text-slate-400 italic"
+                  >
+                    No products found.
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50 transition">
+                    <td className="p-3">
+                      <img
+                        src={p.image_url}
+                        alt={p.name}
+                        className="w-10 h-10 object-cover rounded-xl border border-slate-300"
+                      />
+                    </td>
+
+                    <td className="p-3 font-bold text-slate-800">
+                      {p.name}
+                    </td>
+
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-800 font-bold rounded text-[10px]">
+                        {p.category || 'Uncategorized'}
+                      </span>
+                    </td>
+
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
+                        {p.store}
+                      </span>
+                    </td>
+
+                    <td className="p-3 font-mono font-black text-emerald-600">
+                      ${Number(p.price).toFixed(2)}
+                    </td>
+
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => handleDeleteProduct(p.id)}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-lg shadow transition"
+                      >
+                        🗑️ Remove Product
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )}
+```
         {/* TAB 6: LIVE SUPPORT & CHAT */}
         {!isFullPageTaskSettings && activeTab === 'support' && (
           <div className="space-y-6">

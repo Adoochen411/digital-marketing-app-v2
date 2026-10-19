@@ -1,3 +1,4 @@
+
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigins = [
@@ -39,6 +40,7 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
   const corsHeaders = getCorsHeaders(origin);
 
+  // Handle browser preflight requests.
   if (req.method === "OPTIONS") {
     if (!origin || !allowedOrigins.includes(origin)) {
       return new Response("Origin not allowed", {
@@ -70,6 +72,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Read backend secrets.
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -81,13 +84,14 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(
         {
           error:
-            "Backend configuration is incomplete. Check Supabase environment variables and GEMINI_API_KEY.",
+            "Backend configuration is incomplete. Check the Supabase secrets.",
         },
         500,
         corsHeaders,
       );
     }
 
+    // Require a signed-in user.
     const authorization = req.headers.get("Authorization");
 
     if (!authorization?.startsWith("Bearer ")) {
@@ -119,6 +123,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Only admins can generate and save catalogue products.
     const { data: profile, error: profileError } = await userClient
       .from("profiles")
       .select("role")
@@ -146,10 +151,25 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Read and validate request JSON.
     let body: Record<string, unknown>;
 
     try {
-      body = await req.json();
+      const parsedBody: unknown = await req.json();
+
+      if (
+        !parsedBody ||
+        typeof parsedBody !== "object" ||
+        Array.isArray(parsedBody)
+      ) {
+        return jsonResponse(
+          { error: "Request body must be a JSON object." },
+          400,
+          corsHeaders,
+        );
+      }
+
+      body = parsedBody as Record<string, unknown>;
     } catch {
       return jsonResponse(
         { error: "Request body must be valid JSON." },
@@ -168,6 +188,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Service-role client stays inside this backend function only.
     const adminClient = createClient(supabaseUrl, serviceKey, {
       auth: {
         persistSession: false,
@@ -175,15 +196,19 @@ Deno.serve(async (req: Request) => {
       },
     });
 
+    // Match the actual database column: category_name.
     const { data: categoryRow, error: categoryError } =
       await adminClient
         .from("product_categories")
-        .select("name, target_products")
-        .eq("name", category)
+        .select("category_name, target_products")
+        .eq("category_name", category)
         .maybeSingle();
 
     if (categoryError) {
-      console.error("Category lookup failed:", categoryError.message);
+      console.error(
+        "Category query failed:",
+        JSON.stringify(categoryError),
+      );
 
       return jsonResponse(
         { error: "Unable to load product category." },
@@ -195,19 +220,20 @@ Deno.serve(async (req: Request) => {
     if (!categoryRow) {
       return jsonResponse(
         {
-          error:
-            `Category "${category}" was not found in product_categories.`,
+          error: `Category "${category}" was not found in product_categories.`,
         },
         404,
         corsHeaders,
       );
     }
 
+    // Never generate more than five products per category.
     const target = Math.min(
       5,
       Math.max(0, Number(categoryRow.target_products) || 0),
     );
 
+    // Load existing premium products for this category.
     const { data: existing, error: existingError } = await adminClient
       .from("products")
       .select("name")
@@ -227,15 +253,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const existingProducts = existing ?? [];
+
     const existingNames = new Set(
-      (existing ?? []).map((product) =>
-        String(product.name).trim().toLowerCase()
+      existingProducts.map((product) =>
+        String(product.name ?? "").trim().toLowerCase()
       ),
     );
 
-    const remaining = target - (existing ?? []).length;
+    const remaining = Math.max(0, target - existingProducts.length);
 
-    if (remaining <= 0) {
+    if (remaining === 0) {
       return jsonResponse(
         {
           success: true,
@@ -249,26 +277,27 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Ask Gemini for only the missing products.
     const prompt = `
 Generate exactly ${remaining} distinct premium product suggestions
-for this category: "${category}".
+for the product category: "${category}".
 
-Return only a JSON array with these fields:
-"name": a specific product name,
-"price": a positive estimated retail price in USD,
-"image_url": an HTTPS product-image URL.
+Return a JSON array. Each array item must contain:
+- "name": a specific product name
+- "price": a positive estimated retail price in USD
+- "image_url": an HTTPS URL for a relevant product image
 
 Rules:
-- Do not duplicate these existing product names:
+- Do not use any of these existing product names:
 ${Array.from(existingNames).join("\n")}
-- Use distinct products and realistic estimated prices.
+- Use different product names.
+- Use realistic estimated prices.
 - Do not claim products are in stock or officially verified.
-- Return valid JSON only, without markdown or explanation.
+- Return JSON only, without Markdown or explanations.
 `;
 
-    // Model name updated to gemini-1.5-flash
     const aiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
       {
         method: "POST",
         headers: {
@@ -276,7 +305,11 @@ ${Array.from(existingNames).join("\n")}
           "x-goog-api-key": geminiKey,
         },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
           generationConfig: {
             temperature: 0.4,
             responseMimeType: "application/json",
@@ -285,19 +318,17 @@ ${Array.from(existingNames).join("\n")}
       },
     );
 
+    // Log the actual provider error in Supabase logs, not in the public response.
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
 
-      console.error(
-        "Gemini request failed:",
-        aiResponse.status,
-        errorText,
-      );
+      console.error("Gemini HTTP status:", aiResponse.status);
+      console.error("Gemini error response:", errorText);
 
       return jsonResponse(
         {
-          error:
-            "Gemini request failed. Check API key, model access and API quota.",
+          error: "Gemini request failed. Check the function logs.",
+          status: aiResponse.status,
         },
         502,
         corsHeaders,
@@ -305,11 +336,20 @@ ${Array.from(existingNames).join("\n")}
     }
 
     const aiData = await aiResponse.json();
-    const generatedText =
-      aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (typeof generatedText !== "string") {
-      console.error("Gemini returned no product data.");
+    const generatedText =
+      aiData?.candidates?.[0]?.content?.parts
+        ?.map((part: { text?: string }) => part.text ?? "")
+        .join("");
+
+    if (typeof generatedText !== "string" || !generatedText.trim()) {
+      console.error(
+        "Gemini returned no usable text:",
+        JSON.stringify({
+          promptFeedback: aiData?.promptFeedback,
+          candidateFinishReason: aiData?.candidates?.[0]?.finishReason,
+        }),
+      );
 
       return jsonResponse(
         { error: "Gemini returned no product data." },
@@ -323,6 +363,8 @@ ${Array.from(existingNames).join("\n")}
     try {
       parsed = JSON.parse(generatedText);
     } catch {
+      console.error("Gemini returned invalid JSON.");
+
       return jsonResponse(
         { error: "Gemini returned invalid JSON product data." },
         502,
@@ -338,6 +380,7 @@ ${Array.from(existingNames).join("\n")}
       );
     }
 
+    // Validate every generated product before inserting it.
     const inserts: Array<{
       name: string;
       store: string;
@@ -349,7 +392,10 @@ ${Array.from(existingNames).join("\n")}
 
     for (const item of parsed) {
       if (inserts.length >= remaining) break;
-      if (!item || typeof item !== "object") continue;
+
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
 
       const product = item as Record<string, unknown>;
       const name = String(product.name ?? "").trim();
@@ -371,6 +417,7 @@ ${Array.from(existingNames).join("\n")}
         price <= 0 ||
         price > 1000000 ||
         parsedUrl.protocol !== "https:" ||
+        !parsedUrl.hostname ||
         existingNames.has(name.toLowerCase())
       ) {
         continue;
@@ -389,24 +436,34 @@ ${Array.from(existingNames).join("\n")}
     }
 
     if (inserts.length === 0) {
+      console.error(
+        "Gemini output contained no valid, unique products.",
+      );
+
       return jsonResponse(
         {
           error:
-            "No valid new products generated. Try again or check the image URLs returned by Gemini.",
+            "No valid new products generated. Try again or check the AI response.",
         },
         422,
         corsHeaders,
       );
     }
 
+    // Save products to Supabase.
     const { data: savedProducts, error: insertError } =
       await adminClient
         .from("products")
         .insert(inserts)
-        .select("id, name, category, price, image_url, is_premium_catalog");
+        .select(
+          "id, name, category, price, image_url, is_premium_catalog",
+        );
 
     if (insertError) {
-      console.error("Product insertion failed:", insertError.message);
+      console.error(
+        "Product insertion failed:",
+        insertError.message,
+      );
 
       return jsonResponse(
         { error: "Unable to save generated products." },

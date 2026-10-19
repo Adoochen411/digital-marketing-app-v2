@@ -756,63 +756,49 @@ const handleFetchLiveProductsFromAPI = async () => {
   try {
     showToast("AI is generating premium products...");
 
-   
-const {
-  data: { session },
-  error: sessionError,
-} = await supabase.auth.getSession();
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-if (sessionError || !session?.access_token) {
-  showToast("Please sign in again.", "error");
-  return;
-}
+    if (sessionError || !session?.access_token) {
+      showToast("Please sign in again.", "error");
+      return;
+    }
 
-const { data, error } = await supabase.functions.invoke(
-  "ai-product-generator",
-  {
-    body: {
-      category: newProdCategory || "Premium Watches",
-    },
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  }
-);
-
-if (error) {
-  console.error("AI product generator error:", error);
-
-  
-if (error) {
-  console.error("AI product generator error:", error);
-
-  const response = error.context;
-
-  if (response instanceof Response) {
-    console.error("HTTP status:", response.status);
-    console.error(
-      "Edge Function response body:",
-      await response.clone().text()
+    const { data, error } = await supabase.functions.invoke(
+      "ai-product-generator",
+      {
+        body: {
+          category: newProdCategory || "Premium Watches",
+        },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      }
     );
-  }
-
-  showToast("AI product generation failed. Check console.", "error");
-  return;
-}
-
-
-  showToast("AI product generation failed. Check console.", "error");
-  return;
-}
-
-console.log("AI product generator response:", data);
-
 
     if (error) {
       console.error("AI product generator error:", error);
-      showToast(`AI backend error: ${error.message}`, "error");
+
+      const response = error.context;
+
+      if (response instanceof Response) {
+        console.error("HTTP status:", response.status);
+        console.error(
+          "Edge Function response body:",
+          await response.clone().text()
+        );
+      }
+
+      showToast(
+        "AI product generation failed. Check console.",
+        "error"
+      );
       return;
     }
+
+    console.log("AI product generator response:", data);
 
     if (!data?.success) {
       showToast(
@@ -851,6 +837,132 @@ console.log("AI product generator response:", data);
       err instanceof Error
         ? err.message
         : "Unable to connect to AI backend.",
+      "error"
+    );
+  } finally {
+    setIsFetchingLive(false);
+  }
+};
+
+const handleGenerateMissingPremiumProducts = async () => {
+  setIsFetchingLive(true);
+
+  let totalInserted = 0;
+  const failedCategories: string[] = [];
+
+  try {
+    showToast("Checking all 25 premium categories...");
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      showToast("Please sign in again.", "error");
+      return;
+    }
+
+    const { data: categories, error: categoriesError } =
+      await supabase
+        .from("product_categories")
+        .select("category_name")
+        .order("sort_order", { ascending: true });
+
+    if (categoriesError) {
+      console.error("Category fetch error:", categoriesError);
+      showToast("Unable to load product categories.", "error");
+      return;
+    }
+
+    if (!categories || categories.length === 0) {
+      showToast("No product categories were found.", "error");
+      return;
+    }
+
+    for (const categoryRow of categories) {
+      const category = categoryRow.category_name;
+
+      try {
+        showToast(`Generating missing products: ${category}`);
+
+        const { data, error } =
+          await supabase.functions.invoke(
+            "ai-product-generator",
+            {
+              body: { category },
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+            }
+          );
+
+        if (error) {
+          console.error(
+            `Generation failed for ${category}:`,
+            error
+          );
+          failedCategories.push(category);
+          continue;
+        }
+
+        if (!data?.success) {
+          console.error(
+            `Generation failed for ${category}:`,
+            data?.error
+          );
+          failedCategories.push(category);
+          continue;
+        }
+
+        totalInserted += Number(data.inserted || 0);
+
+        const generatedProducts = Array.isArray(data.products)
+          ? data.products
+          : [];
+
+        if (generatedProducts.length > 0) {
+          setProductsList((prev) => {
+            const existingIds = new Set(
+              prev.map((product) => String(product.id))
+            );
+
+            const newProducts = generatedProducts.filter(
+              (product: { id: string | number }) =>
+                !existingIds.has(String(product.id))
+            );
+
+            return [...newProducts, ...prev];
+          });
+        }
+      } catch (categoryError) {
+        console.error(
+          `Unexpected error for ${category}:`,
+          categoryError
+        );
+        failedCategories.push(category);
+      }
+    }
+
+    if (failedCategories.length > 0) {
+      console.error("Categories needing retry:", failedCategories);
+
+      showToast(
+        `Finished with ${totalInserted} new products. ${failedCategories.length} categories failed; check console.`,
+        "error"
+      );
+    } else {
+      showToast(
+        `Finished! ${totalInserted} new premium products added across ${categories.length} categories.`
+      );
+    }
+  } catch (err: unknown) {
+    console.error("Bulk product generation error:", err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : "Unable to generate premium products.",
       "error"
     );
   } finally {
@@ -2638,6 +2750,24 @@ const filteredDeposits = deposits.filter((d) => {
                 : "✨ Generate AI Products"}
             </button>
           </div>
+       
+<div className="pt-2">
+  <button
+    type="button"
+    onClick={handleGenerateMissingPremiumProducts}
+    disabled={isFetchingLive}
+    className="w-full px-5 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 rounded-xl text-white text-sm font-black shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
+  >
+    {isFetchingLive
+      ? "⏳ Processing Categories..."
+      : "✨ Generate Missing Premium Products"}
+  </button>
+  <p className="text-xs text-blue-200 mt-2">
+    Checks all 25 categories and generates products for categories
+    that are not yet complete.
+  </p>
+</div>
+
         </div>
 
         <p className="text-xs text-blue-200">
@@ -2714,37 +2844,40 @@ const filteredDeposits = deposits.filter((d) => {
             <label className="font-bold text-slate-600 block mb-1">
               Product Category
             </label>
-            <select
-              value={newProdCategory}
-              onChange={(e) => setNewProdCategory(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
-            >
-              <option value="Premium Laptops">Premium Laptops</option>
-              <option value="Premium Smartphones">Premium Smartphones</option>
-              <option value="Premium Watches">Premium Watches</option>
-              <option value="Luxury Handbags">Luxury Handbags</option>
-              <option value="Fashion & Clothing">Fashion & Clothing</option>
-              <option value="Fragrances">Fragrances</option>
-              <option value="Beauty & Skincare">Beauty & Skincare</option>
-              <option value="Jewelry & Accessories">Jewelry & Accessories</option>
-              <option value="Fitness & Sports Equipment">Fitness & Sports Equipment</option>
-              <option value="Pet Supplies">Pet Supplies</option>
-              <option value="Kitchen Appliances">Kitchen Appliances</option>
-              <option value="Home Decor">Home Decor</option>
-              <option value="Home Furniture">Home Furniture</option>
-              <option value="Audio & Headphones">Audio & Headphones</option>
-              <option value="Gaming & Consoles">Gaming & Consoles</option>
-              <option value="Computer Accessories">Computer Accessories</option>
-              <option value="Tablets">Tablets</option>
-              <option value="Smart Home Devices">Smart Home Devices</option>
-              <option value="Travel & Luggage">Travel & Luggage</option>
-              <option value="Footwear">Footwear</option>
-              <option value="Sunglasses & Eyewear">Sunglasses & Eyewear</option>
-              <option value="Baby & Kids Products">Baby & Kids Products</option>
-              <option value="Outdoor & Camping">Outdoor & Camping</option>
-              <option value="Automotive Accessories">Automotive Accessories</option>
-              <option value="Office & Stationery">Office & Stationery</option>
-            </select>
+           
+<select
+  value={newProdCategory}
+  onChange={(e) => setNewProdCategory(e.target.value)}
+  disabled={isFetchingLive}
+  className="w-full rounded-xl bg-white text-slate-900 border border-blue-200 p-3 text-sm font-bold disabled:opacity-60"
+>
+  <option value="Premium Laptops">Premium Laptops</option>
+  <option value="Premium Smartphones">Premium Smartphones</option>
+  <option value="Premium Watches">Premium Watches</option>
+  <option value="Luxury Handbags">Luxury Handbags</option>
+  <option value="Fashion & Clothing">Fashion &amp; Clothing</option>
+  <option value="Fragrances">Fragrances</option>
+  <option value="Beauty & Skincare">Beauty &amp; Skincare</option>
+  <option value="Jewelry & Accessories">Jewelry &amp; Accessories</option>
+  <option value="Fitness & Sports Equipment">Fitness &amp; Sports Equipment</option>
+  <option value="Pet Supplies">Pet Supplies</option>
+  <option value="Kitchen Appliances">Kitchen Appliances</option>
+  <option value="Home Decor">Home Decor</option>
+  <option value="Home Furniture">Home Furniture</option>
+  <option value="Audio & Headphones">Audio &amp; Headphones</option>
+  <option value="Gaming & Consoles">Gaming &amp; Consoles</option>
+  <option value="Computer Accessories">Computer Accessories</option>
+  <option value="Tablets">Tablets</option>
+  <option value="Smart Home Devices">Smart Home Devices</option>
+  <option value="Travel & Luggage">Travel &amp; Luggage</option>
+  <option value="Footwear">Footwear</option>
+  <option value="Sunglasses & Eyewear">Sunglasses &amp; Eyewear</option>
+  <option value="Baby & Kids Products">Baby &amp; Kids Products</option>
+  <option value="Outdoor & Camping">Outdoor &amp; Camping</option>
+  <option value="Automotive Accessories">Automotive Accessories</option>
+  <option value="Office & Stationery">Office &amp; Stationery</option>
+</select>
+
           </div>
 
           <div className="md:col-span-4">

@@ -425,16 +425,14 @@ ${Array.from(existingNames).join("\n")}
 
       existingNames.add(name.toLowerCase());
 
-      inserts.push({
-        name,
-        store: "AI Generated Catalogue",
-        price: Number(price.toFixed(2)),
-        image_url: imageUrl,
-        category,
-        is_premium_catalog: true,
-      });
-    }
-
+    inserts.push({
+  name,
+  store: "Amazon",
+  price: Number(price.toFixed(2)),
+  image_url: imageUrl,
+  category,
+  is_premium_catalog: true,
+});
     if (inserts.length === 0) {
       console.error(
         "Gemini output contained no valid, unique products.",

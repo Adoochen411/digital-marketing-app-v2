@@ -132,26 +132,26 @@ export const CustomerDashboard: React.FC = () => {
 Digital Marketing is an international legal platform offering genuine earning opportunities through Digital Marketing. We work as a trusted partner with AliExpress, Amazon and Shopify, and manage the finance department to ensure safe, smooth and secure transactions for all our users.`;
 
   const HOW_IT_WORKS_TEXT = `HOW DIGITALMARKETING WORKS
-01. Recharge your account with $30 (minimum).[cite: 14]
-02. Your total balance will be activated up to $10,000.[cite: 14]
-03. Start with 25 tasks (complete all to earn).[cite: 14]
-04. Get lucky orders (randomly) for extra high commissions.[cite: 14]
-05. Place orders on AliExpress, Amazon or Shopify (as per task).[cite: 14]
-06. Complete tasks and get commission.[cite: 14]
-07. Withdraw your earnings (after completing 25 tasks).[cite: 14]
-08. Keep working and upgrade to higher VIP levels for more profit.[cite: 14]`;
+01. Recharge your account with $30 (minimum).
+02. Your total balance will be activated up to $10,000.
+03. Start with 25 tasks (complete all to earn).
+04. Get lucky orders (randomly) for extra high commissions.
+05. Place orders on AliExpress, Amazon or Shopify (as per task).
+06. Complete tasks and get commission.
+07. Withdraw your earnings (after completing 25 tasks).
+08. Keep working and upgrade to higher VIP levels for more profit.`;
 
   const RULES_TEXT = `PLATFORM RULES & REGULATIONS
-01. Start balance is $30.00. Anyone can recharge and start earning immediately.[cite: 14]
-02. Complete 25 tasks to get your withdrawal.[cite: 14]
-03. If your amount is high and digital marketing is required for withdrawal, you must complete customer verification (KYC).[cite: 14]
-04. Without verification, your withdrawal will be blocked and deactivated.[cite: 14]
-05. Keep your account active and follow all platform rules.[cite: 14]
-06. Use only official platform methods for recharge & withdrawal.[cite: 14]
-07. Do not share your account details with anyone.[cite: 14]
-08. Any illegal activity will result in permanent ban.[cite: 14]
-09. Follow the terms, guidelines and rules strictly.[cite: 14]
-10. We are not responsible for any false information or third-party activities. Use the platform wisely and safely.[cite: 14]`;
+01. Start balance is $30.00. Anyone can recharge and start earning immediately.
+02. Complete 25 tasks to get your withdrawal.
+03. If your amount is high and digital marketing is required for withdrawal, you must complete customer verification (KYC).
+04. Without verification, your withdrawal will be blocked and deactivated.
+05. Keep your account active and follow all platform rules.
+06. Use only official platform methods for recharge & withdrawal.
+07. Do not share your account details with anyone.
+08. Any illegal activity will result in permanent ban.
+09. Follow the terms, guidelines and rules strictly.
+10. We are not responsible for any false information or third-party activities. Use the platform wisely and safely.`;
 
   const formatDateWithTime = (dateStr?: string) => {
     const d = dateStr ? new Date(dateStr) : new Date();
@@ -192,10 +192,7 @@ Digital Marketing is an international legal platform offering genuine earning op
         .select('*')
         .eq('id', user.id)
         .maybeSingle();
-console.log('Dashboard profile:', data);
-console.log('Saved invite code:', data?.user_invite_code);
-console.log('Saved invitation code:', data?.invitation_code);
-console.log('Logged-in user ID:', user.id);
+
       if (data) {
         setBalance(Number(data.balance) || 0.00);
         setTodayCommission(Number(data.total_profits) || 0.00);
@@ -203,23 +200,11 @@ console.log('Logged-in user ID:', user.id);
         if (data.email) setUserEmail(data.email);
         if (data.phone) setUserPhone(data.phone);
 
-      
-        // Customer ka saved Invite Code load karein
-      const currentCode = String(
-  data.user_invite_code || data.invitation_code || ''
-).trim();
+        const currentCode = String(
+          data.user_invite_code || data.invitation_code || ''
+        ).trim();
 
-setMyInviteCode(currentCode);
-        if (currentCode) {
-          setMyInviteCode(currentCode);
-        } else {
-          console.error(
-            'Customer Invite Code missing. Profile ID:',
-            user.id
-          );
-          setMyInviteCode('');
-        }
-
+        setMyInviteCode(currentCode);
 
         if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
         if (data.vip_level) setActiveVipLevel(data.vip_level);
@@ -651,14 +636,14 @@ setMyInviteCode(currentCode);
       <div className="pt-4 pb-2 px-4 text-center border-b border-[#d4af37]/30 bg-gradient-to-b from-[#181408] to-transparent">
         <div className="inline-flex items-center space-x-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] flex items-center justify-center shadow-[0_0_15px_rgba(212,175,55,0.4)]">
-            <span className="text-xl font-black text-black">≡ƒôê</span>
+            <span className="text-xl font-black text-black">📈</span>
           </div>
           <div className="text-left">
             <h1 className="text-lg font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37]">
               DigitalMarketing
             </h1>
             <p className="text-[8px] font-bold text-[#d4af37] tracking-widest uppercase">
-              GROW ΓÇó EARN ΓÇó SUCCEED[cite: 14]
+              GROW • EARN • SUCCEED
             </p>
           </div>
         </div>
@@ -686,18 +671,18 @@ setMyInviteCode(currentCode);
               <div className="flex items-center space-x-3">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] p-0.5 shadow-lg">
                   <div className="w-full h-full bg-black rounded-[14px] flex items-center justify-center text-xl">
-                    ≡ƒæñ
+                    👤
                   </div>
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-white tracking-wide">{usernameDisplay}</h3>
-                  <p className="text-[10px] text-[#f3e5ab] font-medium mt-0.5">ΓùÅ {emailDisplay}</p>
-                  {userPhone && <p className="text-[10px] text-gray-400 font-medium">≡ƒô₧ {userPhone}</p>}
+                  <p className="text-[10px] text-[#f3e5ab] font-medium mt-0.5">● {emailDisplay}</p>
+                  {userPhone && <p className="text-[10px] text-gray-400 font-medium">📱 {userPhone}</p>}
                 </div>
               </div>
               <div className="text-right space-y-1">
                 <div className="px-3 py-1 bg-[#d4af37]/10 border border-[#d4af37] text-[#f3e5ab] text-[10px] font-bold rounded-full">
-                  ≡ƒææ {activeVipLevel}
+                  👑 {activeVipLevel}
                 </div>
                 <div className="text-[9px] font-mono text-emerald-400 font-bold px-1">
                   Invite Code: {myInviteCode || 'Loading...'}
@@ -726,14 +711,14 @@ setMyInviteCode(currentCode);
                   onClick={() => setShowDepositModal(true)}
                   className="py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow-lg flex items-center justify-center space-x-1.5 uppercase tracking-wider"
                 >
-                  <span>≡ƒæ¢</span>
+                  <span>👛</span>
                   <span>DEPOSIT</span>
                 </button>
                 <button
                   onClick={() => setShowWithdrawModal(true)}
                   className="py-3 bg-[#18150a] border-2 border-[#d4af37] text-[#f3e5ab] font-black text-xs rounded-2xl shadow flex items-center justify-center space-x-1.5 uppercase tracking-wider"
                 >
-                  <span>≡ƒÅª</span>
+                  <span>🏦</span>
                   <span>WITHDRAW</span>
                 </button>
               </div>
@@ -745,13 +730,13 @@ setMyInviteCode(currentCode);
                 className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
               >
                 <span className="flex items-center space-x-3">
-                  <span className="text-base text-[#d4af37]">≡ƒ¬Ö</span>
+                  <span className="text-base text-[#d4af37]">🪙</span>
                   <div>
                     <div className="text-left">Deposit History</div>
                     <div className="text-[9px] text-gray-400 font-normal">View your deposit records</div>
                   </div>
                 </span>
-                <span className="text-[#d4af37]">Γ₧ö</span>
+                <span className="text-[#d4af37]">➔</span>
               </button>
 
               <button
@@ -759,13 +744,13 @@ setMyInviteCode(currentCode);
                 className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
               >
                 <span className="flex items-center space-x-3">
-                  <span className="text-base text-[#d4af37]">≡ƒæ¢</span>
+                  <span className="text-base text-[#d4af37]">👛</span>
                   <div>
                     <div className="text-left">Withdraw History</div>
                     <div className="text-[9px] text-gray-400 font-normal">View your withdrawal records</div>
                   </div>
                 </span>
-                <span className="text-[#d4af37]">Γ₧ö</span>
+                <span className="text-[#d4af37]">➔</span>
               </button>
 
               <button
@@ -779,13 +764,13 @@ setMyInviteCode(currentCode);
                 className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
               >
                 <span className="flex items-center space-x-3">
-                  <span className="text-base text-[#d4af37]">≡ƒöù</span>
+                  <span className="text-base text-[#d4af37]">🔗</span>
                   <div>
                     <div className="text-left">Wallet Bind (TRC20 / ERC20 / Bank)</div>
                     <div className="text-[9px] text-gray-400 font-normal">Manage your wallet addresses</div>
                   </div>
                 </span>
-                <span className="text-[#d4af37]">Γ₧ö</span>
+                <span className="text-[#d4af37]">➔</span>
               </button>
 
               <button
@@ -793,19 +778,19 @@ setMyInviteCode(currentCode);
                 className="w-full p-4 flex justify-between items-center text-xs font-bold text-white hover:bg-[#18150a]"
               >
                 <span className="flex items-center space-x-3">
-                  <span className="text-base text-[#d4af37]">≡ƒôº</span>
+                  <span className="text-base text-[#d4af37]">📧</span>
                   <div>
                     <div className="text-left">Profile Settings & Passwords</div>
                     <div className="text-[9px] text-gray-400 font-normal">Update login and withdraw passwords</div>
                   </div>
                 </span>
-                <span className="text-[#d4af37]">Γ₧ö</span>
+                <span className="text-[#d4af37]">➔</span>
               </button>
             </div>
 
             <div className="bg-[#0b0c10] border border-[#d4af37]/50 p-4 rounded-3xl shadow-xl flex justify-between items-center">
               <span className="text-xs font-bold text-white flex items-center space-x-2">
-                <span className="text-base text-[#d4af37]">≡ƒîÉ</span>
+                <span className="text-base text-[#d4af37]">🌐</span>
                 <div>
                   <div>Select Language</div>
                   <div className="text-[9px] text-gray-400 font-normal">Choose preferred language</div>
@@ -829,7 +814,7 @@ setMyInviteCode(currentCode);
               onClick={signOut}
               className="w-full py-3.5 bg-gradient-to-r from-red-900 via-red-600 to-red-900 border border-red-500 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider flex items-center justify-center space-x-2"
             >
-              <span>≡ƒöÆ</span>
+              <span>🔒</span>
               <span>LOG OUT ACCOUNT</span>
             </button>
 
@@ -845,7 +830,7 @@ setMyInviteCode(currentCode);
                 onClick={() => setInfoModal({ title: 'About Us', text: ABOUT_TEXT })}
                 className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">≡ƒæÑ</span>
+                <span className="text-lg">👥</span>
                 <span className="text-[9px] font-black text-[#f3e5ab]">About Us</span>
               </button>
 
@@ -853,7 +838,7 @@ setMyInviteCode(currentCode);
                 onClick={() => setInfoModal({ title: 'Platform Rules', text: RULES_TEXT })}
                 className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">≡ƒôï</span>
+                <span className="text-lg">📋</span>
                 <span className="text-[9px] font-black text-[#f3e5ab]">Rules</span>
               </button>
 
@@ -861,7 +846,7 @@ setMyInviteCode(currentCode);
                 onClick={() => setInfoModal({ title: 'How It Works', text: HOW_IT_WORKS_TEXT })}
                 className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">ΓÜÖ∩╕Å</span>
+                <span className="text-lg">⚙️</span>
                 <span className="text-[9px] font-black text-[#f3e5ab]">How Works</span>
               </button>
 
@@ -869,7 +854,7 @@ setMyInviteCode(currentCode);
                 onClick={() => setShowCertModal(true)}
                 className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">≡ƒô£</span>
+                <span className="text-lg">📜</span>
                 <span className="text-[9px] font-black text-[#f3e5ab]">Certificate</span>
               </button>
             </div>
@@ -877,13 +862,13 @@ setMyInviteCode(currentCode);
             <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
               <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
                 <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
-                  ≡ƒæÑ
+                  👥
                 </div>
                 <h3 className="text-base font-black text-[#f3e5ab] tracking-wider">About Us</h3>
               </div>
 
               <p className="text-xs text-gray-300 leading-relaxed">
-                Digital Marketing is an <span className="text-[#f3e5ab] font-bold">international legal</span> platform offering genuine earning opportunities through <span className="text-[#f3e5ab] font-bold">Digital Marketing</span>[cite: 14]. We work as a trusted partner with <span className="text-red-400 font-bold">AliExpress</span>, <span className="text-amber-400 font-bold">Amazon</span> and <span className="text-emerald-400 font-bold">Shopify</span>, and manage the finance department to ensure safe, smooth and secure transactions for all our users[cite: 14].
+                Digital Marketing is an <span className="text-[#f3e5ab] font-bold">international legal</span> platform offering genuine earning opportunities through <span className="text-[#f3e5ab] font-bold">Digital Marketing</span>. We work as a trusted partner with <span className="text-red-400 font-bold">AliExpress</span>, <span className="text-amber-400 font-bold">Amazon</span> and <span className="text-emerald-400 font-bold">Shopify</span>, and manage the finance department to ensure safe, smooth and secure transactions for all our users.
               </p>
 
               <div className="bg-[#18150a] border border-[#d4af37]/50 p-2.5 rounded-2xl flex justify-around items-center">
@@ -896,23 +881,23 @@ setMyInviteCode(currentCode);
 
               <div className="grid grid-cols-5 gap-1 text-center pt-1">
                 <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">≡ƒ¢í∩╕Å</div>
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🛡️</div>
                   <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">100% Legal & Trusted</p>
                 </div>
                 <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">≡ƒöÆ</div>
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🔒</div>
                   <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Secure Transactions</p>
                 </div>
                 <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">≡ƒÄº</div>
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🎧</div>
                   <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">24/7 Support</p>
                 </div>
                 <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">≡ƒîÉ</div>
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🌐</div>
                   <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Global Platform</p>
                 </div>
                 <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">≡ƒñ¥</div>
+                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🤝</div>
                   <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Long Term Partnership</p>
                 </div>
               </div>
@@ -923,7 +908,7 @@ setMyInviteCode(currentCode);
               <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
                 <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
                   <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
-                    ≡ƒææ
+                    👑
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-[#f3e5ab] tracking-wider">VIP Levels & Commission</h3>
@@ -934,12 +919,12 @@ setMyInviteCode(currentCode);
                 <div className="space-y-2 text-xs">
                   <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">≡ƒææ</span>
+                      <span className="text-xs">👑</span>
                       <span className="font-bold text-white text-[11px]">VIP 0 (Regular)</span>
                     </div>
                     <div className="text-right">
                       <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$30.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">0.56% ΓÇô 0.75% / Order</p>
+                      <p className="text-[8px] text-emerald-400 font-bold">0.56% - 0.75% / Order</p>
                     </div>
                   </div>
 
@@ -950,7 +935,7 @@ setMyInviteCode(currentCode);
                     </div>
                     <div className="text-right">
                       <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$1,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% ΓÇô 10% / Order</p>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% - 10% / Order</p>
                     </div>
                   </div>
 
@@ -961,7 +946,7 @@ setMyInviteCode(currentCode);
                     </div>
                     <div className="text-right">
                       <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$2,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% ΓÇô 20% / Order</p>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% - 20% / Order</p>
                     </div>
                   </div>
 
@@ -972,7 +957,7 @@ setMyInviteCode(currentCode);
                     </div>
                     <div className="text-right">
                       <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$5,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% ΓÇô 30% / Order</p>
+                      <p className="text-[8px] text-emerald-400 font-bold">1% - 30% / Order</p>
                     </div>
                   </div>
                 </div>
@@ -981,7 +966,7 @@ setMyInviteCode(currentCode);
               <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-3.5 rounded-3xl shadow-xl space-y-2 flex flex-col justify-between">
                 <div className="flex justify-between items-center border-b border-[#d4af37]/20 pb-2">
                   <h3 className="text-xs font-extrabold text-[#f3e5ab] tracking-wider flex items-center space-x-1.5">
-                    <span className="text-sm text-[#d4af37]">≡ƒôê</span>
+                    <span className="text-sm text-[#d4af37]">📈</span>
                     <span>LIVE TRANSACTIONS</span>
                   </h3>
                   <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-bold rounded-full animate-pulse">
@@ -1013,7 +998,7 @@ setMyInviteCode(currentCode);
             <div className="bg-gradient-to-r from-[#181408] via-[#241c0c] to-[#181408] border-2 border-[#d4af37] rounded-3xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
                 <div className="w-9 h-9 rounded-xl bg-[#d4af37] text-black flex items-center justify-center font-bold text-lg shadow">
-                  ≡ƒ¢í∩╕Å
+                  🛡️
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-[#f3e5ab]">Why Choose Us?</h4>
@@ -1023,19 +1008,19 @@ setMyInviteCode(currentCode);
 
               <div className="flex items-center space-x-2 text-center text-[9px]">
                 <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  ≡ƒöÆ Secure Payments
+                  🔒 Secure Payments
                 </div>
                 <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  ≡ƒæÑ Verified Users
+                  👥 Verified Users
                 </div>
                 <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  ≡ƒÄº Dedicated Support
+                  🎧 Dedicated Support
                 </div>
               </div>
 
               <div className="w-full text-center border-t border-[#d4af37]/30 pt-2">
                 <span className="text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider italic">
-                  ≡ƒôê Build Your Future With Us
+                  📈 Build Your Future With Us
                 </span>
               </div>
             </div>
@@ -1061,7 +1046,7 @@ setMyInviteCode(currentCode);
                     rel="noopener noreferrer"
                     className="py-3 px-3 bg-[#18150a] border border-sky-400/50 text-sky-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-sky-950/30"
                   >
-                    <span>Γ£ê∩╕Å</span>
+                    <span>✈️</span>
                     <span>Telegram</span>
                   </a>
 
@@ -1071,7 +1056,7 @@ setMyInviteCode(currentCode);
                     rel="noopener noreferrer"
                     className="py-3 px-3 bg-[#18150a] border border-emerald-400/50 text-emerald-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-emerald-950/30"
                   >
-                    <span>≡ƒÆ¼</span>
+                    <span>💬</span>
                     <span>WhatsApp</span>
                   </a>
                 </div>
@@ -1083,7 +1068,7 @@ setMyInviteCode(currentCode);
                     <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
                     <span className="text-xs font-black text-[#f3e5ab]">Live Assistant Portal</span>
                   </div>
-                  <span className="text-[10px] text-emerald-400 font-mono font-bold">ΓùÅ Online</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">● Online</span>
                 </div>
 
                 <div className="flex-1 min-h-[320px] max-h-[450px] overflow-y-auto space-y-2.5 pr-1 text-xs">
@@ -1183,7 +1168,7 @@ setMyInviteCode(currentCode);
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[#d4af37] text-xs">≡ƒòÆ</span>
+                  <span className="text-[#d4af37] text-xs">📋</span>
                   <span className="text-sm font-black text-white">25</span>
                 </div>
                 <p className="text-[10px] text-gray-400 font-medium">Total Tasks</p>
@@ -1191,7 +1176,7 @@ setMyInviteCode(currentCode);
 
               <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[#d4af37] text-xs">Γÿæ∩╕Å</span>
+                  <span className="text-[#d4af37] text-xs">⭐</span>
                   <span className="text-sm font-black text-white">{completedTasks}/25</span>
                 </div>
                 <p className="text-[10px] text-gray-400 font-medium">Completed</p>
@@ -1199,7 +1184,7 @@ setMyInviteCode(currentCode);
 
               <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[#50e3c2] text-xs">≡ƒÆ▓</span>
+                  <span className="text-[#50e3c2] text-xs">💰</span>
                   <span className="text-sm font-black text-[#50e3c2]">${todayCommission.toFixed(2)}</span>
                 </div>
                 <p className="text-[10px] text-gray-400 font-medium">Today Earnings</p>
@@ -1207,7 +1192,7 @@ setMyInviteCode(currentCode);
 
               <div className="bg-[#0b0c10] p-4 rounded-2xl border border-[#d4af37]/50 shadow-md space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[#d4af37] text-xs">≡ƒôê</span>
+                  <span className="text-[#d4af37] text-xs">👑</span>
                   <span className="text-xs font-bold text-[#f3e5ab] line-clamp-1">{activeVipLevel}</span>
                 </div>
                 <p className="text-[10px] text-gray-400 font-medium">Status</p>
@@ -1216,7 +1201,7 @@ setMyInviteCode(currentCode);
 
             <div className="bg-[#0b0c10] p-6 rounded-3xl border-2 border-[#d4af37]/70 shadow-2xl text-center space-y-4">
               <div className="w-16 h-16 mx-auto rounded-full bg-[#18150a] border-2 border-[#d4af37] flex items-center justify-center text-3xl text-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.4)]">
-                ΓÜí
+                ⚡
               </div>
               <div>
                 <h3 className="text-base font-extrabold text-[#f3e5ab]">Automatic Task Grabbing</h3>
@@ -1247,7 +1232,7 @@ setMyInviteCode(currentCode);
                 <div className="p-4 bg-gradient-to-r from-red-950/80 via-[#2a0808] to-red-950/80 border-2 border-red-500 rounded-2xl space-y-3 shadow-lg">
                   <div className="flex justify-between items-center border-b border-red-800/40 pb-2">
                     <span className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1">
-                      <span>≡ƒÄü</span> PENDING LUCKY ORDER #{currentTask.id}
+                      <span>🎁</span> PENDING LUCKY ORDER #{currentTask.id}
                     </span>
                     <span className="text-[10px] bg-red-600/40 border border-red-500 text-red-200 px-2 py-0.5 rounded-full font-bold animate-pulse">
                       Action Required
@@ -1268,7 +1253,7 @@ setMyInviteCode(currentCode);
                     onClick={() => setShowFullPageTask(true)}
                     className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider flex items-center justify-center space-x-1"
                   >
-                    <span>ΓÜí OPEN & COMPLETE LUCKY ORDER</span>
+                    <span>⚡ OPEN & COMPLETE LUCKY ORDER</span>
                   </button>
                 </div>
               )}
@@ -1299,7 +1284,7 @@ setMyInviteCode(currentCode);
           <div className="space-y-4">
             <div className="text-center space-y-1">
               <div className="flex justify-center">
-                <span className="text-2xl text-[#d4af37]">≡ƒææ</span>
+                <span className="text-2xl text-[#d4af37]">👑</span>
               </div>
               <h2 className="text-lg font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37]">
                 VIP MEMBERSHIP LEVELS
@@ -1312,7 +1297,7 @@ setMyInviteCode(currentCode);
                 <div className="flex justify-between items-center">
                   <div className="flex items-center space-x-2">
                     <div className="w-10 h-10 rounded-xl bg-[#18150a] border border-[#d4af37] flex flex-col items-center justify-center">
-                      <span className="text-xs">≡ƒææ</span>
+                      <span className="text-xs">👑</span>
                       <span className="text-[7px] font-black text-[#d4af37]">VIP 0</span>
                     </div>
                     <span className="text-xs font-black text-[#f3e5ab]">VIP 0 - Regular</span>
@@ -1322,14 +1307,14 @@ setMyInviteCode(currentCode);
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-300">Earn with high commission:</span>
-                  <span className="font-bold text-[#f3e5ab]">0.56% ΓÇô 0.75% / Order</span>
+                  <span className="font-bold text-[#f3e5ab]">0.56% - 0.75% / Order</span>
                 </div>
 
                 <button
                   onClick={() => handleSelectVipLevel('VIP 0 - Regular', 30)}
                   className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow flex items-center justify-center space-x-1"
                 >
-                  <span>≡ƒææ</span>
+                  <span>👑</span>
                   <span>Active Level</span>
                 </button>
               </div>
@@ -1359,7 +1344,7 @@ setMyInviteCode(currentCode);
                       : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
                   }`}
                 >
-                  <span>{balance >= 1000 ? 'ΓÜí Unlock & Open Amazon VIP' : '≡ƒöÆ Locked (Min $1000)'}</span>
+                  <span>{balance >= 1000 ? '⚡ Unlock & Open Amazon VIP' : '🔒 Locked (Min $1000)'}</span>
                 </button>
               </div>
 
@@ -1388,7 +1373,7 @@ setMyInviteCode(currentCode);
                       : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
                   }`}
                 >
-                  <span>{balance >= 2000 ? 'ΓÜí Unlock & Open AliExpress VIP' : '≡ƒöÆ Locked (Min $2000)'}</span>
+                  <span>{balance >= 2000 ? '⚡ Unlock & Open AliExpress VIP' : '🔒 Locked (Min $2000)'}</span>
                 </button>
               </div>
 
@@ -1417,7 +1402,7 @@ setMyInviteCode(currentCode);
                       : 'bg-[#18150a] border border-[#d4af37]/40 text-gray-400'
                   }`}
                 >
-                  <span>{balance >= 5000 ? 'ΓÜí Unlock & Open Shopify VIP' : '≡ƒöÆ Locked (Min $5000)'}</span>
+                  <span>{balance >= 5000 ? '⚡ Unlock & Open Shopify VIP' : '🔒 Locked (Min $5000)'}</span>
                 </button>
               </div>
             </div>
@@ -1429,34 +1414,34 @@ setMyInviteCode(currentCode);
       {/* BOTTOM NAVIGATION BAR */}
       <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0b0c10]/95 border-t-2 border-[#d4af37]/60 backdrop-blur-2xl py-2 px-3 flex justify-around items-center z-50 shadow-[0_-5px_20px_rgba(212,175,55,0.2)]">
         <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'home' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
-          <span className="text-lg">≡ƒÅá</span>
+          <span className="text-lg">🏠</span>
           <span className="text-[9px] font-bold">Home</span>
         </button>
 
         <button onClick={() => setActiveTab('support')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'support' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
-          <span className="text-lg">≡ƒÄº</span>
+          <span className="text-lg">🎧</span>
           <span className="text-[9px] font-bold">Support</span>
         </button>
 
         <button onClick={() => setActiveTab('grabbing')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'grabbing' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
           <div className={`p-2 rounded-xl ${activeTab === 'grabbing' ? 'bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black shadow-lg' : 'bg-[#18150a] text-[#d4af37]'}`}>
-            <span className="text-base">ΓÜí</span>
+            <span className="text-base">⚡</span>
           </div>
           <span className="text-[9px] font-bold">Grabbing</span>
         </button>
 
         <button onClick={() => setActiveTab('records')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'records' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
-          <span className="text-lg">≡ƒôï</span>
+          <span className="text-lg">📋</span>
           <span className="text-[9px] font-bold">Records</span>
         </button>
 
         <button onClick={() => setActiveTab('vip')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'vip' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
-          <span className="text-lg">≡ƒææ</span>
+          <span className="text-lg">👑</span>
           <span className="text-[9px] font-bold">VIP</span>
         </button>
 
         <button onClick={() => setActiveTab('mine')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'mine' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
-          <span className="text-lg">≡ƒæñ</span>
+          <span className="text-lg">👤</span>
           <span className="text-[9px] font-bold">Profile</span>
         </button>
       </div>
@@ -1476,7 +1461,7 @@ setMyInviteCode(currentCode);
                 onClick={() => copyToClipboard(adminTrc20DepositAddress)}
                 className="py-1.5 px-3 bg-[#d4af37]/20 border border-[#d4af37] text-[#f3e5ab] font-bold text-xs rounded-xl shadow transition"
               >
-                ≡ƒôï Copy TRC20 Address
+                📋 Copy TRC20 Address
               </button>
 
               <div className="flex justify-center my-2">
@@ -1531,7 +1516,7 @@ setMyInviteCode(currentCode);
             <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Withdraw Funds</h3>
             {withdrawLockedMsg && (
               <div className="p-3 bg-red-950/80 border border-red-600 rounded-xl text-red-300 text-xs text-center font-bold">
-                ΓÜá∩╕Å Withdrawal Locked: {withdrawLockedMsg}
+                ⚠️ Withdrawal Locked: {withdrawLockedMsg}
               </div>
             )}
             <form onSubmit={handleWithdrawSubmit} className="space-y-3">
@@ -1620,7 +1605,7 @@ setMyInviteCode(currentCode);
               onClick={() => setShowFullPageTask(false)}
               className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1"
             >
-              <span>Γ¼à Back</span>
+              <span>← Back</span>
             </button>
             <h2 className="text-base font-extrabold text-[#f3e5ab] tracking-wider">
               Product Task #{currentTask.id}
@@ -1629,7 +1614,7 @@ setMyInviteCode(currentCode);
               onClick={() => setShowFullPageTask(false)}
               className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1 rounded-xl"
             >
-              Γ£ò
+              ✕
             </button>
           </div>
 
@@ -1646,7 +1631,7 @@ setMyInviteCode(currentCode);
               <div className="w-1/2 flex flex-col justify-between py-1">
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">
-                    ≡ƒææ {currentTask.store}
+                    👑 {currentTask.store}
                   </div>
                   <h3 className="text-sm font-bold text-white leading-tight line-clamp-2 mt-0.5">
                     {currentTask.name}
@@ -1658,7 +1643,7 @@ setMyInviteCode(currentCode);
 
                 <div>
                   <div className="flex items-center gap-1 text-amber-400 text-xs mt-1">
-                    ΓÿàΓÿàΓÿàΓÿàΓÿà <span className="text-[9px] text-gray-300 font-bold">4.9 (1,248 reviews)</span>
+                    ⭐⭐⭐⭐⭐ <span className="text-[9px] text-gray-300 font-bold">4.9 (1,248 reviews)</span>
                   </div>
                   
                   <div className="flex items-baseline gap-2 mt-1">
@@ -1668,7 +1653,7 @@ setMyInviteCode(currentCode);
                   </div>
 
                   <div className="mt-1 inline-flex items-center gap-1 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black text-[9px] px-2 py-0.5 rounded-md shadow">
-                    ≡ƒææ Premium Product
+                    👑 Premium Product
                   </div>
                 </div>
               </div>
@@ -1676,7 +1661,7 @@ setMyInviteCode(currentCode);
 
             {currentTask.isLucky && (
               <div className="bg-gradient-to-r from-[#1a1508] via-[#332a15] to-[#1a1508] border-2 border-[#f3e5ab] rounded-2xl p-3 flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(243,229,171,0.3)] animate-pulse">
-                <div className="text-3xl">≡ƒÄü</div>
+                <div className="text-3xl">🎁</div>
                 <div className="text-center">
                   <div className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wide uppercase">
                     Congratulations
@@ -1693,22 +1678,22 @@ setMyInviteCode(currentCode);
 
             <div className="bg-[#0b0c10] border border-[#d4af37]/60 rounded-2xl p-3 grid grid-cols-3 gap-2 text-center shadow-lg">
               <div className="border-r border-[#332a15] pr-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">Γ¡É</div>
+                <div className="text-amber-400 text-lg">⭐</div>
                 <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">High Commission Rating</div>
-                <div className="text-[10px] font-black text-amber-400 mt-0.5">ΓÿàΓÿàΓÿàΓÿàΓÿà 4.9/5</div>
+                <div className="text-[10px] font-black text-amber-400 mt-0.5">⭐⭐⭐⭐⭐ 4.9/5</div>
               </div>
 
               <div className="border-r border-[#332a15] px-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">≡ƒôú</div>
+                <div className="text-amber-400 text-lg">📋</div>
                 <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">With Digital Marketing</div>
-                <div className="text-amber-400 text-xs mt-0.5">≡ƒôê</div>
+                <div className="text-amber-400 text-xs mt-0.5">📈</div>
               </div>
 
               <div className="pl-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">≡ƒÅà</div>
+                <div className="text-amber-400 text-lg">👑</div>
                 <div className="text-[9px] font-bold text-gray-300 leading-tight">Commission Earned</div>
                 <div className="text-xs font-black text-[#50e3c2] font-mono mt-0.5">
-                  +${currentTask.commission.toLocaleString('en-US', { minimumFractionDigits: 2 })} Γåù
+                  +${currentTask.commission.toLocaleString('en-US', { minimumFractionDigits: 2 })} →
                 </div>
               </div>
             </div>
@@ -1716,7 +1701,7 @@ setMyInviteCode(currentCode);
             {currentTask.isLucky && runningTasksVal < 0 && (
               <div className="bg-gradient-to-r from-[#2a0808] via-[#4a0e0e] to-[#2a0808] border-2 border-red-600/80 rounded-2xl p-3 flex justify-between items-center shadow-[0_0_20px_rgba(220,38,38,0.4)]">
                 <div className="flex items-center gap-2">
-                  <div className="text-2xl">≡ƒæ¢</div>
+                  <div className="text-2xl">👛</div>
                   <div>
                     <div className="text-xs font-bold text-red-400">Recharge Amount</div>
                     <div className="text-[9px] text-red-300/80 font-medium">(Negative Balance Locked)</div>
@@ -1732,9 +1717,9 @@ setMyInviteCode(currentCode);
               onClick={handleConfirmTask}
               className="w-full py-3.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl border-2 border-[#f3e5ab] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition flex items-center justify-center gap-2 uppercase tracking-wider"
             >
-              <span>≡ƒôï</span>
+              <span>📋</span>
               <span>CONTINUE TASKS</span>
-              <span>Γ₧ö</span>
+              <span>➔</span>
             </button>
           </div>
 
@@ -1825,7 +1810,7 @@ setMyInviteCode(currentCode);
             <div className="p-4 bg-[#141008] border-2 border-[#d4af37]/60 rounded-2xl space-y-3 text-left relative z-10">
               <div className="text-center border-b-2 border-[#d4af37]/40 pb-3">
                 <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-tr from-[#d4af37] via-[#f3e5ab] to-[#d4af37] flex items-center justify-center text-2xl shadow-lg text-black">
-                  ≡ƒææ
+                  👑
                 </div>
                 <div className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider">
                   DIGITAL MARKETING
@@ -1845,9 +1830,9 @@ setMyInviteCode(currentCode);
 
               <div>
                 <h5 className="font-extrabold text-[#f3e5ab] text-[11px] mb-1">LEADERSHIP & PROFESSIONAL PROFILE</h5>
-                <p className="text-gray-300 text-[10px]">ΓÇó CEO of VaynerMedia</p>
-                <p className="text-gray-300 text-[10px]">ΓÇó Serial Entrepreneur | Digital Marketing Strategist</p>
-                <p className="text-gray-300 text-[10px]">ΓÇó Content Marketing & SEO Leader</p>
+                <p className="text-gray-300 text-[10px]">• CEO of VaynerMedia</p>
+                <p className="text-gray-300 text-[10px]">• Serial Entrepreneur | Digital Marketing Strategist</p>
+                <p className="text-gray-300 text-[10px]">• Content Marketing & SEO Leader</p>
               </div>
 
               <div>

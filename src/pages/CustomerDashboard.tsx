@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-
 interface ProductTask {
   id: number;
   name: string;
-  store: 'Amazon' | 'AliExpress' | 'Shopify';
+  store: string; // Isko 'Amazon' | 'AliExpress' | 'Shopify' ki jagah sirf 'string' kar dein
   price: number;
   commission: number;
   rating: number;
@@ -1268,8 +1267,9 @@ Digital Marketing is an international legal platform offering genuine earning op
                     <div key={i} className="p-3 bg-[#18150a] border border-[#d4af37]/30 rounded-2xl flex justify-between items-center text-xs">
                       <div>
                         <p className="font-bold text-white">{rec.name}</p>
-                        <p className="text-[10px] text-gray-400">{rec.store} Official Category</p>
-                      </div>
+<p className="text-[10px] text-gray-400">
+  {rec.store === "AI Generated Catalogue" ? "Amazon" : (rec.store || "Amazon")} Official Category
+</p>                      </div>
                       <span className="font-mono font-bold text-[#50e3c2]">+${rec.commission.toFixed(2)}</span>
                     </div>
                   ))}
@@ -1631,8 +1631,7 @@ Digital Marketing is an international legal platform offering genuine earning op
               <div className="w-1/2 flex flex-col justify-between py-1">
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">
-                    👑 {currentTask.store}
-                  </div>
+                 {currentTask.store === "AI Generated Catalogue" ? "Amazon" : (currentTask.store || "Amazon")}                  </div>
                   <h3 className="text-sm font-bold text-white leading-tight line-clamp-2 mt-0.5">
                     {currentTask.name}
                   </h3>

@@ -491,11 +491,11 @@ const handlePublishLuckyOrder = async () => {
     );
     return;
   }
-
-  // Select one exact amount within the range, to 2 decimal places.
+  // Select a random exact amount within the range, including cents.
   const minCents = Math.round(minAmt * 100);
   const maxCents = Math.round(maxAmt * 100);
 
+  // Validate that amounts have no more than 2 decimal places.
   if (
     Math.abs(minAmt * 100 - minCents) > 0.000001 ||
     Math.abs(maxAmt * 100 - maxCents) > 0.000001
@@ -504,9 +504,10 @@ const handlePublishLuckyOrder = async () => {
     return;
   }
 
-  const exactAmount = Number(
-  ((minAmt + maxAmt) / 2).toFixed(2)
-);
+  // Random amount from minimum to maximum, inclusive.
+  const exactAmount =
+    (Math.floor(Math.random() * (maxCents - minCents + 1)) +
+      minCents) / 100;
 
   try {
     // Prevent another active order in the same task slot.
@@ -532,20 +533,28 @@ const handlePublishLuckyOrder = async () => {
     const { data: savedTask, error: insertError } = await supabase
       .from('custom_tasks')
       .insert([
-        {
-          user_id: selectedUserForModal.id,
-          task_number: taskNum,
-          min_amount: minAmt,
-          max_amount: maxAmt,
-          task_amount: exactAmount,
-          commission: commPercent,
-          commission_rate: commPercent,
-          is_lucky_order: true,
-          status: 'pending',
-          is_active: true,
-          funding_status: 'pending',
-          funded_at: null,
-        },
+      
+{
+  user_id: selectedUserForModal.id,
+  task_number: taskNum,
+  min_amount: minAmt,
+  max_amount: maxAmt,
+  task_amount: exactAmount,
+  commission: Number(
+    ((exactAmount * commPercent) / 100).toFixed(2)
+  ),
+  commission_rate: commPercent,
+  locked_price: exactAmount,
+  locked_commission: Number(
+    ((exactAmount * commPercent) / 100).toFixed(2)
+  ),
+  is_lucky_order: true,
+  status: 'pending',
+  is_active: true,
+  funding_status: 'pending',
+  funded_at: null,
+}
+
       ])
       .select()
       .single();

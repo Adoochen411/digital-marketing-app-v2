@@ -336,41 +336,73 @@ Digital Marketing is an international legal platform offering genuine earning op
     setActiveTab('grabbing');
   };
 
-  const handleGrabTask = async () => {
-    if (completedTasks >= 25) {
-      showToast('Daily task limit (25/25) completed! Please contact customer service.', 'error');
-      return;
-    }
+const handleGrabTask = async () => {
+  if (completedTasks >= 25) {
+    showToast(
+      'Daily task limit (25/25) completed! Please contact customer service.',
+      'error'
+    );
+    return;
+  }
 
-    if (isGrabbing) return;
+  if (isGrabbing) return;
 
-    if (currentTask && runningTasksVal < 0) {
-      setShowFullPageTask(true);
-      return;
-    }
+  if (currentTask && runningTasksVal < 0) {
+    setShowFullPageTask(true);
+    return;
+  }
 
-    setIsGrabbing(true);
-    const nextTaskNum = completedTasks + 1;
+  if (!user) {
+    showToast('Please sign in first.', 'error');
+    return;
+  }
 
-    const { data: customTaskData } = await supabase
-      .from('custom_tasks')
-      .select('*')
-      .eq('user_id', user?.id)
-      .eq('task_number', nextTaskNum)
-      .eq('is_active', true)
-      .maybeSingle();
+  setIsGrabbing(true);
+  const nextTaskNum = completedTasks + 1;
 
-    setTimeout(async () => {
+  const { data: customTaskData, error: customTaskError } = await supabase
+    .from('custom_tasks')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('task_number', nextTaskNum)
+    .eq('is_active', true)
+    .eq('status', 'pending')
+    .eq('is_lucky_order', true)
+    .maybeSingle();
+
+  if (customTaskError) {
+    console.error('Lucky Order lookup failed:', customTaskError);
+    showToast('Could not load your task. Please try again.', 'error');
+    setIsGrabbing(false);
+    return;
+  }
+
+  setTimeout(async () => {
+    try {
       let grabbedProduct: ProductTask;
-      const activePool = dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
+      const activePool =
+        dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
 
       if (customTaskData) {
-        const minAmt = Number(customTaskData.min_amount) || 50;
-        const maxAmt = Number(customTaskData.max_amount) || 60;
-        const targetLuckyAmount = parseFloat((Math.random() * (maxAmt - minAmt) + minAmt).toFixed(2));
-        
-        const exactCommRate = Number(customTaskData.commission_rate ?? customTaskData.commission ?? 5);
-        const taskComm = parseFloat(((targetLuckyAmount * exactCommRate) / 100).toFixed(2));
+        // Use the exact amount and commission saved by admin.
+        const targetLuckyAmount = Number(
+          customTaskData.locked_price ?? customTaskData.task_amount
+        );
+
+        const taskComm = Number(
+          customTaskData.locked_commission ?? customTaskData.commission
+        );
+
+        if (
+          !Number.isFinite(targetLuckyAmount) ||
+          targetLuckyAmount <= 0 ||
+          !Number.isFinite(taskComm) ||
+          taskComm < 0
+        ) {
+          showToast('Lucky Order amount or commission is invalid.', 'error');
+          setIsGrabbing(false);
+          return;
+        }
 
         const displayNegativeAmt = -Math.abs(targetLuckyAmount);
         const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
@@ -383,111 +415,190 @@ Digital Marketing is an international legal platform offering genuine earning op
           price: targetLuckyAmount,
           commission: taskComm,
           rating: 5,
-          imageUrl: selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
+          imageUrl:
+            selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
           isLucky: true,
         };
 
-        await supabase
+        const { error: profileError } = await supabase
           .from('profiles')
-          .update({ running_tasks: displayNegativeAmt, pending_task: grabbedProduct })
-          .eq('id', user?.id);
+          .update({
+            running_tasks: displayNegativeAmt,
+            pending_task: grabbedProduct,
+          })
+          .eq('id', user.id);
+
+        if (profileError) {
+          console.error('Lucky Order save failed:', profileError);
+          showToast('Lucky Order could not be saved. Please try again.', 'error');
+          setIsGrabbing(false);
+          return;
+        }
 
         setRunningTasksVal(displayNegativeAmt);
       } else {
         if (balance <= 0) {
-          showToast('Insufficient balance! Please make a deposit request.', 'error');
+          showToast(
+            'Insufficient balance! Please make a deposit request.',
+            'error'
+          );
           setIsGrabbing(false);
           setShowDepositModal(true);
           return;
         }
 
-        const uniquePoolIndex = (completedTasks + (Math.floor(completedTasks / activePool.length) * 7)) % activePool.length;
+        const uniquePoolIndex =
+          (completedTasks +
+            Math.floor(completedTasks / activePool.length) * 7) %
+          activePool.length;
+
         const selectedOfficialProd = activePool[uniquePoolIndex];
 
-        let minPerc = 0.56;
-        let maxPerc = 0.75;
 
-        if (activeVipLevel.includes('Amazon VIP 1')) {
-          minPerc = 1.0; maxPerc = 10.0;
-        } else if (activeVipLevel.includes('AliExpress VIP 2')) {
-          minPerc = 1.0; maxPerc = 20.0;
-        } else if (activeVipLevel.includes('Shopify VIP 3')) {
-          minPerc = 1.0; maxPerc = 30.0;
-        } else {
-          minPerc = 0.56; maxPerc = 0.75;
-        }
+const itemPrice = Number(selectedOfficialProd.price);
 
-        const chosenPercent = Math.random() * (maxPerc - minPerc) + minPerc;
-        const itemPrice = Number(selectedOfficialProd.price);
-        const calculatedCommission = parseFloat(((itemPrice * chosenPercent) / 100).toFixed(2));
+// Regular task commission: fixed dollar ranges.
+const vipLevel = String(activeVipLevel);
+
+let minCommissionCents = 50;  // Normal: $0.50
+let maxCommissionCents = 75;  // Normal: $0.75
+
+if (vipLevel.includes('VIP 3')) {
+  minCommissionCents = 100;   // VIP 3: $1.00
+  maxCommissionCents = 1200;  // VIP 3: $12.00
+} else if (vipLevel.includes('VIP 2')) {
+  minCommissionCents = 100;   // VIP 2: $1.00
+  maxCommissionCents = 1000;  // VIP 2: $10.00
+} else if (vipLevel.includes('VIP 1')) {
+  minCommissionCents = 100;   // VIP 1: $1.00
+  maxCommissionCents = 500;   // VIP 1: $5.00
+}
+
+// Random commission in cents, including cents such as $1.20.
+const calculatedCommission =
+  (
+    Math.floor(
+      Math.random() *
+        (maxCommissionCents - minCommissionCents + 1)
+    ) + minCommissionCents
+  ) / 100;
+
 
         grabbedProduct = {
           id: nextTaskNum,
           name: selectedOfficialProd.name,
           store: selectedOfficialProd.store || 'Amazon',
           price: itemPrice,
-          commission: Math.max(calculatedCommission, 0.10),
+          commission: calculatedCommission,
           rating: 5,
-          imageUrl: selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
+          imageUrl:
+            selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
           isLucky: false,
         };
 
-        await supabase
+        const { error: profileError } = await supabase
           .from('profiles')
-          .update({ pending_task: grabbedProduct, running_tasks: 0 })
-          .eq('id', user?.id);
+          .update({
+            pending_task: grabbedProduct,
+            running_tasks: 0,
+          })
+          .eq('id', user.id);
+
+        if (profileError) {
+          console.error('Product task save failed:', profileError);
+          showToast('Could not save task. Please try again.', 'error');
+          setIsGrabbing(false);
+          return;
+        }
 
         setRunningTasksVal(0);
       }
 
       setCurrentTask(grabbedProduct);
-      setIsGrabbing(false);
       setShowFullPageTask(true);
-    }, 1000);
-  };
-  
-  const handleConfirmTask = async () => {
-    if (!currentTask || !user) return;
+    } catch (error) {
+      console.error('Grab task failed:', error);
+      showToast('Could not load task. Please try again.', 'error');
+    } finally {
+      setIsGrabbing(false);
+    }
+  }, 1000);
+};
 
-    if (runningTasksVal < 0 || balance < 0) {
-      showToast('Your lucky order is pending please complete your recharge and contact with customer service for approval your order', 'error');
-      setShowFullPageTask(false);
-      setShowDepositModal(true);
+const handleConfirmTask = async () => {
+  if (!currentTask || !user) return;
+
+  if (runningTasksVal < 0 || balance < 0) {
+    showToast(
+      'Your lucky order is pending. Please contact customer service for assistance.',
+      'error'
+    );
+    setShowFullPageTask(false);
+    setShowDepositModal(true);
+    return;
+  }
+
+  const newCompletedCount = completedTasks + 1;
+  const newComm = parseFloat(
+    (todayCommission + currentTask.commission).toFixed(2)
+  );
+  const newBal = parseFloat(
+    (balance + currentTask.commission).toFixed(2)
+  );
+
+  // Update the profile first; do not change local state if it fails.
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({
+      balance: newBal,
+      total_profits: newComm,
+      completed_tasks: newCompletedCount,
+      running_tasks: 0,
+      pending_task: null,
+    })
+    .eq('id', user.id);
+
+  if (profileError) {
+    console.error('Task completion profile update failed:', profileError);
+    showToast('Task completion could not be saved. Please try again.', 'error');
+    return;
+  }
+
+  // Preserve the Lucky Order row for admin records.
+  if (currentTask.isLucky) {
+    const { error: taskError } = await supabase
+      .from('custom_tasks')
+      .update({
+        status: 'completed',
+        is_active: false,
+      })
+      .eq('user_id', user.id)
+      .eq('task_number', currentTask.id)
+      .eq('is_lucky_order', true);
+
+    if (taskError) {
+      console.error('Lucky Order status update failed:', taskError);
+      showToast(
+        'Profile saved, but task status could not be updated. Contact support before retrying.',
+        'error'
+      );
       return;
     }
+  }
 
-    const newCompletedCount = completedTasks + 1;
-    const newComm = parseFloat((todayCommission + currentTask.commission).toFixed(2));
-    const newBal = parseFloat((balance + currentTask.commission).toFixed(2));
+  setCompletedTasks(newCompletedCount);
+  setTodayCommission(newComm);
+  setBalance(newBal);
+  setRunningTasksVal(0);
+  setRecordsList((prev) => [currentTask, ...prev]);
 
-    setCompletedTasks(newCompletedCount);
-    setTodayCommission(newComm);
-    setBalance(newBal);
-    setRunningTasksVal(0);
+  showToast(
+    `Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`
+  );
 
-    await supabase
-      .from('profiles')
-      .update({ 
-        balance: newBal, 
-        total_profits: newComm, 
-        completed_tasks: newCompletedCount, 
-        running_tasks: 0, 
-        pending_task: null 
-      })
-      .eq('id', user.id);
-
-    await supabase
-      .from('custom_tasks')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('task_number', currentTask.id);
-
-    setRecordsList((prev) => [currentTask, ...prev]);
-
-    showToast(`Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`);
-    setCurrentTask(null);
-    setShowFullPageTask(false);
-  };
+  setCurrentTask(null);
+  setShowFullPageTask(false);
+};
 
   const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

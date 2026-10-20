@@ -84,6 +84,9 @@ interface SubAdminUser {
     tasks: boolean;
     support: boolean;
     products: boolean;
+    invitationCode?: boolean;
+    telegram?: boolean;
+    whatsapp?: boolean;
   };
 }
 
@@ -103,6 +106,30 @@ interface AdminNotification {
   created_at: string;
 }
 
+type SubAdminPermissions = {
+  users: boolean;
+  deposits: boolean;
+  withdrawals: boolean;
+  tasks: boolean;
+  support: boolean;
+  products: boolean;
+  invitationCode: boolean;
+  telegram: boolean;
+  whatsapp: boolean;
+};
+
+const defaultSubAdminPermissions: SubAdminPermissions = {
+  users: true,
+  deposits: true,
+  withdrawals: true,
+  tasks: false,
+  support: true,
+  products: false,
+  invitationCode: true,
+  telegram: true,
+  whatsapp: true,
+};
+
 export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'users' | 'deposits' | 'withdrawals' | 'tasks' | 'products' | 'support' | 'whatsapp_telegram' | 'settings' | 'delete_users'
@@ -114,39 +141,34 @@ export const AdminDashboard: React.FC = () => {
   const [depositSearchQuery, setDepositSearchQuery] = useState('');
   const [withdrawSearchQuery, setWithdrawSearchQuery] = useState('');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
-  const [chatSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [newProdCategory, _setNewProdCategory] = useState('Beauty & Skincare');  
   const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
   const [isMainAdmin, setIsMainAdmin] = useState(true);
   const [subAdminDbId, setSubAdminDbId] = useState('');
   const [subAdminInviteCode, setSubAdminInviteCode] = useState('');
-  const [subAdminPermissions, setSubAdminPermissions] = useState({
-    users: true,
-    deposits: true,
-    withdrawals: true,
-    tasks: true,
-    support: true,
-    products: true,
-  });
+  const [subAdminPermissions, setSubAdminPermissions] = useState<SubAdminPermissions>(defaultSubAdminPermissions);
 
   const [mainAdminEmail, setMainAdminEmail] = useState('admin@gmail.com');
   const [mainAdminPassword, setMainAdminPassword] = useState('');
   const [depositTrc20, setDepositTrc20] = useState(() => localStorage.getItem('global_trc20') || 'TYA83kNx9XmR2pQz1L7W4sV6B0c9e5F8dH');
   const [mainInviteCode, setMainInviteCode] = useState(() => localStorage.getItem('global_invite') || 'MAIN2026');
-
+  
   const [telegramUrl, setTelegramUrl] = useState('https://t.me');
   const [whatsappUrl, setWhatsappUrl] = useState('https://whatsapp.com');
   
   const [subAdminEditableEmail, setSubAdminEditableEmail] = useState('');
   const [subAdminEditablePassword, setSubAdminEditablePassword] = useState('');
   const [subAdminEditableInviteCode, setSubAdminEditableInviteCode] = useState('');
-
+  const [subAdminEditableTelegram, setSubAdminEditableTelegram] = useState('');
+  const [subAdminEditableWhatsapp, setSubAdminEditableWhatsapp] = useState('');
   const [waConnected, setWaConnected] = useState(false);
   const [tgConnected, setTgConnected] = useState(false);
   const [whatsappQrUrl] = useState('https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://web.whatsapp.com');
   const [telegramQrUrl] = useState('https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://web.telegram.org');
 
+  const [editSubTelegram, setEditSubTelegram] = useState('');
+  const [editSubWhatsapp, setEditSubWhatsapp] = useState('');
   const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -159,14 +181,7 @@ export const AdminDashboard: React.FC = () => {
   const [editSubEmail, setEditSubEmail] = useState('');
   const [editSubPassword, setEditSubPassword] = useState('');
   const [editSubInviteCode, setEditSubInviteCode] = useState('');
-  const [editSubPerms, setEditSubPerms] = useState({
-    users: true,
-    deposits: true,
-    withdrawals: true,
-    tasks: true,
-    support: true,
-    products: true,
-  });
+  const [editSubPerms, setEditSubPerms] = useState<SubAdminPermissions>(defaultSubAdminPermissions);
 
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerResult, setScannerResult] = useState<any>(null);
@@ -188,6 +203,10 @@ export const AdminDashboard: React.FC = () => {
   const [isFullPageTaskSettings, setIsFullPageTaskSettings] = useState(false);
   const [fundInput, setFundInput] = useState('');
 
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [qrPreviewUrl, setQrPreviewUrl] = useState('');
+  const [qrUploading, setQrUploading] = useState(false);
+  const [qrFile, setQrFile] = useState<File | null>(null);
   const [editVipLevel, setEditVipLevel] = useState('VIP 0 - Regular');
   const [editWithdrawPass, setEditWithdrawPass] = useState('');
   const [editLoginPass, setEditLoginPass] = useState('');
@@ -251,7 +270,10 @@ export const AdminDashboard: React.FC = () => {
         setSubAdminInviteCode(cleanCode);
         setSubAdminEditableInviteCode(cleanCode);
         if (subData.permissions) {
-          setSubAdminPermissions(subData.permissions);
+          setSubAdminPermissions({
+            ...defaultSubAdminPermissions,
+            ...subData.permissions,
+          });
         }
         if (subData.telegram_url) setTelegramUrl(subData.telegram_url);
         if (subData.whatsapp_url) setWhatsappUrl(subData.whatsapp_url);
@@ -283,21 +305,54 @@ export const AdminDashboard: React.FC = () => {
     const { data: prodList } = await supabase.from('products').select('*').order('created_at', { ascending: false });
     if (prodList) setProductsList(prodList);
 
-    const { data: subList } = await supabase.from('sub_admins').select('*');
-    if (subList) setSubAdmins(subList);
+    if (isMainAdmin) {
+      const { data: subList, error: subListError } = await supabase
+        .from('sub_admins')
+        .select('id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at');
+
+      if (subListError) {
+        console.error('Failed to load Sub-Admins:', subListError.message);
+      } else if (subList) {
+        setSubAdmins(subList);
+      }
+    }
 
     const { data: notifList } = await supabase.from('admin_notifications').select('*').order('created_at', { ascending: false });
     if (notifList) setNotifications(notifList);
 
-    const { data: settingsData } = await supabase.from('system_settings').select('*').maybeSingle();
-    if (settingsData) {
-      if (settingsData.main_invite_code) {
-        setMainInviteCode(settingsData.main_invite_code);
-        localStorage.setItem('global_invite', settingsData.main_invite_code);
-      }
+    const {
+      data: settingsData,
+      error: settingsError,
+    } = await supabase
+      .from('system_settings')
+      .select('id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (settingsError) {
+      console.error('Failed to load system settings:', settingsError);
+    } else if (settingsData) {
+      setDepositTrc20(settingsData.deposit_trc20_address ?? '');
+      setMainInviteCode(settingsData.main_invite_code ?? '');
+      setQrCodeUrl(settingsData.qr_code_url ?? '');
       if (settingsData.deposit_trc20_address) {
-        setDepositTrc20(settingsData.deposit_trc20_address);
         localStorage.setItem('global_trc20', settingsData.deposit_trc20_address);
+      } else {
+        localStorage.removeItem('global_trc20');
+      }
+
+      if (settingsData.main_invite_code) {
+        localStorage.setItem('global_invite', settingsData.main_invite_code);
+      } else {
+        localStorage.removeItem('global_invite');
+      }
+
+      if (settingsData.telegram_url !== null) {
+        setTelegramUrl(settingsData.telegram_url ?? '');
+      }
+
+      if (settingsData.whatsapp_url !== null) {
+        setWhatsappUrl(settingsData.whatsapp_url ?? '');
       }
     }
 
@@ -520,6 +575,64 @@ export const AdminDashboard: React.FC = () => {
       await fetchUserCustomTasks(selectedUserForModal.id);
     } catch (err: any) {
       showToast(err?.message || 'Could not save the Lucky Order.', 'error');
+    }
+  };
+
+  const handleUploadQr = async () => {
+    if (!isMainAdmin) {
+      showToast('Only Main Admin can upload the QR code.', 'error');
+      return;
+    }
+
+    if (!qrFile) {
+      showToast('Please select a QR image first.', 'error');
+      return;
+    }
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+
+    if (!allowedTypes.includes(qrFile.type)) {
+      showToast('Please select a PNG, JPG, or WebP image.', 'error');
+      return;
+    }
+
+    if (qrFile.size > 2 * 1024 * 1024) {
+      showToast('QR image must be 2 MB or smaller.', 'error');
+      return;
+    }
+
+    setQrUploading(true);
+
+    try {
+      const filePath = `main/payment-qr-${Date.now()}.${qrFile.type === 'image/png' ? 'png' : qrFile.type === 'image/webp' ? 'webp' : 'jpg'}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('payment-qr')
+        .upload(filePath, qrFile, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: qrFile.type,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('payment-qr')
+        .getPublicUrl(filePath);
+
+      if (!data.publicUrl) {
+        throw new Error('Could not generate QR image URL.');
+      }
+
+      setQrCodeUrl(data.publicUrl);
+      setQrPreviewUrl(data.publicUrl);
+
+      showToast('QR image uploaded. Now click Save Global System Settings.');
+    } catch (err: any) {
+      console.error('QR upload failed:', err);
+      showToast(err.message || 'QR upload failed.', 'error');
+    } finally {
+      setQrUploading(false);
     }
   };
 
@@ -768,52 +881,160 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // AUTO ADD & RELEASE LOCK ON DEPOSIT APPROVAL
-  const handleDepositAction = async (deposit: DepositRecord, status: 'approved' | 'rejected') => {
+  const handleDepositAction = async (
+    deposit: DepositRecord,
+    status: 'approved' | 'rejected'
+  ) => {
     if (deposit.status !== 'pending') {
       showToast('This deposit has already been processed.', 'error');
       return;
     }
 
     try {
-      const { data: updatedDeposit, error: depError } = await supabase
-        .from('deposits')
-        .update({ status })
-        .eq('id', deposit.id)
-        .eq('status', 'pending')
-        .select('id, status, amount, user_id')
-        .maybeSingle();
-
-      if (depError || !updatedDeposit) {
-        showToast('Deposit already processed or error updating.', 'error');
-        return;
-      }
-
       if (status === 'approved') {
-        const user = customers.find((c) => c.id === deposit.user_id);
-        if (user) {
-          const newBal = user.balance + deposit.amount;
-          await supabase.from('profiles').update({ balance: newBal, auto_task_lock: false }).eq('id', deposit.user_id);
-          setCustomers((prev) => prev.map((c) => (c.id === deposit.user_id ? { ...c, balance: newBal, auto_task_lock: false } : c)));
+        const { data, error } = await supabase.rpc(
+          'approve_deposit_and_release',
+          { p_deposit_id: deposit.id }
+        );
+
+        if (error) throw error;
+
+        if (!data?.success) {
+          throw new Error('Deposit approval was not confirmed.');
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('deposits')
+          .update({ status: 'rejected' })
+          .eq('id', deposit.id)
+          .eq('status', 'pending')
+          .select('id')
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!data) {
+          throw new Error('Deposit already processed or not found.');
         }
       }
 
-      showToast(`Deposit request ${status.toUpperCase()}! Funds added & task lock released.`);
-      setDeposits((prev) => prev.map((item) => (item.id === deposit.id ? { ...item, status } : item)));
+      const { data: latestDeposits, error: depositsError } =
+        await supabase
+          .from('deposits')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+      if (depositsError) throw depositsError;
+
+      if (latestDeposits) {
+        setDeposits(latestDeposits);
+      }
+
+      const { data: latestCustomers, error: customersError } =
+        await supabase
+          .from('profiles')
+          .select('*');
+
+      if (customersError) throw customersError;
+
+      if (latestCustomers) {
+        setCustomers((prev) =>
+          prev.map((customer) => {
+            const latest = latestCustomers.find(
+              (profile) => profile.id === customer.id
+            );
+
+            return latest
+              ? { ...customer, ...latest }
+              : customer;
+          })
+        );
+      }
+
+      showToast(
+        status === 'approved'
+          ? 'Deposit approved and balance released successfully!'
+          : 'Deposit rejected successfully!'
+      );
     } catch (err: any) {
-      showToast(err?.message || 'Could not process deposit.', 'error');
+      console.error('Deposit action failed:', err);
+      showToast(
+        err?.message || 'Could not process deposit.',
+        'error'
+      );
     }
   };
 
   const handleCheckTrc20Transfers = async () => {
     setScannerLoading(true);
     setScannerResult(null);
+
     try {
-      const { data, error } = await supabase.functions.invoke('trc20-deposit-scanner', { method: 'GET' });
-      if (error) throw error;
-      setScannerResult(data ?? { ok: false, message: 'No response' });
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session?.access_token) {
+        throw new Error('Admin session missing. Please log in again.');
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        'trc20-deposit-scanner',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      if (error) {
+        let details = error.message || 'Scanner request failed.';
+
+        try {
+          const responseContext = (error as any).context;
+
+          if (responseContext) {
+            let body: any = null;
+
+            try {
+              body = await responseContext.clone().json();
+            } catch {
+              const text = await responseContext.clone().text();
+              body = { message: text };
+            }
+
+            details = [
+              body?.message || details,
+              body?.upstream_status ? `Upstream status: ${body.upstream_status}` : '',
+              body?.upstream_error ? `Details: ${body.upstream_error}` : '',
+            ]
+              .filter(Boolean)
+              .join(' | ');
+          }
+        } catch {
+          // Keep original error
+        }
+
+        throw new Error(details);
+      }
+
+      setScannerResult(
+        data ?? {
+          ok: false,
+          message: 'No response from scanner.',
+        }
+      );
     } catch (err: any) {
-      setScannerResult({ ok: false, message: err?.message || 'Scanner connection failed' });
+      setScannerResult({
+        ok: false,
+        message: err?.message || 'Scanner connection failed.',
+      });
     } finally {
       setScannerLoading(false);
     }
@@ -859,36 +1080,86 @@ export const AdminDashboard: React.FC = () => {
 
   const handleSaveSubAdminSelfProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isMainAdmin || !subAdminDbId) {
+      showToast('Invalid Sub-Admin session.', 'error');
+      return;
+    }
+
     try {
       const oldEmail = currentAdminEmail;
       const newEmail = subAdminEditableEmail.trim().toLowerCase();
       const newInvite = subAdminEditableInviteCode.trim().toUpperCase();
+      const newTelegram = subAdminEditableTelegram.trim();
+      const newWhatsapp = subAdminEditableWhatsapp.trim();
 
-      const updatePayload: any = {
-        email: newEmail,
-        telegram_url: telegramUrl,
-        whatsapp_url: whatsappUrl
-      };
-
-      if (newInvite) updatePayload.invite_code = newInvite;
-      if (subAdminEditablePassword.trim()) updatePayload.password = subAdminEditablePassword.trim();
-
-      const { error } = await supabase.from('sub_admins').update(updatePayload).eq('id', subAdminDbId);
-      if (error) throw error;
-
-      const changesList = [];
-      if (oldEmail !== newEmail) changesList.push(`Email changed to ${newEmail}`);
-      if (newInvite && newInvite !== subAdminInviteCode) changesList.push(`Invitation code changed to ${newInvite}`);
-
-      if (changesList.length > 0) {
-        await supabase.from('admin_notifications').insert([
-          { sub_admin_email: newEmail, message: `Sub-Admin (${oldEmail}): ${changesList.join(', ')}` }
-        ]);
+      if (!newEmail) {
+        showToast('Email is required.', 'error');
+        return;
       }
 
-      localStorage.setItem('sub_admin_logged_in', newEmail);
-      setCurrentAdminEmail(newEmail);
-      setSubAdminInviteCode(newInvite);
+      const updatePayload: Record<string, string> = {
+        email: newEmail,
+      };
+
+      if (subAdminPermissions.invitationCode) {
+        updatePayload.invite_code = newInvite;
+      }
+
+      if (subAdminPermissions.telegram) {
+        updatePayload.telegram_url = newTelegram;
+      }
+
+      if (subAdminPermissions.whatsapp) {
+        updatePayload.whatsapp_url = newWhatsapp;
+      }
+
+      const { error } = await supabase
+        .from('sub_admins')
+        .update(updatePayload)
+        .eq('id', subAdminDbId)
+        .eq('email', oldEmail);
+
+      if (error) throw error;
+
+      const changesList: string[] = [];
+
+      if (oldEmail !== newEmail) {
+        changesList.push('Email updated');
+        localStorage.setItem('sub_admin_logged_in', newEmail);
+        setCurrentAdminEmail(newEmail);
+      }
+
+      if (subAdminPermissions.invitationCode) {
+        setSubAdminInviteCode(newInvite);
+        setSubAdminEditableInviteCode(newInvite);
+
+        if (newInvite) {
+          changesList.push('Invitation code updated');
+        }
+      }
+
+      if (subAdminPermissions.telegram) {
+        changesList.push('Telegram link updated');
+      }
+
+      if (subAdminPermissions.whatsapp) {
+        changesList.push('WhatsApp link updated');
+      }
+
+      if (changesList.length > 0) {
+        const { error: notificationError } = await supabase
+          .from('admin_notifications')
+          .insert({
+            sub_admin_email: newEmail,
+            message: `Sub-Admin (${oldEmail}): ${changesList.join(', ')}`,
+          });
+
+        if (notificationError) {
+          console.error('Notification save failed:', notificationError.message);
+        }
+      }
+
       showToast('Sub-Admin profile updated successfully!');
     } catch (err: any) {
       showToast(err.message || 'Error updating profile', 'error');
@@ -897,33 +1168,54 @@ export const AdminDashboard: React.FC = () => {
 
   const handleSaveMainSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!isMainAdmin) {
       showToast('Only Main Admin can change global settings.', 'error');
       return;
     }
 
     try {
+      const cleanAddress = depositTrc20.trim();
       const cleanMainInvite = mainInviteCode.trim().toUpperCase();
-      const { error } = await supabase
+
+      if (!cleanAddress) {
+        showToast('Please enter your TRC20 address.', 'error');
+        return;
+      }
+
+      const { data: savedRows, error: saveError } = await supabase
         .from('system_settings')
         .upsert({
           id: 1,
           key: 'main',
-          deposit_trc20_address: depositTrc20,
+          deposit_trc20_address: cleanAddress,
           main_invite_code: cleanMainInvite,
-          telegram_url: telegramUrl,
-          whatsapp_url: whatsappUrl,
-        });
+          qr_code_url: qrCodeUrl.trim(),
+          telegram_url: telegramUrl.trim(),
+          whatsapp_url: whatsappUrl.trim(),
+        })
+        .select('id, deposit_trc20_address, main_invite_code, qr_code_url')
+        .single();
 
-      if (error) throw error;
+      if (saveError) {
+        console.error('Settings save failed:', saveError);
+        throw saveError;
+      }
 
-      localStorage.setItem('global_trc20', depositTrc20);
-      localStorage.setItem('global_invite', cleanMainInvite);
-      setMainInviteCode(cleanMainInvite);
+      if (savedRows.deposit_trc20_address !== cleanAddress) {
+        throw new Error('Saved TRC20 address does not match the entered address.');
+      }
 
-      showToast('Global System Settings Saved!');
+      setDepositTrc20(savedRows.deposit_trc20_address);
+      setMainInviteCode(savedRows.main_invite_code ?? '');
+      setQrCodeUrl(savedRows.qr_code_url ?? '');
+      localStorage.setItem('global_trc20', savedRows.deposit_trc20_address);
+      localStorage.setItem('global_invite', savedRows.main_invite_code ?? '');
+
+      showToast('Settings saved and verified in Supabase!');
     } catch (err: any) {
-      showToast(err.message || 'Failed to save settings', 'error');
+      console.error('Main settings error:', err);
+      showToast(err.message || 'Failed to save settings.', 'error');
     }
   };
 
@@ -954,7 +1246,18 @@ export const AdminDashboard: React.FC = () => {
     }
 
     try {
-      const permissions = { users: true, deposits: true, withdrawals: true, support: true, tasks: false, products: false };
+      const permissions: SubAdminPermissions = {
+        users: true,
+        deposits: true,
+        withdrawals: true,
+        support: true,
+        tasks: false,
+        products: false,
+        invitationCode: true,
+        telegram: true,
+        whatsapp: true
+      };
+
       const { data: insertedData, error } = await supabase
         .from('sub_admins')
         .insert([{
@@ -993,16 +1296,47 @@ export const AdminDashboard: React.FC = () => {
 
   const handleSaveSubAdminSettings = async () => {
     if (!isMainAdmin || !selectedSubAdminForModal) return;
-    try {
-      const payload: any = { permissions: editSubPerms };
-      if (editSubEmail.trim()) payload.email = editSubEmail.trim().toLowerCase();
-      if (editSubPassword.trim()) payload.password = editSubPassword.trim();
-      if (editSubInviteCode.trim()) payload.invite_code = editSubInviteCode.trim().toUpperCase();
 
-      const { error } = await supabase.from('sub_admins').update(payload).eq('id', selectedSubAdminForModal.id);
+    try {
+      const payload: any = {
+        permissions: editSubPerms,
+      };
+
+      if (editSubEmail.trim()) {
+        payload.email = editSubEmail.trim().toLowerCase();
+      }
+
+      if (editSubPassword.trim()) {
+        payload.password = editSubPassword.trim();
+      }
+
+      if (editSubInviteCode.trim()) {
+        payload.invite_code = editSubInviteCode.trim().toUpperCase();
+      }
+
+      if (editSubTelegram.trim()) {
+        payload.telegram_url = editSubTelegram.trim();
+      }
+
+      if (editSubWhatsapp.trim()) {
+        payload.whatsapp_url = editSubWhatsapp.trim();
+      }
+
+      const { error } = await supabase
+        .from('sub_admins')
+        .update(payload)
+        .eq('id', selectedSubAdminForModal.id);
+
       if (error) throw error;
 
-      setSubAdmins((prev) => prev.map((s) => s.id === selectedSubAdminForModal.id ? { ...s, ...payload } : s));
+      setSubAdmins((prev) =>
+        prev.map((s) =>
+          s.id === selectedSubAdminForModal.id
+            ? { ...s, ...payload }
+            : s
+        )
+      );
+
       showToast('Sub-Admin settings updated!');
       setSelectedSubAdminForModal(null);
     } catch (err: any) {
@@ -1040,7 +1374,6 @@ export const AdminDashboard: React.FC = () => {
     );
   };
 
-  // EXACT MATCHING SEARCH FILTER
   const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
     if (!q || !q.trim()) return true;
     const cleanQ = q.toLowerCase().trim().replace('#', '');
@@ -1109,7 +1442,7 @@ export const AdminDashboard: React.FC = () => {
     const cust = customers.find(c => c.id === uId);
     if (!cust) return false;
     if (!isMainAdmin && !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
-    return filterByUniversalQuery(cust, chatSearchQuery);
+    return filterByUniversalQuery(cust, searchQuery);
   });
 
   const activeUserChatHistory = chatMessages.filter(
@@ -1181,7 +1514,7 @@ export const AdminDashboard: React.FC = () => {
               </button>
             )}
 
-            {isMainAdmin && (
+            {(isMainAdmin || subAdminPermissions.telegram || subAdminPermissions.whatsapp) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('whatsapp_telegram'); }}
                 className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'whatsapp_telegram' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-200 hover:bg-blue-800'}`}
@@ -1605,14 +1938,26 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-              <button
-                type="button"
-                onClick={handleCheckTrc20Transfers}
-                disabled={scannerLoading}
-                className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {scannerLoading ? 'Checking...' : 'Check Confirmed Transfers'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCheckTrc20Transfers}
+                  disabled={scannerLoading}
+                  className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {scannerLoading ? 'Checking...' : 'Check Confirmed Transfers'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    showToast('Confirm Funds will be enabled after secure payment matching is implemented.', 'error');
+                  }}
+                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700"
+                >
+                  Confirm Funds
+                </button>
+              </div>
 
               {scannerResult && (
                 <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs">
@@ -2043,31 +2388,97 @@ export const AdminDashboard: React.FC = () => {
         {/* TAB 8: ADMIN SETTINGS & SUB-ADMIN NOTIFICATIONS */}
         {!isFullPageTaskSettings && activeTab === 'settings' && (
           <div className="space-y-6">
-            
+
             {!isMainAdmin && (
               <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🛠️ Sub-Admin Profile Settings</h3>
+                <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">
+                  🛠️ Sub-Admin Profile Settings
+                </h3>
+
                 <form onSubmit={handleSaveSubAdminSelfProfile} className="space-y-3 text-xs">
+
                   <div>
-                    <label className="font-bold text-slate-600 block mb-1">Email</label>
-                    <input type="email" value={subAdminEditableEmail} onChange={(e) => setSubAdminEditableEmail(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
+                    <label className="font-bold text-slate-600 block mb-1">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={subAdminEditableEmail}
+                      onChange={(e) => setSubAdminEditableEmail(e.target.value)}
+                      className="w-full bg-slate-50 border rounded-xl p-2.5"
+                    />
                   </div>
+
                   <div>
-                    <label className="font-bold text-slate-600 block mb-1">New Password (Optional)</label>
-                    <input type="password" value={subAdminEditablePassword} onChange={(e) => setSubAdminEditablePassword(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
+                    <label className="font-bold text-slate-600 block mb-1">
+                      New Password (Optional)
+                    </label>
+                    <input
+                      type="password"
+                      value={subAdminEditablePassword}
+                      onChange={(e) => setSubAdminEditablePassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full bg-slate-50 border rounded-xl p-2.5"
+                    />
                   </div>
-                  <div>
-                    <label className="font-bold text-slate-600 block mb-1">Invitation Code</label>
-                    <input type="text" value={subAdminEditableInviteCode} onChange={(e) => setSubAdminEditableInviteCode(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5 font-bold uppercase" />
-                  </div>
-                  <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">Save Changes</button>
+
+                  {subAdminPermissions.invitationCode && (
+                    <div>
+                      <label className="font-bold text-slate-600 block mb-1">
+                        Your Invitation Code
+                      </label>
+                      <input
+                        type="text"
+                        value={subAdminEditableInviteCode}
+                        onChange={(e) => setSubAdminEditableInviteCode(e.target.value.toUpperCase())}
+                        className="w-full bg-slate-50 border rounded-xl p-2.5 font-bold uppercase"
+                      />
+                    </div>
+                  )}
+
+                  {subAdminPermissions.telegram && (
+                    <div>
+                      <label className="font-bold text-slate-600 block mb-1">
+                        Your Telegram Link
+                      </label>
+                      <input
+                        type="url"
+                        value={subAdminEditableTelegram}
+                        onChange={(e) => setSubAdminEditableTelegram(e.target.value)}
+                        placeholder="https://t.me/your_username"
+                        className="w-full bg-slate-50 border rounded-xl p-2.5"
+                      />
+                    </div>
+                  )}
+
+                  {subAdminPermissions.whatsapp && (
+                    <div>
+                      <label className="font-bold text-slate-600 block mb-1">
+                        Your WhatsApp Link
+                      </label>
+                      <input
+                        type="url"
+                        value={subAdminEditableWhatsapp}
+                        onChange={(e) => setSubAdminEditableWhatsapp(e.target.value)}
+                        placeholder="https://wa.me/..."
+                        className="w-full bg-slate-50 border rounded-xl p-2.5"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow"
+                  >
+                    Save Changes
+                  </button>
+
                 </form>
               </div>
             )}
 
             {isMainAdmin && (
               <div className="space-y-6">
-                
                 {/* NOTIFICATIONS DROPDOWN / ACCORDION UI */}
                 <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-200 space-y-3">
                   <div 
@@ -2118,7 +2529,86 @@ export const AdminDashboard: React.FC = () => {
                         <input type="text" value={depositTrc20} onChange={(e) => setDepositTrc20(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-blue-900 font-bold" />
                       </div>
                       <div>
-                        <label className="font-bold text-slate-600 block mb-1">Main Invitation Code (Live Database Sync)</label>
+                      
+                      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-11 w-11 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 text-xl">
+                            ▦
+                          </div>
+                          <div>
+                            <h4 className="font-extrabold text-indigo-950">
+                              TRC20 Payment QR Code
+                            </h4>
+                            <p className="text-[10px] text-slate-500">
+                              Upload the QR shown on the customer Deposit page.
+                            </p>
+                          </div>
+                        </div>
+
+                        {(qrPreviewUrl || qrCodeUrl) && (
+                          <div className="flex justify-center rounded-xl border border-slate-200 bg-white p-3">
+                            <img
+                              src={qrPreviewUrl || qrCodeUrl}
+                              alt="TRC20 payment QR preview"
+                              className="h-40 w-40 object-contain"
+                            />
+                          </div>
+                        )}
+
+                        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-indigo-300 bg-white p-5 text-center hover:bg-indigo-50 transition">
+                          <span className="text-2xl mb-2">☁️</span>
+                          <span className="text-xs font-extrabold text-indigo-900">
+                            Choose QR Image
+                          </span>
+                          <span className="mt-1 text-[10px] text-slate-500">
+                            PNG, JPG or WebP · Maximum 2 MB
+                          </span>
+
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+
+                              const allowedTypes = [
+                                'image/png',
+                                'image/jpeg',
+                                'image/webp',
+                              ];
+
+                              if (!allowedTypes.includes(file.type)) {
+                                showToast('Please choose a PNG, JPG, or WebP image.', 'error');
+                                e.currentTarget.value = '';
+                                return;
+                              }
+
+                              if (file.size > 2 * 1024 * 1024) {
+                                showToast('Image must be 2 MB or smaller.', 'error');
+                                e.currentTarget.value = '';
+                                return;
+                              }
+
+                              setQrFile(file);
+
+                              const previewUrl = URL.createObjectURL(file);
+                              setQrPreviewUrl(previewUrl);
+                            }}
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          disabled={!qrFile || qrUploading}
+                          onClick={handleUploadQr}
+                          className="w-full rounded-xl bg-indigo-700 py-3 text-xs font-black text-white shadow-lg transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {qrUploading ? 'Uploading QR...' : '↑ Upload QR Image'}
+                        </button>
+                      </div>
+
+                      <label className="font-bold text-slate-600 block mb-1 mt-3">Main Invitation Code (Live Database Sync)</label>
                         <input 
                           type="text" 
                           value={mainInviteCode} 
@@ -2197,7 +2687,19 @@ export const AdminDashboard: React.FC = () => {
                                   setEditSubEmail(sub.email || '');
                                   setEditSubPassword('');
                                   setEditSubInviteCode(sub.invite_code || '');
-                                  setEditSubPerms(sub.permissions || { users: true, deposits: true, withdrawals: true, tasks: true, support: true, products: true });
+                                  setEditSubTelegram(sub.telegram_url || '');
+                                  setEditSubWhatsapp(sub.whatsapp_url || '');
+                                  setEditSubPerms({
+                                    users: sub.permissions?.users ?? true,
+                                    deposits: sub.permissions?.deposits ?? true,
+                                    withdrawals: sub.permissions?.withdrawals ?? true,
+                                    tasks: sub.permissions?.tasks ?? false,
+                                    support: sub.permissions?.support ?? true,
+                                    products: sub.permissions?.products ?? false,
+                                    invitationCode: sub.permissions?.invitationCode ?? true,
+                                    telegram: sub.permissions?.telegram ?? true,
+                                    whatsapp: sub.permissions?.whatsapp ?? true,
+                                  });
                                 }}
                                 className="px-3 py-1.5 bg-blue-900 text-white font-black text-[10px] rounded-xl shadow hover:bg-blue-800 transition"
                               >
@@ -2456,6 +2958,18 @@ export const AdminDashboard: React.FC = () => {
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
                     <input type="checkbox" checked={editSubPerms.products} onChange={(e) => setEditSubPerms({ ...editSubPerms, products: e.target.checked })} />
                     <span>Products</span>
+                  </label>
+                  <label className="flex items-center space-x-2 font-bold text-slate-700">
+                    <input type="checkbox" checked={editSubPerms.invitationCode} onChange={(e) => setEditSubPerms({ ...editSubPerms, invitationCode: e.target.checked })} />
+                    <span>Invitation Code</span>
+                  </label>
+                  <label className="flex items-center space-x-2 font-bold text-slate-700">
+                    <input type="checkbox" checked={editSubPerms.telegram} onChange={(e) => setEditSubPerms({ ...editSubPerms, telegram: e.target.checked })} />
+                    <span>Telegram Link</span>
+                  </label>
+                  <label className="flex items-center space-x-2 font-bold text-slate-700">
+                    <input type="checkbox" checked={editSubPerms.whatsapp} onChange={(e) => setEditSubPerms({ ...editSubPerms, whatsapp: e.target.checked })} />
+                    <span>WhatsApp Link</span>
                   </label>
                 </div>
               </div>

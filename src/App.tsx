@@ -3,7 +3,6 @@ import { AuthProvider } from './context/AuthContext';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminRoute } from './components/AdminRoute';
 import { AdminDashboard } from './pages/AdminDashboard';
-import { SubAdminDashboard } from './pages/SubAdminDashboard';
 
 // Customer pages
 import { AuthPage } from './pages/AuthPage';
@@ -31,15 +30,12 @@ export default function App() {
             } 
           />
 
-          {/* Sub-Admin Portal Route */}
-          <Route 
-            path="/sub-admin/dashboard" 
-            element={
-              <AdminRoute>
-                <SubAdminDashboard />
-              </AdminRoute>
-            } 
-          />
+{/* Sub-Admin Portal — Shared Dashboard */}
+<Route
+  path="/sub-admin/dashboard"
+  element={<Navigate to="/admin/dashboard" replace />}
+/>
+
 
           {/* Redirect unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />

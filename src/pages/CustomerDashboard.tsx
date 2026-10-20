@@ -77,6 +77,12 @@ export const CustomerDashboard: React.FC = () => {
   const [userPhone, setUserPhone] = useState('');
   const [myInviteCode, setMyInviteCode] = useState('');
 
+  
+const [paymentMethod, setPaymentMethod] = useState<'trc20' | 'bank'>('trc20');
+const [paymentReference, setPaymentReference] = useState('');
+const [receiptFile, setReceiptFile] = useState<File | null>(null);
+
+
   const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
   const emailDisplay = userEmail.includes('@appuser.local') ? `${usernameDisplay} (Active)` : userEmail;
 
@@ -611,32 +617,125 @@ Digital Marketing is an international legal platform offering genuine earning op
     setShowFullPageTask(false);
   };
 
-  const handleDepositSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!depositAmount || Number(depositAmount) <= 0 || !user) {
-      showToast('Please enter a valid deposit amount', 'error');
-      return;
-    }
+  
+const handleDepositSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    const { error } = await supabase.from('deposits').insert([
-      {
+  if (!user) {
+    showToast('Please log in again.', 'error');
+    return;
+  }
+
+  const amount = Number(depositAmount);
+
+  if (!depositAmount || !Number.isFinite(amount) || amount <= 0) {
+    showToast('Please enter a valid deposit amount.', 'error');
+    return;
+  }
+
+  if (!receiptFile) {
+    showToast('Please upload your payment receipt screenshot.', 'error');
+    return;
+  }
+
+  if (paymentMethod === 'trc20' && !paymentReference.trim()) {
+    showToast('Please enter your TRC20 transaction ID (TXID).', 'error');
+    return;
+  }
+
+  if (paymentMethod === 'bank' && !paymentReference.trim()) {
+    showToast('Please enter your bank payment reference.', 'error');
+    return;
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+  if (!allowedTypes.includes(receiptFile.type)) {
+    showToast('Please upload a JPG, PNG or WEBP image.', 'error');
+    return;
+  }
+
+  if (receiptFile.size > 5 * 1024 * 1024) {
+    showToast('Receipt image must be 5 MB or smaller.', 'error');
+    return;
+  }
+
+  try {
+    const extension =
+      receiptFile.type === 'image/png'
+        ? 'png'
+        : receiptFile.type === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+
+    const receiptPath =
+      `${user.id}/${crypto.randomUUID()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('deposit-receipts')
+      .upload(receiptPath, receiptFile, {
+        contentType: receiptFile.type,
+        upsert: false
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { error: insertError } = await supabase
+      .from('deposits')
+      .insert({
         user_id: user.id,
-        amount: Number(depositAmount),
-        trc20_address: adminTrc20DepositAddress,
+        amount,
+        trc20_address:
+          paymentMethod === 'trc20'
+            ? adminTrc20DepositAddress
+            : null,
+        payment_method: paymentMethod,
+        payment_reference: paymentReference.trim(),
+        txid:
+          paymentMethod === 'trc20'
+            ? paymentReference.trim()
+            : null,
+        receipt_path: receiptPath,
         status: 'pending'
-      }
-    ]);
+      });
 
-    if (!error) {
-      showToast(`Deposit request of $${depositAmount} submitted successfully!`);
-      setShowDepositModal(false);
-      setDepositAmount('');
-      const { data: depData } = await supabase.from('deposits').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (depData) setDepositHistory(depData);
-    } else {
-      showToast(`Deposit Error: ${error.message}`, 'error');
+    if (insertError) {
+      // Best-effort cleanup if saving the request fails.
+      await supabase.storage
+        .from('deposit-receipts')
+        .remove([receiptPath]);
+
+      throw insertError;
     }
-  };
+
+    showToast(
+      'Deposit request submitted. Payment is pending verification.'
+    );
+
+    setShowDepositModal(false);
+    setDepositAmount('');
+    setPaymentReference('');
+    setReceiptFile(null);
+
+    const { data: depData, error: historyError } = await supabase
+      .from('deposits')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (historyError) {
+      console.error('Deposit history error:', historyError);
+    } else if (depData) {
+      setDepositHistory(depData);
+    }
+  } catch (err: any) {
+    console.error('Deposit submission error:', err);
+    showToast(
+      err?.message || 'Deposit request failed. Please try again.',
+      'error'
+    );
+  }
+};
 
   const handleWalletBindSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1598,68 +1697,216 @@ Digital Marketing is an international legal platform offering genuine earning op
         </button>
       </div>
 
-      {/* DEPOSIT MODAL */}
-      {showDepositModal && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
-            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Deposit USDT Funds</h3>
-            
-            <div className="text-center space-y-2 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
-              <p className="text-[10px] text-[#d4af37] uppercase font-bold">TRC20 Deposit Address</p>
-              <p className="text-xs font-mono text-white break-all select-all">{adminTrc20DepositAddress}</p>
-              
-              <button
-                type="button"
-                onClick={() => copyToClipboard(adminTrc20DepositAddress)}
-                className="py-1.5 px-3 bg-[#d4af37]/20 border border-[#d4af37] text-[#f3e5ab] font-bold text-xs rounded-xl shadow transition"
-              >
-                📋 Copy TRC20 Address
-              </button>
+    
+{/* DEPOSIT MODAL */}
+{showDepositModal && (
+  <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+    <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)] my-auto">
+      <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">
+        Deposit Funds
+      </h3>
 
-              <div className="flex justify-center my-2">
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(adminTrc20DepositAddress)}`} 
-                  alt="TRC20 QR Code" 
-                  className="w-32 h-32 rounded-xl border border-[#d4af37] bg-white p-1"
-                />
-              </div>
-            </div>
+      {/* PAYMENT METHOD */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setPaymentMethod('trc20')}
+          className={`rounded-xl border p-2 text-xs font-bold ${
+            paymentMethod === 'trc20'
+              ? 'bg-[#d4af37] text-black border-[#d4af37]'
+              : 'bg-[#18150a] text-[#f3e5ab] border-[#d4af37]/40'
+          }`}
+        >
+          USDT TRC20
+        </button>
+        <button
+          type="button"
+          onClick={() => setPaymentMethod('bank')}
+          className={`rounded-xl border p-2 text-xs font-bold ${
+            paymentMethod === 'bank'
+              ? 'bg-[#d4af37] text-black border-[#d4af37]'
+              : 'bg-[#18150a] text-[#f3e5ab] border-[#d4af37]/40'
+          }`}
+        >
+          Bank Transfer
+        </button>
+      </div>
 
-            <form onSubmit={handleDepositSubmit} className="space-y-3">
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Select Quick Amount ($)</label>
-                <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1 bg-black rounded-xl border border-[#d4af37]/30">
-                  {quickDepositAmounts.map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setDepositAmount(amt.toString())}
-                      className={`py-1.5 rounded-lg text-[10px] font-mono font-bold transition border ${
-                        depositAmount === amt.toString()
-                          ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                          : 'bg-[#18150a] border-[#d4af37]/30 text-[#f3e5ab]'
-                      }`}
-                    >
-                      ${amt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <input
-                type="number"
-                placeholder="Enter amount"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-              />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowDepositModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
-                <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Submit</button>
-              </div>
-            </form>
+      {/* TRC20 DETAILS */}
+      {paymentMethod === 'trc20' && (
+        <div className="text-center space-y-2 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+          <p className="text-[10px] text-[#d4af37] uppercase font-bold">
+            TRC20 Deposit Address
+          </p>
+
+          <p className="text-xs font-mono text-white break-all select-all">
+            {adminTrc20DepositAddress}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => copyToClipboard(adminTrc20DepositAddress)}
+            className="py-1.5 px-3 bg-[#d4af37]/20 border border-[#d4af37] text-[#f3e5ab] font-bold text-xs rounded-xl"
+          >
+            📋 Copy TRC20 Address
+          </button>
+
+          <div className="flex justify-center my-2">
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(adminTrc20DepositAddress)}`}
+              alt="TRC20 wallet QR code"
+              className="w-36 h-36 rounded-xl border border-[#d4af37] bg-white p-1"
+            />
           </div>
+
+          <p className="text-[10px] text-gray-400">
+            Send USDT using the TRON (TRC20) network only.
+          </p>
         </div>
       )}
+
+      {/* BANK DETAILS */}
+      {paymentMethod === 'bank' && (
+        <div className="space-y-3 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+          <p className="text-[10px] text-[#d4af37] uppercase font-bold">
+            Bank Transfer Details
+          </p>
+
+          <div>
+            <label className="text-[10px] text-gray-400 block mb-1">
+              Bank Name
+            </label>
+            <input
+              type="text"
+              placeholder="Enter receiving bank name"
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] text-gray-400 block mb-1">
+              Bank Account Number
+            </label>
+            <input
+              type="text"
+              placeholder="Enter receiving account number"
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(e.target.value)}
+              className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+              required
+            />
+          </div>
+
+          <p className="text-[10px] text-gray-400">
+            Check the account details carefully before sending payment.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={handleDepositSubmit} className="space-y-3">
+        <div>
+          <label className="text-[10px] text-gray-400 block mb-1">
+            Select Quick Amount ($)
+          </label>
+          <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1 bg-black rounded-xl border border-[#d4af37]/30">
+            {quickDepositAmounts.map((amt) => (
+              <button
+                key={amt}
+                type="button"
+                onClick={() => setDepositAmount(amt.toString())}
+                className={`py-1.5 rounded-lg text-[10px] font-mono font-bold transition border ${
+                  depositAmount === amt.toString()
+                    ? 'bg-[#d4af37] text-black border-[#d4af37]'
+                    : 'bg-[#18150a] border-[#d4af37]/30 text-[#f3e5ab]'
+                }`}
+              >
+                ${amt}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] text-gray-400 block mb-1">
+            Deposit Amount ($)
+          </label>
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            placeholder="Enter amount"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value)}
+            className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] text-gray-400 block mb-1">
+            {paymentMethod === 'trc20'
+              ? 'Transaction ID (TXID)'
+              : 'Bank Payment Reference'}
+          </label>
+          <input
+            type="text"
+            placeholder={
+              paymentMethod === 'trc20'
+                ? 'Paste your transaction ID'
+                : 'Enter bank transaction reference'
+            }
+            value={paymentReference}
+            onChange={(e) => setPaymentReference(e.target.value)}
+            className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] text-gray-400 block mb-1">
+            Upload Payment Receipt (JPG, PNG or WEBP, max 5 MB)
+          </label>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+            className="w-full text-[10px] text-gray-300 file:mr-2 file:rounded-lg file:border file:border-[#d4af37]/50 file:bg-[#18150a] file:px-3 file:py-2 file:text-[#f3e5ab]"
+            required
+          />
+          {receiptFile && (
+            <p className="text-[10px] text-[#f3e5ab] mt-1 break-all">
+              Selected: {receiptFile.name}
+            </p>
+          )}
+        </div>
+
+        <p className="text-[10px] text-gray-400">
+          Your request will remain pending until the payment is verified.
+        </p>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDepositModal(false)}
+            className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
+          >
+            Submit Request
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
 
       {/* WITHDRAW MODAL */}
       {showWithdrawModal && (

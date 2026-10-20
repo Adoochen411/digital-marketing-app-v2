@@ -7,6 +7,7 @@ export const Deposit: React.FC = () => {
   const [trc20Address, setTrc20Address] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [amount, setAmount] = useState('');
+  const [txid, setTxid] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -55,45 +56,69 @@ export const Deposit: React.FC = () => {
     setAmount(val.toString());
   };
 
-  const handleSubmitDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = Number(amount);
-    if (isNaN(val) || val <= 0) {
-      setMessage({ text: 'Please enter a valid deposit amount', type: 'error' });
+ 
+const handleSubmitDeposit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  const val = Number(amount);
+  const submittedTxid = txid.trim();
+
+  if (!Number.isFinite(val) || val <= 0) {
+    setMessage({ text: 'Please enter a valid deposit amount', type: 'error' });
+    return;
+  }
+
+  if (!submittedTxid || !/^[a-fA-F0-9]{64}$/.test(submittedTxid)) {
+    setMessage({
+      text: 'Please enter a valid 64-character blockchain transaction ID (TXID).',
+      type: 'error',
+    });
+    return;
+  }
+
+  if (!trc20Address) {
+    setMessage({ text: 'Deposit address is not available. Please try again later.', type: 'error' });
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setMessage({ text: 'Please log in to submit a deposit', type: 'error' });
       return;
     }
 
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setMessage({ text: 'Please log in to submit a deposit', type: 'error' });
-        setLoading(false);
-        return;
-      }
+    const { error } = await supabase.from('deposits').insert({
+      user_id: user.id,
+      amount: val,
+      trc20_address: trc20Address,
+      payment_method: 'trc20',
+      txid: submittedTxid,
+      status: 'pending',
+    });
 
-      const { error } = await supabase.from('deposits').insert([
-        {
-          user_id: user.id,
-          amount: val,
-          trc20_address: trc20Address,
-          status: 'pending',
-        },
-      ]);
+    if (error) throw error;
 
-      if (error) throw error;
+    setMessage({
+      text: 'Deposit request submitted successfully! Blockchain verification is pending.',
+      type: 'success',
+    });
 
-      setMessage({ text: 'Deposit request submitted successfully! Pending admin approval.', type: 'success' });
-      setAmount('');
-      setTimeout(() => {
-        navigate(-1);
-      }, 2500);
-    } catch (err: any) {
-      setMessage({ text: err.message || 'Failed to submit deposit', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  };
+    setAmount('');
+    setTxid('');
+
+    setTimeout(() => {
+      navigate(-1);
+    }, 2500);
+  } catch (err: any) {
+    setMessage({ text: err.message || 'Failed to submit deposit', type: 'error' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   const quickAmounts = [30, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 7000, 10000];
 
@@ -175,6 +200,26 @@ export const Deposit: React.FC = () => {
               className="w-full bg-[#1a202c] border border-amber-500/30 rounded-xl p-3 text-white text-xs font-bold focus:outline-none focus:border-amber-400"
             />
           </div>
+          
+<div>
+  <label className="text-[11px] font-bold text-slate-400 block mb-1">
+    Transaction ID (TXID)
+  </label>
+  <input
+    type="text"
+    value={txid}
+    onChange={(e) => setTxid(e.target.value.trim())}
+    placeholder="Paste your TRC20 transaction ID"
+    autoComplete="off"
+    spellCheck={false}
+    required
+    className="w-full bg-[#1a202c] border border-amber-500/30 rounded-xl p-3 text-white text-xs font-bold focus:outline-none focus:border-amber-400"
+  />
+  <p className="text-[10px] text-slate-400 mt-1">
+    Enter the transaction ID from your confirmed USDT TRC20 transfer.
+  </p>
+</div>
+
 
           <div className="flex gap-3 pt-2">
             <button

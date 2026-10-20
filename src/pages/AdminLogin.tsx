@@ -53,7 +53,7 @@ const allowedAdmins = ['adoochen64@gmail.com'];
 
       localStorage.setItem('sub_admin_logged_in', userEmail);
       localStorage.setItem('current_admin_role', 'subadmin');
-      navigate('/sub-admin/dashboard'); // 👈 Correct path with hyphen matching App.tsx
+      navigate('/admin/dashboard');// 👈 Correct path with hyphen matching App.tsx
     } catch (err: any) {
       setError(err.message || 'Invalid login credentials');
     } finally {

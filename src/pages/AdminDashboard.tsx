@@ -29,6 +29,7 @@ interface CustomerProfile {
   is_frozen?: boolean;
   auto_task_lock?: boolean;
 }
+
 interface CustomTaskSlot {
   id: string;
   task_number: number;
@@ -66,9 +67,8 @@ interface ProductItem {
   price: number;
   image_url: string;
   created_at?: string;
-category?: string | null;
+  category?: string | null;
 }
-
 
 interface SubAdminUser {
   id: string;
@@ -114,10 +114,10 @@ export const AdminDashboard: React.FC = () => {
   const [depositSearchQuery, setDepositSearchQuery] = useState('');
   const [withdrawSearchQuery, setWithdrawSearchQuery] = useState('');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
-  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [chatSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
-const [newProdCategory, setNewProdCategory] = useState('Beauty & Skincare');  
-const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
+  const [newProdCategory, _setNewProdCategory] = useState('Beauty & Skincare');  
+  const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
   const [isMainAdmin, setIsMainAdmin] = useState(true);
   const [subAdminDbId, setSubAdminDbId] = useState('');
   const [subAdminInviteCode, setSubAdminInviteCode] = useState('');
@@ -149,6 +149,7 @@ const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
 
   const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   
   const [newSubEmail, setNewSubEmail] = useState('');
   const [newSubPassword, setNewSubPassword] = useState('');
@@ -158,8 +159,6 @@ const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
   const [editSubEmail, setEditSubEmail] = useState('');
   const [editSubPassword, setEditSubPassword] = useState('');
   const [editSubInviteCode, setEditSubInviteCode] = useState('');
-  const [editSubTelegram, setEditSubTelegram] = useState('');
-  const [editSubWhatsapp, setEditSubWhatsapp] = useState('');
   const [editSubPerms, setEditSubPerms] = useState({
     users: true,
     deposits: true,
@@ -168,17 +167,9 @@ const [currentAdminEmail, setCurrentAdminEmail] = useState('admin@gmail.com');
     support: true,
     products: true,
   });
-const [_newSubPerms, _setNewSubPerms] = useState({
-  users: true,
-  deposits: true,
-  withdrawals: true,
-  support: true,
-  tasks: false,
-  products: false,
-});
 
-const [scannerLoading, setScannerLoading] = useState(false);
-const [scannerResult, setScannerResult] = useState<any>(null);
+  const [scannerLoading, setScannerLoading] = useState(false);
+  const [scannerResult, setScannerResult] = useState<any>(null);
 
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
@@ -199,6 +190,7 @@ const [scannerResult, setScannerResult] = useState<any>(null);
 
   const [editVipLevel, setEditVipLevel] = useState('VIP 0 - Regular');
   const [editWithdrawPass, setEditWithdrawPass] = useState('');
+  const [editLoginPass, setEditLoginPass] = useState('');
   const [editTrc20, setEditTrc20] = useState('');
   const [editErc20, setEditErc20] = useState('');
   const [editBankName, setEditBankName] = useState('');
@@ -297,6 +289,18 @@ const [scannerResult, setScannerResult] = useState<any>(null);
     const { data: notifList } = await supabase.from('admin_notifications').select('*').order('created_at', { ascending: false });
     if (notifList) setNotifications(notifList);
 
+    const { data: settingsData } = await supabase.from('system_settings').select('*').maybeSingle();
+    if (settingsData) {
+      if (settingsData.main_invite_code) {
+        setMainInviteCode(settingsData.main_invite_code);
+        localStorage.setItem('global_invite', settingsData.main_invite_code);
+      }
+      if (settingsData.deposit_trc20_address) {
+        setDepositTrc20(settingsData.deposit_trc20_address);
+        localStorage.setItem('global_trc20', settingsData.deposit_trc20_address);
+      }
+    }
+
     const { data: allChats } = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true });
     if (allChats) {
       setChatMessages(allChats);
@@ -317,16 +321,9 @@ const [scannerResult, setScannerResult] = useState<any>(null);
 
     const adminChannel = supabase
       .channel('admin-live-sync-room')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'profiles' },
-        () => { checkAdminRoleAndFetchData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_notifications' },
-        () => { checkAdminRoleAndFetchData(); }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => { checkAdminRoleAndFetchData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_notifications' }, () => { checkAdminRoleAndFetchData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'system_settings' }, () => { checkAdminRoleAndFetchData(); })
       .subscribe();
 
     return () => {
@@ -353,10 +350,7 @@ const [scannerResult, setScannerResult] = useState<any>(null);
     const isAdd = modalType === 'add_funds';
     const newBal = isAdd ? selectedUserForModal.balance + val : Math.max(0, selectedUserForModal.balance - val);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ balance: newBal })
-      .eq('id', selectedUserForModal.id);
+    const { error } = await supabase.from('profiles').update({ balance: newBal }).eq('id', selectedUserForModal.id);
 
     if (error) {
       showToast(`Error updating balance: ${error.message}`, 'error');
@@ -413,29 +407,19 @@ const [scannerResult, setScannerResult] = useState<any>(null);
     }
   };
 
-const handleDeleteCustomTask = async (taskId: string) => {
-  try {
-    const { error } = await supabase
-      .from('custom_tasks')
-      .delete()
-      .eq('id', taskId);
+  const handleDeleteCustomTask = async (taskId: string) => {
+    try {
+      const { error } = await supabase.from('custom_tasks').delete().eq('id', taskId);
+      if (error) throw error;
 
-    if (error) {
-      throw error;
+      showToast('Lucky Order deleted successfully.');
+      if (selectedUserForModal) {
+        await fetchUserCustomTasks(selectedUserForModal.id);
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Could not delete Lucky Order.', 'error');
     }
-
-    showToast('Lucky Order deleted successfully.');
-
-    if (selectedUserForModal) {
-      await fetchUserCustomTasks(selectedUserForModal.id);
-    }
-  } catch (err: any) {
-    showToast(
-      err?.message || 'Could not delete Lucky Order.',
-      'error'
-    );
-  }
-};
+  };
 
   const handleResetUserTasks = async (user: CustomerProfile) => {
     await supabase.from('profiles').update({ completed_tasks: 0, running_tasks: 0 }).eq('id', user.id);
@@ -455,534 +439,240 @@ const handleDeleteCustomTask = async (taskId: string) => {
     if (data) setCustomTasksList(data);
   };
 
-const handlePublishLuckyOrder = async () => {
-  if (!selectedUserForModal) {
-    showToast('Please select a customer first.', 'error');
-    return;
-  }
-
-  const taskNum = Number(slotTaskNum);
-  const minAmt = Number(slotMinAmount);
-  const maxAmt =
-    slotMaxAmount.trim() !== ''
-      ? Number(slotMaxAmount)
-      : minAmt;
-
-  const commPercent =
-    slotCommPercent.trim() !== ''
-      ? Number(slotCommPercent)
-      : 10;
-
-  // Validate inputs.
-  if (
-    !Number.isInteger(taskNum) ||
-    taskNum < 1 ||
-    !Number.isFinite(minAmt) ||
-    !Number.isFinite(maxAmt) ||
-    minAmt <= 0 ||
-    maxAmt < minAmt ||
-    !Number.isFinite(commPercent) ||
-    commPercent < 0 ||
-    commPercent > 100
-  ) {
-    showToast(
-      'Enter a valid task number, amount range, and commission (0–100%).',
-      'error'
-    );
-    return;
-  }
-  // Select a random exact amount within the range, including cents.
-  const minCents = Math.round(minAmt * 100);
-  const maxCents = Math.round(maxAmt * 100);
-
-  // Validate that amounts have no more than 2 decimal places.
-  if (
-    Math.abs(minAmt * 100 - minCents) > 0.000001 ||
-    Math.abs(maxAmt * 100 - maxCents) > 0.000001
-  ) {
-    showToast('Amounts can have a maximum of 2 decimal places.', 'error');
-    return;
-  }
-
-  // Random amount from minimum to maximum, inclusive.
-  const exactAmount =
-    (Math.floor(Math.random() * (maxCents - minCents + 1)) +
-      minCents) / 100;
-
-  try {
-    // Prevent another active order in the same task slot.
-    const { data: existingTask, error: checkError } = await supabase
-      .from('custom_tasks')
-      .select('id')
-      .eq('user_id', selectedUserForModal.id)
-      .eq('task_number', taskNum)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (checkError) throw checkError;
-
-    if (existingTask) {
-      showToast(
-        `An active order already exists for Task #${taskNum}.`,
-        'error'
-      );
+  const handlePublishLuckyOrder = async () => {
+    if (!selectedUserForModal) {
+      showToast('Please select a customer first.', 'error');
       return;
     }
 
-    // Save the range AND the one exact amount selected for this order.
-    const { data: savedTask, error: insertError } = await supabase
-      .from('custom_tasks')
-      .insert([
-      
-{
-  user_id: selectedUserForModal.id,
-  task_number: taskNum,
-  min_amount: minAmt,
-  max_amount: maxAmt,
-  task_amount: exactAmount,
-  commission: Number(
-    ((exactAmount * commPercent) / 100).toFixed(2)
-  ),
-  commission_rate: commPercent,
-  locked_price: exactAmount,
-  locked_commission: Number(
-    ((exactAmount * commPercent) / 100).toFixed(2)
-  ),
-  is_lucky_order: true,
-  status: 'pending',
-  is_active: true,
-  funding_status: 'pending',
-  funded_at: null,
-}
+    const taskNum = Number(slotTaskNum);
+    const minAmt = Number(slotMinAmount);
+    const maxAmt = slotMaxAmount.trim() !== '' ? Number(slotMaxAmount) : minAmt;
+    const commPercent = slotCommPercent.trim() !== '' ? Number(slotCommPercent) : 10;
 
-      ])
+    if (
+      !Number.isInteger(taskNum) ||
+      taskNum < 1 ||
+      !Number.isFinite(minAmt) ||
+      !Number.isFinite(maxAmt) ||
+      minAmt <= 0 ||
+      maxAmt < minAmt ||
+      !Number.isFinite(commPercent) ||
+      commPercent < 0 ||
+      commPercent > 100
+    ) {
+      showToast('Enter a valid task number, amount range, and commission (0–100%).', 'error');
+      return;
+    }
+
+    const minCents = Math.round(minAmt * 100);
+    const maxCents = Math.round(maxAmt * 100);
+    const exactAmount = (Math.floor(Math.random() * (maxCents - minCents + 1)) + minCents) / 100;
+
+    try {
+      const { data: existingTask, error: checkError } = await supabase
+        .from('custom_tasks')
+        .select('id')
+        .eq('user_id', selectedUserForModal.id)
+        .eq('task_number', taskNum)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+
+      if (existingTask) {
+        showToast(`An active order already exists for Task #${taskNum}.`, 'error');
+        return;
+      }
+
+      const { data: savedTask, error: insertError } = await supabase
+        .from('custom_tasks')
+        .insert([
+          {
+            user_id: selectedUserForModal.id,
+            task_number: taskNum,
+            min_amount: minAmt,
+            max_amount: maxAmt,
+            task_amount: exactAmount,
+            commission: Number(((exactAmount * commPercent) / 100).toFixed(2)),
+            commission_rate: commPercent,
+            locked_price: exactAmount,
+            locked_commission: Number(((exactAmount * commPercent) / 100).toFixed(2)),
+            is_lucky_order: true,
+            status: 'pending',
+            is_active: true,
+            funding_status: 'pending',
+            funded_at: null,
+          }
+        ])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      showToast(`Lucky Order #${savedTask.task_number} saved: $${Number(savedTask.task_amount).toFixed(2)}`);
+
+      setSlotTaskNum('');
+      setSlotMinAmount('');
+      setSlotMaxAmount('');
+      setSlotCommPercent('');
+
+      await fetchUserCustomTasks(selectedUserForModal.id);
+    } catch (err: any) {
+      showToast(err?.message || 'Could not save the Lucky Order.', 'error');
+    }
+  };
+
+  const handleResetAutoSlots = () => {
+    setAutoSlots([
+      { id: 1, active: false, taskNum: '', amount: '', comm: '' },
+      { id: 2, active: false, taskNum: '', amount: '', comm: '' },
+      { id: 3, active: false, taskNum: '', amount: '', comm: '' },
+      { id: 4, active: false, taskNum: '', amount: '', comm: '' },
+      { id: 5, active: false, taskNum: '', amount: '', comm: '' },
+    ]);
+    showToast('5 Auto Slots boxes reset successfully!');
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      showToast('Please select a CSV file.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim() !== '');
+
+      if (lines.length < 2) {
+        showToast('CSV file has no product records.', 'error');
+        return;
+      }
+
+      const parseCSVLine = (line: string): string[] => {
+        const result: string[] = [];
+        let value = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"' && line[i + 1] === '"' && inQuotes) {
+            value += '"';
+            i++;
+          } else if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(value.trim());
+            value = '';
+          } else {
+            value += char;
+          }
+        }
+        result.push(value.trim());
+        return result;
+      };
+
+      const headers = parseCSVLine(lines[0]).map((header) => header.trim().toLowerCase().replace(/^\uFEFF/, ''));
+      const nameIndex = headers.indexOf('name');
+      const priceIndex = headers.indexOf('price');
+      const imageIndex = headers.indexOf('image_url');
+      const categoryIndex = headers.indexOf('category');
+      const storeIndex = headers.indexOf('store');
+
+      if (nameIndex === -1 || priceIndex === -1 || imageIndex === -1) {
+        showToast('CSV needs name, price, and image_url columns.', 'error');
+        return;
+      }
+
+      const products = lines.slice(1).map((line) => {
+        const columns = parseCSVLine(line);
+        return {
+          name: columns[nameIndex] || '',
+          price: Number(columns[priceIndex]),
+          image_url: columns[imageIndex] || '',
+          category: categoryIndex >= 0 ? columns[categoryIndex] || null : null,
+          store: storeIndex >= 0 ? columns[storeIndex] || 'Custom' : 'Custom',
+        };
+      });
+
+      const { error } = await supabase.from('products').insert(products);
+      if (error) throw error;
+
+      showToast(`${products.length} products uploaded successfully!`);
+      event.target.value = '';
+    } catch (error) {
+      showToast('Unable to read the CSV file.', 'error');
+    }
+  };
+
+  const handleAddProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newProdName.trim() || !newProdPrice || !newProdImageUrl.trim()) {
+      showToast('Please fill all product fields!', 'error');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('products')
+      .insert([{
+        name: newProdName.trim(),
+        store: newProdStore,
+        price: Number(newProdPrice),
+        image_url: newProdImageUrl.trim(),
+        category: newProdCategory
+      }])
       .select()
       .single();
 
-    if (insertError) throw insertError;
-
-    showToast(
-      `Lucky Order #${savedTask.task_number} saved: $${Number(
-        savedTask.task_amount
-      ).toFixed(2)}`
-    );
-
-    setSlotTaskNum('');
-    setSlotMinAmount('');
-    setSlotMaxAmount('');
-    setSlotCommPercent('');
-
-    await fetchUserCustomTasks(selectedUserForModal.id);
-  } catch (err: any) {
-    showToast(
-      err?.message || 'Could not save the Lucky Order.',
-      'error'
-    );
-  }
-};
-
-const handleResetAutoSlots = () => {
-  setAutoSlots([
-    { id: 1, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 2, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 3, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 4, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 5, active: false, taskNum: '', amount: '', comm: '' },
-  ]);
-
-  showToast('5 Auto Slots boxes reset successfully!');
-};
-
-const handleFileUpload = async (
-  event: React.ChangeEvent<HTMLInputElement>
-) => {
-  const file = event.target.files?.[0];
-
-  if (!file) return;
-
-  if (!file.name.toLowerCase().endsWith(".csv")) {
-    showToast("Please select a CSV file.", "error");
-    event.target.value = "";
-    return;
-  }
-
-  try {
-    const text = await file.text();
-
-    const lines = text
-      .replace(/^\uFEFF/, "")
-      .split(/\r?\n/)
-      .filter((line) => line.trim() !== "");
-
-    if (lines.length < 2) {
-      showToast("CSV file has no product records.", "error");
-      return;
-    }
-
-    const parseCSVLine = (line: string): string[] => {
-      const result: string[] = [];
-      let value = "";
-      let inQuotes = false;
-
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-
-        if (char === '"' && line[i + 1] === '"' && inQuotes) {
-          value += '"';
-          i++;
-        } else if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === "," && !inQuotes) {
-          result.push(value.trim());
-          value = "";
-        } else {
-          value += char;
-        }
-      }
-
-      result.push(value.trim());
-      return result;
-    };
-
-    const headers = parseCSVLine(lines[0]).map((header) =>
-      header.trim().toLowerCase().replace(/^\uFEFF/, "")
-    );
-
-    const nameIndex = headers.indexOf("name");
-    const priceIndex = headers.indexOf("price");
-    const imageIndex = headers.indexOf("image_url");
-    const categoryIndex = headers.indexOf("category");
-    const storeIndex = headers.indexOf("store");
-
-    if (
-      nameIndex === -1 ||
-      priceIndex === -1 ||
-      imageIndex === -1
-    ) {
-      showToast(
-        "CSV needs name, price, and image_url columns.",
-        "error"
-      );
-      return;
-    }
-
-    const products = lines.slice(1).map((line) => {
-      const columns = parseCSVLine(line);
-
-      return {
-        name: columns[nameIndex] || "",
-        price: Number(columns[priceIndex]),
-        image_url: columns[imageIndex] || "",
-        category:
-          categoryIndex >= 0 ? columns[categoryIndex] || null : null,
-        store: storeIndex >= 0 ? columns[storeIndex] || "Custom" : "Custom",
-      };
-    });
-
-    if (
-      products.some(
-        (product) =>
-          !product.name ||
-          !Number.isFinite(product.price) ||
-          product.price <= 0 ||
-          !/^https?:\/\//i.test(product.image_url)
-      )
-    ) {
-      showToast(
-        "Check CSV rows: product name, positive price, and valid image URL are required.",
-        "error"
-      );
-      return;
-    }
-
-    const { error } = await supabase
-      .from("products")
-      .insert(products);
-
     if (error) {
-      console.error("CSV product upload error:", error);
-      showToast("Products could not be uploaded.", "error");
+      showToast(`Error: ${error.message}`, 'error');
       return;
     }
 
-    showToast(`${products.length} products uploaded successfully!`);
-    event.target.value = "";
-  } catch (error) {
-    console.error("CSV upload error:", error);
-    showToast("Unable to read the CSV file.", "error");
-  }
-};
-
-const handleAddProductSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-  if (!newProdName.trim() || !newProdPrice || !newProdImageUrl.trim()) {
-    showToast('Please fill all product fields!', 'error');
-    return;
-  }
-
-  if (!Number.isFinite(Number(newProdPrice)) || Number(newProdPrice) <= 0) {
-    showToast('Please enter a valid product price!', 'error');
-    return;
-  }
-
-  if (!newProdCategory) {
-    showToast('Please select a product category!', 'error');
-    return;
-  }
-
-  const { data, error } = await supabase
-    .from('products')
-    .insert([{
-      name: newProdName.trim(),
-      store: newProdStore,
-      price: Number(newProdPrice),
-      image_url: newProdImageUrl.trim(),
-      category: newProdCategory
-    }])
-    .select()
-    .single();
-
-  if (error) {
-    showToast(`Error: ${error.message}`, 'error');
-    return;
-  }
-
-  if (data) {
-    setProductsList(prev => [data, ...prev]);
-    setNewProdName('');
-    setNewProdPrice('');
-    setNewProdImageUrl('');
-    setNewProdCategory('Beauty & Skincare');
-    showToast('Product added successfully!');
-  }
-};
-
-
-const handleFetchLiveProductsFromAPI = async () => {
-  setIsFetchingLive(true);
-
-  try {
-    showToast("AI is generating premium products...");
-
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session?.access_token) {
-      showToast("Please sign in again.", "error");
-      return;
+    if (data) {
+      setProductsList(prev => [data, ...prev]);
+      setNewProdName('');
+      setNewProdPrice('');
+      setNewProdImageUrl('');
+      showToast('Product added successfully!');
     }
+  };
 
-    const { data, error } = await supabase.functions.invoke(
-      "ai-product-generator",
-      {
-        body: {
-          category: newProdCategory || "Premium Watches",
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      }
-    );
+  const handleFetchLiveProductsFromAPI = async () => {
+    setIsFetchingLive(true);
+    try {
+      showToast('AI is generating premium products...');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-    if (error) {
-      console.error("AI product generator error:", error);
-
-      const response = error.context;
-
-      if (response instanceof Response) {
-        console.error("HTTP status:", response.status);
-        console.error(
-          "Edge Function response body:",
-          await response.clone().text()
-        );
+      if (sessionError || !session?.access_token) {
+        showToast('Please sign in again.', 'error');
+        return;
       }
 
-      showToast(
-        "AI product generation failed. Check console.",
-        "error"
-      );
-      return;
-    }
-
-    console.log("AI product generator response:", data);
-
-    if (!data?.success) {
-      showToast(
-        data?.error || "AI product generation failed.",
-        "error"
-      );
-      return;
-    }
-
-    const generatedProducts = Array.isArray(data.products)
-      ? data.products
-      : [];
-
-    if (generatedProducts.length > 0) {
-      setProductsList((prev) => {
-        const existingIds = new Set(
-          prev.map((product) => String(product.id))
-        );
-
-        const newProducts = generatedProducts.filter(
-          (product: { id: string | number }) =>
-            !existingIds.has(String(product.id))
-        );
-
-        return [...newProducts, ...prev];
+      const { data, error } = await supabase.functions.invoke('ai-product-generator', {
+        body: { category: newProdCategory || 'Premium Watches' },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
-    }
 
-    showToast(
-      `AI generated ${data.inserted ?? generatedProducts.length} products in ${data.category}.`
-    );
-  } catch (err: unknown) {
-    console.error("AI product generator error:", err);
+      if (error) throw error;
 
-    showToast(
-      err instanceof Error
-        ? err.message
-        : "Unable to connect to AI backend.",
-      "error"
-    );
-  } finally {
-    setIsFetchingLive(false);
-  }
-};
-
-const handleGenerateMissingPremiumProducts = async () => {
-  setIsFetchingLive(true);
-
-  let totalInserted = 0;
-  const failedCategories: string[] = [];
-
-  try {
-    showToast("Checking all 25 premium categories...");
-
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session?.access_token) {
-      showToast("Please sign in again.", "error");
-      return;
-    }
-
-    const { data: categories, error: categoriesError } =
-      await supabase
-        .from("product_categories")
-        .select("category_name")
-        .order("sort_order", { ascending: true });
-
-    if (categoriesError) {
-      console.error("Category fetch error:", categoriesError);
-      showToast("Unable to load product categories.", "error");
-      return;
-    }
-
-    if (!categories || categories.length === 0) {
-      showToast("No product categories were found.", "error");
-      return;
-    }
-
-    for (const categoryRow of categories) {
-      const category = categoryRow.category_name;
-
-      try {
-        showToast(`Generating missing products: ${category}`);
-
-        const { data, error } =
-          await supabase.functions.invoke(
-            "ai-product-generator",
-            {
-              body: { category },
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
-            }
-          );
-
-        if (error) {
-          console.error(
-            `Generation failed for ${category}:`,
-            error
-          );
-          failedCategories.push(category);
-          continue;
-        }
-
-        if (!data?.success) {
-          console.error(
-            `Generation failed for ${category}:`,
-            data?.error
-          );
-          failedCategories.push(category);
-          continue;
-        }
-
-        totalInserted += Number(data.inserted || 0);
-
-        const generatedProducts = Array.isArray(data.products)
-          ? data.products
-          : [];
-
-        if (generatedProducts.length > 0) {
-          setProductsList((prev) => {
-            const existingIds = new Set(
-              prev.map((product) => String(product.id))
-            );
-
-            const newProducts = generatedProducts.filter(
-              (product: { id: string | number }) =>
-                !existingIds.has(String(product.id))
-            );
-
-            return [...newProducts, ...prev];
-          });
-        }
-      } catch (categoryError) {
-        console.error(
-          `Unexpected error for ${category}:`,
-          categoryError
-        );
-        failedCategories.push(category);
+      if (data?.success && Array.isArray(data.products)) {
+        setProductsList((prev) => [...data.products, ...prev]);
+        showToast(`AI generated products successfully.`);
       }
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to connect to AI backend.', 'error');
+    } finally {
+      setIsFetchingLive(false);
     }
-
-    if (failedCategories.length > 0) {
-      console.error("Categories needing retry:", failedCategories);
-
-      showToast(
-        `Finished with ${totalInserted} new products. ${failedCategories.length} categories failed; check console.`,
-        "error"
-      );
-    } else {
-      showToast(
-        `Finished! ${totalInserted} new premium products added across ${categories.length} categories.`
-      );
-    }
-  } catch (err: unknown) {
-    console.error("Bulk product generation error:", err);
-
-    showToast(
-      err instanceof Error
-        ? err.message
-        : "Unable to generate premium products.",
-      "error"
-    );
-  } finally {
-    setIsFetchingLive(false);
-  }
-};
-
+  };
 
   const handleDeleteAllProducts = async () => {
-    
-  
     if (!window.confirm('Are you sure you want to delete all products from inventory?')) return;
     try {
       const { error } = await supabase.from('products').delete().neq('id', 0);
@@ -995,22 +685,11 @@ const handleGenerateMissingPremiumProducts = async () => {
   };
 
   const handleDeleteProduct = async (productId: number | string) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) {
-      return;
-    }
-
+    if (!window.confirm('Are you sure you want to delete this product?')) return;
     try {
-      const { error } = await supabase
-        .from('products') 
-        .delete()
-        .eq('id', productId);
-
+      const { error } = await supabase.from('products').delete().eq('id', productId);
       if (error) throw error;
-
-      setProductsList((prev) =>
-        prev.filter((product) => String(product.id) !== String(productId))
-      );
-
+      setProductsList((prev) => prev.filter((product) => String(product.id) !== String(productId)));
       showToast('Product deleted successfully!');
     } catch (err: any) {
       showToast(`Error: ${err.message}`, 'error');
@@ -1020,13 +699,14 @@ const handleGenerateMissingPremiumProducts = async () => {
   const handleOpenUserProfileModal = (user: CustomerProfile) => {
     setSelectedUserForModal(user);
     setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
-    setDisableWithdraw(Boolean(user.is_frozen));
+    setDisableWithdraw(Boolean(user.is_frozen || user.withdraw_message));
     setWithdrawNotificationMsg(user.withdraw_message || '');
     setEditTrc20(user.trc20_address || '');
     setEditErc20(user.erc20_address || '');
     setEditBankName(user.bank_name || '');
     setEditBankAccount(user.bank_account_number || '');
     setEditWithdrawPass('');
+    setEditLoginPass('');
     setModalType('user_profile_all');
   };
 
@@ -1047,6 +727,18 @@ const handleGenerateMissingPremiumProducts = async () => {
 
     await supabase.from('profiles').update(payload).eq('id', selectedUserForModal.id);
 
+    if (editLoginPass.trim()) {
+      try {
+        const { error: rpcError } = await supabase.rpc('admin_update_user_password', {
+          target_user_id: selectedUserForModal.id,
+          new_password: editLoginPass.trim()
+        });
+        if (rpcError) throw rpcError;
+      } catch (err) {
+        await supabase.from('profiles').update({ temp_login_pass: editLoginPass.trim() }).eq('id', selectedUserForModal.id);
+      }
+    }
+
     setCustomers((prev) =>
       prev.map((c) => (c.id === selectedUserForModal.id ? { ...c, ...payload } : c))
     );
@@ -1064,7 +756,6 @@ const handleGenerateMissingPremiumProducts = async () => {
 
   const handleSaveFullPageTaskSettings = async () => {
     if (!selectedUserForModal) return;
-
     try {
       await supabase.from('profiles').update({ vip_level: editVipLevel }).eq('id', selectedUserForModal.id);
       setCustomers((prev) =>
@@ -1077,214 +768,46 @@ const handleGenerateMissingPremiumProducts = async () => {
     }
   };
 
- 
-
-const handleDepositAction = async (
-  deposit: DepositRecord,
-  status: 'approved' | 'rejected'
-) => {
-  if (deposit.status !== 'pending') {
-    showToast('This deposit has already been processed.', 'error');
-    return;
-  }
-
-  try {
-    let linkedOrder: {
-      id: string;
-      task_amount: number;
-      status: string | null;
-      is_active: boolean | null;
-      funding_status: string;
-    } | null = null;
-
-    // Validate the exact Lucky Order before approving its deposit.
-    if (status === 'approved' && deposit.custom_task_id) {
-      const { data: order, error: orderError } = await supabase
-        .from('custom_tasks')
-        .select('id, task_amount, status, is_active, funding_status')
-        .eq('id', deposit.custom_task_id)
-        .eq('user_id', deposit.user_id)
-        .eq('is_lucky_order', true)
-        .maybeSingle();
-
-      if (orderError) {
-        showToast(`Could not verify Lucky Order: ${orderError.message}`, 'error');
-        return;
-      }
-
-      if (
-        !order ||
-        order.status !== 'pending' ||
-        order.is_active !== true ||
-        order.funding_status === 'funded'
-      ) {
-        showToast(
-          'Lucky Order is unavailable, already funded, or already processed.',
-          'error'
-        );
-        return;
-      }
-
-      if (Number(order.task_amount) !== Number(deposit.amount)) {
-        showToast(
-          'Deposit amount does not match the Lucky Order amount.',
-          'error'
-        );
-        return;
-      }
-
-      linkedOrder = {
-        id: order.id,
-        task_amount: Number(order.task_amount),
-        status: order.status,
-        is_active: order.is_active,
-        funding_status: order.funding_status,
-      };
-    }
-
-    // Approve the deposit once. The existing database trigger
-    // credits the customer's balance; do not credit it here again.
-    const { data: updatedDeposit, error: depError } = await supabase
-      .from('deposits')
-      .update({ status })
-      .eq('id', deposit.id)
-      .eq('user_id', deposit.user_id)
-      .eq('status', 'pending')
-      .select('id, status, custom_task_id')
-      .maybeSingle();
-
-    if (depError) {
-      showToast(`Error updating deposit: ${depError.message}`, 'error');
+  const handleDepositAction = async (deposit: DepositRecord, status: 'approved' | 'rejected') => {
+    if (deposit.status !== 'pending') {
+      showToast('This deposit has already been processed.', 'error');
       return;
     }
 
-    if (!updatedDeposit) {
-      showToast('Deposit already processed. Refresh the page.', 'error');
-      return;
-    }
-
-    if (status === 'approved') {
-      // Mark only the linked Lucky Order as funded.
-      // This does not mark the order completed.
-      if (linkedOrder) {
-        const { data: fundedOrder, error: fundError } = await supabase
-          .from('custom_tasks')
-          .update({
-            funding_status: 'funded',
-            funded_at: new Date().toISOString(),
-          })
-          .eq('id', linkedOrder.id)
-          .eq('user_id', deposit.user_id)
-          .eq('status', 'pending')
-          .eq('is_active', true)
-          .eq('funding_status', 'pending')
-          .select('id')
-          .maybeSingle();
-
-        if (fundError || !fundedOrder) {
-          console.error(
-            'Deposit approved, but Lucky Order funding update failed:',
-            fundError?.message
-          );
-
-          showToast(
-            'Deposit was approved, but the Lucky Order funding update failed. Do not approve this deposit again. Please refresh and check the order.',
-            'error'
-          );
-
-          return;
-        }
-      }
-
-      // Refresh the customer balance from the database.
-      const { data: latestProfile, error: fetchErr } = await supabase
-        .from('profiles')
-        .select('id, balance, auto_task_lock')
-        .eq('id', deposit.user_id)
+    try {
+      const { data: updatedDeposit, error: depError } = await supabase
+        .from('deposits')
+        .update({ status })
+        .eq('id', deposit.id)
+        .eq('status', 'pending')
+        .select('id, status')
         .maybeSingle();
 
-      if (fetchErr || !latestProfile) {
-        showToast(
-          'Deposit approved. Refresh the page to check the customer balance.',
-          'error'
-        );
+      if (depError || !updatedDeposit) {
+        showToast('Deposit already processed or error updating.', 'error');
         return;
       }
 
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === deposit.user_id
-            ? {
-                ...customer,
-                balance: Number(latestProfile.balance) || 0,
-                auto_task_lock: latestProfile.auto_task_lock,
-              }
-            : customer
-        )
-      );
-
-      showToast(
-        linkedOrder
-          ? `Lucky Order deposit of $${Number(deposit.amount).toFixed(2)} approved. The linked order is funded.`
-          : `Deposit of $${Number(deposit.amount).toFixed(2)} approved.`,
-        'success'
-      );
-    } else {
-      showToast('Deposit request rejected.');
+      showToast(`Deposit request ${status.toUpperCase()}!`);
+      setDeposits((prev) => prev.map((item) => (item.id === deposit.id ? { ...item, status } : item)));
+    } catch (err: any) {
+      showToast(err?.message || 'Could not process deposit.', 'error');
     }
+  };
 
-    setDeposits((prev) =>
-      prev.map((item) =>
-        item.id === deposit.id ? { ...item, status } : item
-      )
-    );
-  } catch (err: any) {
-    showToast(
-      err?.message || 'Could not process the deposit request.',
-      'error'
-    );
-  }
-};
-
-
-// TRC20 scanner: separate from deposit approval
-const handleCheckTrc20Transfers = async () => {
-  setScannerLoading(true);
-  setScannerResult(null);
-
-  try {
-   const { data, error } = await supabase.functions.invoke(
-  'trc20-deposit-scanner',
-  {
-    method: 'GET',
-  }
-);
-if (error) {
-  const details = await error.context?.json().catch(() => null);
-
-  setScannerResult({
-    ok: false,
-    message: error.message || 'Scanner request failed.',
-    details,
-  });
-  return;
-}
-
-    setScannerResult(
-      data ?? {
-        ok: false,
-        message: 'Scanner returned no response.',
-      }
-    );
-  } catch (err: any) {
-    setScannerResult({
-      ok: false,
-      message: err?.message || 'Could not contact scanner.',
-    });
-  } finally {
-    setScannerLoading(false);
-  }
-};
+  const handleCheckTrc20Transfers = async () => {
+    setScannerLoading(true);
+    setScannerResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('trc20-deposit-scanner', { method: 'GET' });
+      if (error) throw error;
+      setScannerResult(data ?? { ok: false, message: 'No response' });
+    } catch (err: any) {
+      setScannerResult({ ok: false, message: err?.message || 'Scanner connection failed' });
+    } finally {
+      setScannerLoading(false);
+    }
+  };
 
   const handleWithdrawAction = async (withdraw: WithdrawRecord, status: 'approved' | 'rejected') => {
     if (withdraw.status !== 'pending') return;
@@ -1295,9 +818,7 @@ if (error) {
       if (user) {
         const newBal = user.balance + withdraw.amount;
         await supabase.from('profiles').update({ balance: newBal }).eq('id', withdraw.user_id);
-        setCustomers((prev) =>
-          prev.map((c) => (c.id === withdraw.user_id ? { ...c, balance: newBal } : c))
-        );
+        setCustomers((prev) => prev.map((c) => (c.id === withdraw.user_id ? { ...c, balance: newBal } : c)));
       }
     }
 
@@ -1320,9 +841,7 @@ if (error) {
     if (!error) {
       setReplyMessage('');
       const { data: allChats } = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true });
-      if (allChats) {
-        setChatMessages(allChats);
-      }
+      if (allChats) setChatMessages(allChats);
     } else {
       showToast('Error sending chat reply', 'error');
     }
@@ -1344,286 +863,142 @@ if (error) {
       if (newInvite) updatePayload.invite_code = newInvite;
       if (subAdminEditablePassword.trim()) updatePayload.password = subAdminEditablePassword.trim();
 
-      const { error } = await supabase
-        .from('sub_admins')
-        .update(updatePayload)
-        .eq('id', subAdminDbId);
-
+      const { error } = await supabase.from('sub_admins').update(updatePayload).eq('id', subAdminDbId);
       if (error) throw error;
 
       const changesList = [];
-      if (oldEmail !== newEmail) changesList.push(`Email changed from ${oldEmail} to ${newEmail}`);
-      if (subAdminEditablePassword.trim()) changesList.push(`Password was updated`);
+      if (oldEmail !== newEmail) changesList.push(`Email changed to ${newEmail}`);
       if (newInvite && newInvite !== subAdminInviteCode) changesList.push(`Invitation code changed to ${newInvite}`);
 
       if (changesList.length > 0) {
-        const notifMsg = `Sub-Admin (${oldEmail}): ${changesList.join(', ')}`;
         await supabase.from('admin_notifications').insert([
-          { sub_admin_email: newEmail, message: notifMsg }
+          { sub_admin_email: newEmail, message: `Sub-Admin (${oldEmail}): ${changesList.join(', ')}` }
         ]);
       }
 
       localStorage.setItem('sub_admin_logged_in', newEmail);
       setCurrentAdminEmail(newEmail);
       setSubAdminInviteCode(newInvite);
-      setSubAdminEditablePassword('');
-
-      showToast('Sub-Admin profile updated & synchronized with Main Admin!');
+      showToast('Sub-Admin profile updated successfully!');
     } catch (err: any) {
       showToast(err.message || 'Error updating profile', 'error');
     }
   };
 
-const [newSubPerms, setNewSubPerms] = useState({
-  users: true,
-  deposits: true,
-  withdrawals: true,
-  support: true,
-  tasks: false,
-  products: false,
-});
-
-const handleSaveMainSettings = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-  if (!isMainAdmin) {
-    showToast('Only Main Admin can change global settings.', 'error');
-    return;
-  }
-
-  try {
-    const { error } = await supabase
-      .from('system_settings')
-      .upsert({
-        id: 1,
-        key: 'main',
-        deposit_trc20_address: depositTrc20,
-        main_invite_code: mainInviteCode,
-        telegram_url: telegramUrl,
-        whatsapp_url: whatsappUrl,
-      });
-
-    if (error) throw error;
-
-    localStorage.setItem('global_trc20', depositTrc20);
-    localStorage.setItem('global_invite', mainInviteCode);
-
-    showToast('Global System Settings Saved!');
-  } catch (err: any) {
-    showToast(err.message || 'Failed to save settings', 'error');
-  }
-};
-
-const handleUpdateAdminCredentials = async (
-  e: React.FormEvent
-) => {
-  e.preventDefault();
-
-  if (!isMainAdmin) return;
-
-  try {
-    const updatePayload: {
-      email?: string;
-      password?: string;
-    } = {};
-
-    if (mainAdminEmail && mainAdminEmail !== currentAdminEmail) {
-      updatePayload.email = mainAdminEmail.trim().toLowerCase();
-    }
-
-    if (mainAdminPassword) {
-      updatePayload.password = mainAdminPassword;
-    }
-
-    if (Object.keys(updatePayload).length === 0) {
-      showToast('Enter a new email or password.', 'error');
+  const handleSaveMainSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isMainAdmin) {
+      showToast('Only Main Admin can change global settings.', 'error');
       return;
     }
 
-    const { error } = await supabase.auth.updateUser(updatePayload);
+    try {
+      const cleanMainInvite = mainInviteCode.trim().toUpperCase();
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert({
+          id: 1,
+          key: 'main',
+          deposit_trc20_address: depositTrc20,
+          main_invite_code: cleanMainInvite,
+          telegram_url: telegramUrl,
+          whatsapp_url: whatsappUrl,
+        });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    showToast('Admin credentials updated successfully!');
-    setMainAdminPassword('');
-  } catch (err: any) {
-    showToast(err.message || 'Error updating credentials', 'error');
-  }
-};
+      localStorage.setItem('global_trc20', depositTrc20);
+      localStorage.setItem('global_invite', cleanMainInvite);
+      setMainInviteCode(cleanMainInvite);
 
-const handleCreateSubAdmin = async (
-  e: React.FormEvent
-) => {
-  e.preventDefault();
+      showToast('Global System Settings Saved!');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save settings', 'error');
+    }
+  };
 
-  if (!isMainAdmin) {
-    showToast('Only Main Admin can create Sub-Admins.', 'error');
-    return;
-  }
+  const handleUpdateAdminCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isMainAdmin) return;
+    try {
+      const updatePayload: { email?: string; password?: string; } = {};
+      if (mainAdminEmail && mainAdminEmail !== currentAdminEmail) updatePayload.email = mainAdminEmail.trim().toLowerCase();
+      if (mainAdminPassword) updatePayload.password = mainAdminPassword;
 
-  if (
-    !newSubEmail.trim() ||
-    !newSubPassword.trim() ||
-    !newSubInviteCode.trim()
-  ) {
-    showToast('Please fill all fields', 'error');
-    return;
-  }
+      const { error } = await supabase.auth.updateUser(updatePayload);
+      if (error) throw error;
 
-  try {
-    const permissions = {
-      users: Boolean(newSubPerms.users),
-      deposits: Boolean(newSubPerms.deposits),
-      withdrawals: Boolean(newSubPerms.withdrawals),
-      support: Boolean(newSubPerms.support),
+      showToast('Admin credentials updated successfully!');
+      setMainAdminPassword('');
+    } catch (err: any) {
+      showToast(err.message || 'Error updating credentials', 'error');
+    }
+  };
 
-      // Main Admin can enable Tasks from the permission form
-      tasks: Boolean(newSubPerms.tasks),
+  const handleCreateSubAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isMainAdmin) return;
+    if (!newSubEmail.trim() || !newSubPassword.trim() || !newSubInviteCode.trim()) {
+      showToast('Please fill all fields', 'error');
+      return;
+    }
 
-      // Restricted permissions
-      products: false,
-      trc_settings: false,
-      main_support_links: false,
-      main_admin_settings: false,
-      manage_subadmins: false,
-
-      // Allows editing only their own support links
-      own_telegram_whatsapp: true,
-    };
-
-    const { data: insertedData, error } = await supabase
-      .from('sub_admins')
-      .insert([
-        {
+    try {
+      const permissions = { users: true, deposits: true, withdrawals: true, support: true, tasks: false, products: false };
+      const { data: insertedData, error } = await supabase
+        .from('sub_admins')
+        .insert([{
           email: newSubEmail.trim().toLowerCase(),
           password: newSubPassword.trim(),
           invite_code: newSubInviteCode.trim().toUpperCase(),
           permissions,
-        },
-      ])
-      .select()
-      .single();
+        }])
+        .select()
+        .single();
 
-    if (error) throw error;
+      if (error) throw error;
+      if (insertedData) setSubAdmins((prev) => [...prev, insertedData]);
 
-    if (insertedData) {
-      setSubAdmins((prev) => [...prev, insertedData]);
+      setNewSubEmail('');
+      setNewSubPassword('');
+      setNewSubInviteCode('');
+      showToast('Sub-Admin created successfully!');
+    } catch (err: any) {
+      showToast(err.message || 'Error creating Sub-Admin', 'error');
     }
+  };
 
-    setNewSubEmail('');
-    setNewSubPassword('');
-    setNewSubInviteCode('');
-
-    setNewSubPerms({
-      users: true,
-      deposits: true,
-      withdrawals: true,
-      support: true,
-      tasks: false,
-      products: false,
-    });
-
-    showToast('Sub-Admin created successfully!');
-  } catch (err: any) {
-    showToast(err.message || 'Error creating Sub-Admin', 'error');
-  }
-};
-
-const handleDeleteSubAdmin = async (subId: string) => {
-  if (!isMainAdmin) {
-    showToast('Only Main Admin can delete Sub-Admins.', 'error');
-    return;
-  }
-
-  if (!window.confirm('Are you sure you want to delete this sub-admin?')) {
-    return;
-  }
-
-  try {
-    const { error } = await supabase
-      .from('sub_admins')
-      .delete()
-      .eq('id', subId);
-
-    if (error) throw error;
-
-    setSubAdmins((prev) =>
-      prev.filter((s) => s.id !== subId)
-    );
-
-    showToast('Sub-Admin successfully deleted!');
-  } catch (err: any) {
-    showToast(`Error deleting Sub-Admin: ${err.message}`, 'error');
-  }
-};
-
-const handleSaveSubAdminSettings = async () => {
-  if (!isMainAdmin || !selectedSubAdminForModal) {
-    showToast('Only Main Admin can change Sub-Admin settings.', 'error');
-    return;
-  }
-
-  try {
-    const payload: any = {
-      permissions: {
-        users: Boolean(editSubPerms.users),
-        deposits: Boolean(editSubPerms.deposits),
-        withdrawals: Boolean(editSubPerms.withdrawals),
-        support: Boolean(editSubPerms.support),
-        tasks: Boolean(editSubPerms.tasks),
-
-        products: false,
-        trc_settings: false,
-        main_support_links: false,
-        main_admin_settings: false,
-        manage_subadmins: false,
-        own_telegram_whatsapp: true,
-      },
-    };
-
-    if (editSubEmail.trim()) {
-      payload.email = editSubEmail.trim().toLowerCase();
+  const handleDeleteSubAdmin = async (subId: string) => {
+    if (!isMainAdmin) return;
+    if (!window.confirm('Delete this sub-admin?')) return;
+    try {
+      const { error } = await supabase.from('sub_admins').delete().eq('id', subId);
+      if (error) throw error;
+      setSubAdmins((prev) => prev.filter((s) => s.id !== subId));
+      showToast('Sub-Admin deleted successfully!');
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
+  };
 
-    // Retained for compatibility with your current schema.
-    // Move Sub-Admin passwords to Supabase Auth before production use.
-    if (editSubPassword.trim()) {
-      payload.password = editSubPassword.trim();
+  const handleSaveSubAdminSettings = async () => {
+    if (!isMainAdmin || !selectedSubAdminForModal) return;
+    try {
+      const payload: any = { permissions: editSubPerms };
+      if (editSubEmail.trim()) payload.email = editSubEmail.trim().toLowerCase();
+      if (editSubPassword.trim()) payload.password = editSubPassword.trim();
+      if (editSubInviteCode.trim()) payload.invite_code = editSubInviteCode.trim().toUpperCase();
+
+      const { error } = await supabase.from('sub_admins').update(payload).eq('id', selectedSubAdminForModal.id);
+      if (error) throw error;
+
+      setSubAdmins((prev) => prev.map((s) => s.id === selectedSubAdminForModal.id ? { ...s, ...payload } : s));
+      showToast('Sub-Admin settings updated!');
+      setSelectedSubAdminForModal(null);
+    } catch (err: any) {
+      showToast(err.message || 'Error saving settings', 'error');
     }
-
-    if (editSubInviteCode.trim()) {
-      payload.invite_code = editSubInviteCode.trim().toUpperCase();
-    }
-
-    if (editSubTelegram.trim()) {
-      payload.telegram_url = editSubTelegram.trim();
-    }
-
-    if (editSubWhatsapp.trim()) {
-      payload.whatsapp_url = editSubWhatsapp.trim();
-    }
-
-    const { error } = await supabase
-      .from('sub_admins')
-      .update(payload)
-      .eq('id', selectedSubAdminForModal.id);
-
-    if (error) throw error;
-
-    setSubAdmins((prev) =>
-      prev.map((s) =>
-        s.id === selectedSubAdminForModal.id
-          ? { ...s, ...payload }
-          : s
-      )
-    );
-
-    showToast('Sub-Admin settings updated successfully!');
-    setSelectedSubAdminForModal(null);
-  } catch (err: any) {
-    showToast(err.message || 'Error saving Sub-Admin settings', 'error');
-  }
-};
+  };
 
   const getCustomerDetailsByUserId = (userId: string) => {
     const cust = customers.find((c) => c.id === userId);
@@ -1635,24 +1010,18 @@ const handleSaveSubAdminSettings = async () => {
     };
   };
 
-const getUserRegistrationInviCode = (c: CustomerProfile) => {
-  return (c.referred_by_code || '').trim().toUpperCase();
-};
+  const getUserRegistrationInviCode = (c: CustomerProfile) => {
+    return (c.referred_by_code || '').trim().toUpperCase();
+  };
 
-const getUserOwnDashboardInviCode = (c: CustomerProfile) => {
-  const ownCode =
-    c.user_invite_code ||
-    c.invite_code ||
-    c.invitation_code ||
-    '';
-
-  return ownCode.toString().trim().toUpperCase();
-};
+  const getUserOwnDashboardInviCode = (c: CustomerProfile) => {
+    const ownCode = c.user_invite_code || c.invite_code || c.invitation_code || '';
+    return ownCode.toString().trim().toUpperCase();
+  };
 
   const renderSimpleInvitationCodes = (c: CustomerProfile) => {
     const usedInviCode = getUserRegistrationInviCode(c) || mainInviteCode;
     const userOwnCode = getUserOwnDashboardInviCode(c) || `CUST${c.custom_id}`;
-
     return (
       <div className="flex flex-col text-xs font-bold space-y-0.5">
         <span className="text-slate-800 font-bold">{usedInviCode}</span>
@@ -1664,83 +1033,34 @@ const getUserOwnDashboardInviCode = (c: CustomerProfile) => {
   const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
     if (!q) return true;
     const cleanQ = q.toLowerCase().trim().replace('#', '');
-    const custIdStr = c.custom_id.toString();
-    const invCodeStr = getUserRegistrationInviCode(c).toLowerCase();
-    const ownCodeStr = getUserOwnDashboardInviCode(c).toLowerCase();
-    const emailStr = (c.email || '').toLowerCase();
-    const nameStr = (c.full_name || c.username || c.name || c.display_name || '').toLowerCase();
-    const phoneStr = (c.phone || '').toLowerCase();
-
-    return (
-      custIdStr === cleanQ ||
-      custIdStr.includes(cleanQ) ||
-      invCodeStr.includes(cleanQ) ||
-      ownCodeStr.includes(cleanQ) ||
-      emailStr.includes(cleanQ) ||
-      nameStr.includes(cleanQ) ||
-      phoneStr.includes(cleanQ)
-    );
+    return c.custom_id.toString().includes(cleanQ) || (c.email || '').toLowerCase().includes(cleanQ);
   };
 
   const isCustomerOfSubAdmin = (c: CustomerProfile, subCode: string) => {
     if (isMainAdmin) return true;
-    
-    // ✅ Sub-admin ki UUID se direct check karein (Sabse reliable tareeqa)
-    if (subAdminDbId && c.sub_admin_id === subAdminDbId) {
-      return true;
-    }
-
+    if (subAdminDbId && c.sub_admin_id === subAdminDbId) return true;
     if (!subCode || subCode.trim() === '') return false;
-    
     const targetSubCode = subCode.toString().trim().toUpperCase();
     const usedCode = getUserRegistrationInviCode(c);
     const ownCode = getUserOwnDashboardInviCode(c);
-    
-    return usedCode === targetSubCode || ownCode === targetSubCode || usedCode.includes(targetSubCode);
+    return usedCode === targetSubCode || ownCode === targetSubCode;
   };
 
-  const visibleCustomers = isMainAdmin
-    ? customers
-    : customers.filter((c) => isCustomerOfSubAdmin(c, subAdminInviteCode));
-
+  const visibleCustomers = isMainAdmin ? customers : customers.filter((c) => isCustomerOfSubAdmin(c, subAdminInviteCode));
   const filteredCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, searchQuery));
   const filteredDeleteCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, deleteSearchQuery));
   const filteredTaskCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, taskSearchQuery));
 
-  
-const filteredDeposits = deposits.filter((d) => {
-  if (!isMainAdmin) {
-    const cust = customers.find((c) => c.id === d.user_id);
-
-    if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) {
-      return false;
+  const filteredDeposits = deposits.filter((d) => {
+    if (!isMainAdmin) {
+      const cust = customers.find((c) => c.id === d.user_id);
+      if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
     }
-  }
-
-  const q = depositSearchQuery.trim().toLowerCase();
-
-  if (!q) return true;
-
-  const custDetails = getCustomerDetailsByUserId(d.user_id);
-
-  const searchableFields = [
-    String(custDetails.customId ?? ''),
-    String(custDetails.name ?? ''),
-    String(custDetails.phone ?? ''),
-    String(d.trc20_address ?? ''),
-    String((d as any).txid ?? ''),
-    String((d as any).transaction_hash ?? ''),
-    String(d.status ?? ''),
-  ].map((value) => value.toLowerCase());
-
-  // "#6" aur "6" dono se customer ID search ho sake
-  const normalizedQuery = q.replace(/^#/, '');
-
-  return searchableFields.some((value) =>
-    value.includes(q) ||
-    value.replace(/^#/, '').includes(normalizedQuery)
-  );
-});
+    if (!depositSearchQuery) return true;
+    const q = depositSearchQuery.toLowerCase().trim();
+    const custDetails = getCustomerDetailsByUserId(d.user_id);
+    return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
+  });
 
   const filteredWithdrawals = withdrawals.filter((w) => {
     if (!isMainAdmin) {
@@ -1750,12 +1070,7 @@ const filteredDeposits = deposits.filter((d) => {
     if (!withdrawSearchQuery) return true;
     const q = withdrawSearchQuery.toLowerCase().trim();
     const custDetails = getCustomerDetailsByUserId(w.user_id);
-    return (
-      custDetails.customId.toLowerCase().includes(q) ||
-      custDetails.name.toLowerCase().includes(q) ||
-      custDetails.phone.toLowerCase().includes(q) ||
-      (w.trc20_address && w.trc20_address.toLowerCase().includes(q))
-    );
+    return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
   });
 
   const filteredProducts = productsList.filter((p) => {
@@ -1789,106 +1104,79 @@ const filteredDeposits = deposits.filter((d) => {
             {(isMainAdmin || subAdminPermissions.users) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('users'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'users' && !isFullPageTaskSettings ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'users' && !isFullPageTaskSettings ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>👥</span>
-                <span>Users</span>
+                <span>👥</span><span>Users</span>
               </button>
             )}
 
             {(isMainAdmin || subAdminPermissions.deposits) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('deposits'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'deposits' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'deposits' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>📥</span>
-                <span>Deposit Records</span>
+                <span>📥</span><span>Deposit Records</span>
               </button>
             )}
 
             {(isMainAdmin || subAdminPermissions.withdrawals) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('withdrawals'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>📤</span>
-                <span>Withdrawal Requests</span>
+                <span>📤</span><span>Withdrawal Requests</span>
               </button>
             )}
 
             {(isMainAdmin || subAdminPermissions.tasks) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('tasks'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  (activeTab === 'tasks' || isFullPageTaskSettings) ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'tasks' || isFullPageTaskSettings ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>⚡</span>
-                <span>Task Management</span>
+                <span>⚡</span><span>Task Management</span>
               </button>
             )}
 
             {isMainAdmin && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('products'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'products' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'products' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>🛍️</span>
-                <span>Products Management</span>
+                <span>🛍️</span><span>Products Management</span>
               </button>
             )}
 
             {(isMainAdmin || subAdminPermissions.support) && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('support'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'support' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'support' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
               >
-                <span>🎧</span>
-                <span>Live Support & Chat</span>
+                <span>🎧</span><span>Live Support & Chat</span>
               </button>
             )}
 
             {isMainAdmin && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('whatsapp_telegram'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'whatsapp_telegram' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-200 hover:bg-blue-800'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'whatsapp_telegram' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-200 hover:bg-blue-800'}`}
               >
-                <span>📱</span>
-                <span>WhatsApp & Telegram</span>
+                <span>📱</span><span>WhatsApp & Telegram</span>
               </button>
             )}
 
             <button
               onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('settings'); }}
-              className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'
-              }`}
+              className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
             >
-              <span>🛠️</span>
-              <span>Settings</span>
+              <span>🛠️</span><span>Settings</span>
             </button>
 
             {isMainAdmin && (
               <button
                 onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('delete_users'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-                  activeTab === 'delete_users' ? 'bg-red-600 text-white shadow-lg' : 'text-red-200 hover:bg-red-900/50'
-                }`}
+                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'delete_users' ? 'bg-red-600 text-white shadow-lg' : 'text-red-200 hover:bg-red-900/50'}`}
               >
-                <span>🗑️</span>
-                <span>Delete Customers</span>
+                <span>🗑️</span><span>Delete Customers</span>
               </button>
             )}
           </nav>
@@ -1905,8 +1193,7 @@ const filteredDeposits = deposits.filter((d) => {
             onClick={handleAdminLogout}
             className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-lg transition flex items-center justify-center space-x-1"
           >
-            <span>🚪</span>
-            <span>Logout Portal</span>
+            <span>🚪</span><span>Logout Portal</span>
           </button>
         </div>
       </div>
@@ -1931,18 +1218,14 @@ const filteredDeposits = deposits.filter((d) => {
         </div>
 
         {message && (
-          <div
-            className={`p-3.5 mb-4 text-xs font-bold rounded-2xl shadow border ${
-              message.type === 'error' ? 'bg-red-100 border-red-400 text-red-800' : 'bg-emerald-100 border-emerald-400 text-emerald-800'
-            }`}
-          >
+          <div className={`p-3.5 mb-4 text-xs font-bold rounded-2xl shadow border ${message.type === 'error' ? 'bg-red-100 border-red-400 text-red-800' : 'bg-emerald-100 border-emerald-400 text-emerald-800'}`}>
             {message.text}
           </div>
         )}
 
+        {/* FULL PAGE TASK SETTINGS VIEW */}
         {isFullPageTaskSettings && selectedUserForModal ? (
           <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-6">
-            
             <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="space-y-1.5">
                 <h2 className="text-base font-black text-blue-900 flex items-center gap-2">
@@ -1973,7 +1256,6 @@ const filteredDeposits = deposits.filter((d) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
                 <div className="flex justify-between items-center border-b pb-2">
                   <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -2069,7 +1351,7 @@ const filteredDeposits = deposits.filter((d) => {
                                 }}
                                 className="sr-only peer"
                               />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                             </label>
                           </div>
                         </div>
@@ -2143,7 +1425,6 @@ const filteredDeposits = deposits.filter((d) => {
                   )}
                 </div>
               </div>
-
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
@@ -2160,11 +1441,10 @@ const filteredDeposits = deposits.filter((d) => {
                 Save VIP Settings
               </button>
             </div>
-
           </div>
         ) : null}
 
-        {/* TAB 1: USERS PANEL */}
+        {/* TAB 1: USERS */}
         {!isFullPageTaskSettings && activeTab === 'users' && (
           <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
             <div className="flex justify-between items-center border-b pb-4">
@@ -2172,11 +1452,10 @@ const filteredDeposits = deposits.filter((d) => {
                 <h2 className="text-lg font-black text-blue-900">Users</h2>
                 <p className="text-xs text-slate-500 font-medium">Assigned Customers: <span className="font-bold text-blue-700">{filteredCustomers.length}</span></p>
               </div>
-
               <div className="w-80">
                 <input
                   type="text"
-                  placeholder="Search by ID, Name, Phone, Email or Invi Code..."
+                  placeholder="Search by ID, Name, Phone..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
@@ -2203,37 +1482,18 @@ const filteredDeposits = deposits.filter((d) => {
                     <tr key={c.id} className="hover:bg-slate-50 transition">
                       <td className="p-3 whitespace-nowrap">
                         <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
-                        <div className="text-xs font-bold text-slate-700 mt-0.5">
-                          👤 {c.full_name || c.username || c.name || c.display_name || 'No Name Set'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          📞 {c.phone || 'No Phone Set'}
-                        </div>
+                        <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {renderSimpleInvitationCodes(c)}
-                      </td>
-
+                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
                       <td className="p-3">
                         <div className="text-slate-700 font-semibold">{c.email || 'customer@appuser.local'}</div>
                         <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
                           {c.vip_level || 'VIP 0 - Regular'}
                         </span>
                       </td>
-
-                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">
-                        {c.completed_tasks} / 25
-                      </td>
-
+                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
                       <td className="p-3 font-mono">
                         <div className="font-black text-emerald-600 text-sm">${c.balance.toFixed(2)}</div>
-                        {c.running_tasks && c.running_tasks < 0 ? (
-                          <div className="text-red-600 font-black text-xs font-mono">
-                            ${Math.abs(c.running_tasks).toFixed(2)}
-                          </div>
-                        ) : (
-                          <div className="text-slate-400 text-[10px]">$0.00</div>
-                        )}
                         <div className="flex gap-1 mt-1">
                           <button
                             onClick={() => { setSelectedUserForModal(c); setModalType('add_funds'); setFundInput(''); }}
@@ -2249,7 +1509,6 @@ const filteredDeposits = deposits.filter((d) => {
                           </button>
                         </div>
                       </td>
-
                       <td className="p-3">
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
@@ -2258,10 +1517,9 @@ const filteredDeposits = deposits.filter((d) => {
                             onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                          <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                         </label>
                       </td>
-
                       <td className="p-3">
                         <select
                           value={c.is_frozen ? 'frozen' : 'active'}
@@ -2274,29 +1532,25 @@ const filteredDeposits = deposits.filter((d) => {
                           <option value="frozen">Disabled / Frozen</option>
                         </select>
                       </td>
-
                       <td className="p-3 text-right">
                         <div className="inline-flex gap-1.5">
                           <button
                             onClick={() => handleResetUserTasks(c)}
-                            className="px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600 flex items-center space-x-1"
+                            className="px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600"
                           >
-                            <span>🔄</span>
-                            <span>Reset</span>
+                            Reset
                           </button>
                           <button
                             onClick={() => handleOpenFullPageTaskSettings(c)}
-                            className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 flex items-center space-x-1"
+                            className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
                           >
-                            <span>⚡</span>
-                            <span>Settings</span>
+                            Settings
                           </button>
                           <button
                             onClick={() => handleOpenUserProfileModal(c)}
-                            className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700 flex items-center space-x-1"
+                            className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
                           >
-                            <span>⚙️</span>
-                            <span>Profile</span>
+                            Profile
                           </button>
                         </div>
                       </td>
@@ -2308,231 +1562,106 @@ const filteredDeposits = deposits.filter((d) => {
           </div>
         )}
 
- 
+        {/* TAB 2: DEPOSIT RECORDS */}
+        {!isFullPageTaskSettings && activeTab === 'deposits' && (
+          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3 gap-4">
+              <h2 className="text-lg font-black text-blue-900">Deposit Records & Approvals</h2>
+              <div className="w-80 max-w-full">
+                <input
+                  type="text"
+                  placeholder="Search deposits..."
+                  value={depositSearchQuery}
+                  onChange={(e) => setDepositSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                />
+              </div>
+            </div>
 
-{/* TAB 2: DEPOSIT RECORDS */}
-{!isFullPageTaskSettings && activeTab === 'deposits' && (
-  <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <button
+                type="button"
+                onClick={handleCheckTrc20Transfers}
+                disabled={scannerLoading}
+                className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {scannerLoading ? 'Checking...' : 'Check Confirmed Transfers'}
+              </button>
 
-    {/* SINGLE DEPOSIT HEADING AND SEARCH BAR */}
-    <div className="flex justify-between items-center border-b pb-3 gap-4">
-      <h2 className="text-lg font-black text-blue-900">
-        Deposit Records & Approvals
-      </h2>
-
-    <div className="w-80 max-w-full">
-  <input
-    type="text"
-    placeholder="Search by ID (#6), Name, Phone, TRC20 TXID..."
-    value={depositSearchQuery}
-    onChange={(e) => setDepositSearchQuery(e.target.value)}
-    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-  />
-</div>
-    </div>
-
-    {/* SINGLE TRC20 SCANNER */}
-    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-      <button
-        type="button"
-        onClick={handleCheckTrc20Transfers}
-        disabled={scannerLoading}
-        className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-      >
-        {scannerLoading ? 'Checking...' : 'Check Confirmed Transfers'}
-      </button>
-
-      {scannerResult && (
-        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs">
-          {JSON.stringify(scannerResult, null, 2)}
-        </pre>
-      )}
-    </div>
-
-    {/* GREEN CONFIRMED RECHARGE CUSTOMER DETAILS */}
-    <div className="rounded-xl border border-green-300 bg-green-50 p-4">
-      <h3 className="mb-3 text-base font-black text-green-800">
-        Confirmed Recharge — Customer Details
-      </h3>
-
-      {scannerResult?.ok === true &&
-      Array.isArray(scannerResult.transfers) &&
-      scannerResult.transfers.length > 0 ? (
-        <div className="space-y-3">
-          {scannerResult.transfers.map((tx: any, txIndex: number) => (
-            <div
-              key={tx.txid || txIndex}
-              className="rounded-lg border border-green-200 bg-white p-3"
-            >
-              <p className="font-bold text-green-800">
-                Amount: {tx.amount_usdt} USDT
-              </p>
-
-              <p className="mt-1 break-all text-xs text-slate-700">
-                Transaction ID: {tx.txid || 'Not available'}
-              </p>
-
-              <p className="mt-1 break-all text-xs text-slate-700">
-                Sender: {tx.from || 'Not available'}
-              </p>
-
-              <p className="mt-1 text-sm font-semibold text-green-800">
-                Match: {tx.match_status ?? 'Not available'}
-              </p>
-
-              {Array.isArray(tx.customer_matches) &&
-              tx.customer_matches.length > 0 ? (
-                tx.customer_matches.map((customer: any, index: number) => (
-                  <div
-                    key={`${customer.deposit_id || tx.txid}-${index}`}
-                    className="mt-3 rounded-lg bg-green-50 p-3 text-sm"
-                  >
-                    <p>
-                      <strong>Admin Panel Customer ID:</strong>{' '}
-                      {customer.customer_admin_id ?? 'Not available'}
-                    </p>
-
-                    <p className="break-all">
-                      <strong>Account ID:</strong>{' '}
-                      {customer.customer_account_id ?? 'Not available'}
-                    </p>
-
-                    <p>
-                      <strong>Deposit Amount:</strong>{' '}
-                      {customer.deposit_amount ?? 'Not available'}
-                    </p>
-
-                    <p>
-                      <strong>Deposit Status:</strong>{' '}
-                      {customer.deposit_status ?? 'Not available'}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="mt-2 text-sm text-amber-700">
-                  No deposit request matched this transaction ID.
-                  Customer identity has not been determined.
-                </p>
+              {scannerResult && (
+                <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs">
+                  {JSON.stringify(scannerResult, null, 2)}
+                </pre>
               )}
             </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-green-800">
-          {scannerResult?.ok === false
-            ? `Scanner error: ${scannerResult.message || 'Unable to retrieve transfers.'}`
-            : 'No confirmed incoming USDT transfers are currently available to display.'}
-        </p>
-      )}
-    </div>
 
-    {/* ORIGINAL DEPOSIT TABLE — PRESERVED */}
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs">
-        <thead>
-          <tr className="bg-[#1e3a8a] text-white font-bold">
-            <th className="p-3">Users</th>
-            <th className="p-3">Deposit Amount</th>
-            <th className="p-3">TRC20 Wallet Address</th>
-            <th className="p-3">Date & Time (Real-Time)</th>
-            <th className="p-3">Status</th>
-            <th className="p-3 text-right">Action</th>
-          </tr>
-        </thead>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#1e3a8a] text-white font-bold">
+                    <th className="p-3">Users</th>
+                    <th className="p-3">Deposit Amount</th>
+                    <th className="p-3">TRC20 Wallet Address</th>
+                    <th className="p-3">Date & Time</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-medium">
+                  {filteredDeposits.map((dep) => {
+                    const custDetails = getCustomerDetailsByUserId(dep.user_id);
+                    return (
+                      <tr key={dep.id} className="hover:bg-slate-50 transition">
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="text-sm font-mono font-black text-blue-900">{custDetails.customId}</div>
+                          <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {custDetails.name}</div>
+                        </td>
+                        <td className="p-3 font-mono font-black text-emerald-600 text-sm">${dep.amount} USDT</td>
+                        <td className="p-3 font-mono text-slate-600 text-[11px]">{dep.trc20_address || 'Not provided'}</td>
+                        <td className="p-3 font-mono text-slate-500 text-[11px]">{new Date(dep.created_at).toLocaleString()}</td>
+                        <td className="p-3">
+                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black ${dep.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : dep.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {dep.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right">
+                          {dep.status === 'pending' ? (
+                            <div className="inline-flex gap-1.5">
+                              <button
+                                onClick={() => handleDepositAction(dep, 'approved')}
+                                className="px-3 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-emerald-700"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleDepositAction(dep, 'rejected')}
+                                className="px-3 py-1 bg-red-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-red-700"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic text-[10px]">Processed</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
-        <tbody className="divide-y divide-slate-200 font-medium">
-          {filteredDeposits.map((dep) => {
-            const custDetails = getCustomerDetailsByUserId(dep.user_id);
-
-            return (
-              <tr
-                key={dep.id}
-                className="hover:bg-slate-50 transition"
-              >
-                <td className="p-3 whitespace-nowrap">
-                  <div className="text-sm font-mono font-black text-blue-900">
-                    {custDetails.customId}
-                  </div>
-
-                  <div className="text-xs font-bold text-slate-700 mt-0.5">
-                    👤 {custDetails.name}
-                  </div>
-
-                  <div className="text-[11px] text-slate-500">
-                    📞 {custDetails.phone}
-                  </div>
-                </td>
-
-                <td className="p-3 font-mono font-black text-emerald-600 text-sm">
-                  ${dep.amount} USDT
-                </td>
-
-                <td className="p-3 font-mono text-slate-600 text-[11px]">
-                  {dep.trc20_address || 'Not provided'}
-                </td>
-
-                <td className="p-3 font-mono text-slate-500 text-[11px]">
-                  {new Date(dep.created_at).toLocaleString()}
-                </td>
-
-                <td className="p-3">
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-[9px] font-black ${
-                      dep.status === 'approved'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : dep.status === 'rejected'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {dep.status.toUpperCase()}
-                  </span>
-                </td>
-
-                <td className="p-3 text-right">
-                  {dep.status === 'pending' ? (
-                    <div className="inline-flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleDepositAction(dep, 'approved')}
-                        className="px-3 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-emerald-700"
-                      >
-                        Approve (+Auto Add & Release Lock)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDepositAction(dep, 'rejected')}
-                        className="px-3 py-1 bg-red-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-red-700"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-slate-400 italic text-[10px]">
-                      Processed
-                    </span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-              </tbody>
-      </table>
-    </div>
-  </div>
-)}
-
-{/* TAB 3: WITHDRAWAL REQUESTS */}
+        {/* TAB 3: WITHDRAWAL REQUESTS */}
         {!isFullPageTaskSettings && activeTab === 'withdrawals' && (
           <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h2 className="text-lg font-black text-blue-900">Withdrawal Requests & Refund Records</h2>
-
+              <h2 className="text-lg font-black text-blue-900">Withdrawal Requests</h2>
               <div className="w-80">
                 <input
                   type="text"
-                  placeholder="Search by ID, Name, Phone or TRC20..."
+                  placeholder="Search withdrawals..."
                   value={withdrawSearchQuery}
                   onChange={(e) => setWithdrawSearchQuery(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
@@ -2546,8 +1675,8 @@ const filteredDeposits = deposits.filter((d) => {
                   <tr className="bg-[#1e3a8a] text-white font-bold">
                     <th className="p-3">Users</th>
                     <th className="p-3">Withdraw Amount</th>
-                    <th className="p-3">Target TRC20 Wallet Address</th>
-                    <th className="p-3">Date & Time (Real-Time)</th>
+                    <th className="p-3">TRC20 Wallet Address</th>
+                    <th className="p-3">Date & Time</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Action</th>
                   </tr>
@@ -2560,21 +1689,12 @@ const filteredDeposits = deposits.filter((d) => {
                         <td className="p-3 whitespace-nowrap">
                           <div className="text-sm font-mono font-black text-blue-900">{custDetails.customId}</div>
                           <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {custDetails.name}</div>
-                          <div className="text-[11px] text-slate-500">📞 {custDetails.phone}</div>
                         </td>
-                        <td className="p-3 font-mono font-black text-blue-700 text-sm">
-                          ${wit.amount} USDT
-                        </td>
-                        <td className="p-3 font-mono text-slate-600 text-[11px]">
-                          {wit.trc20_address || 'TQ9x7kNx9XmR2pQz1L7W4sV6B0c9e5F8dH'}
-                        </td>
-                        <td className="p-3 font-mono text-slate-500 text-[11px]">
-                          {new Date(wit.created_at).toLocaleString()}
-                        </td>
+                        <td className="p-3 font-mono font-black text-blue-700 text-sm">${wit.amount} USDT</td>
+                        <td className="p-3 font-mono text-slate-600 text-[11px]">{wit.trc20_address || 'Wallet'}</td>
+                        <td className="p-3 font-mono text-slate-500 text-[11px]">{new Date(wit.created_at).toLocaleString()}</td>
                         <td className="p-3">
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black ${
-                            wit.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : wit.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
-                          }`}>
+                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black ${wit.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : wit.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
                             {wit.status.toUpperCase()}
                           </span>
                         </td>
@@ -2607,27 +1727,22 @@ const filteredDeposits = deposits.filter((d) => {
           </div>
         )}
 
-    {/* TAB 4: TASK MANAGEMENT */}
-{!isFullPageTaskSettings && activeTab === 'tasks' && (
-  <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-    <div className="flex justify-between items-center border-b pb-3">
-      <h2 className="text-lg font-black text-blue-900">
-        ⚡ Task Management & User Overview
-      </h2>
+        {/* TAB 4: TASK MANAGEMENT */}
+        {!isFullPageTaskSettings && activeTab === 'tasks' && (
+          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h2 className="text-lg font-black text-blue-900">Task Management & User Overview</h2>
+              <div className="w-80">
+                <input
+                  type="text"
+                  placeholder="Search tasks..."
+                  value={taskSearchQuery}
+                  onChange={(e) => setTaskSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                />
+              </div>
+            </div>
 
-      <div className="w-80">
-        <input
-          type="text"
-          placeholder="Search by ID, Name, Phone or Invi Code..."
-          value={taskSearchQuery}
-          onChange={(e) => setTaskSearchQuery(e.target.value)}
-          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-        />
-      </div>
-    </div>
-
-    {/* Iske neeche apna existing Task Management code waise hi rakhein */}    
-    
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -2647,22 +1762,13 @@ const filteredDeposits = deposits.filter((d) => {
                       <td className="p-3 whitespace-nowrap">
                         <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
                         <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                        <div className="text-[11px] text-slate-500">📞 {c.phone || 'No Phone'}</div>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {renderSimpleInvitationCodes(c)}
-                      </td>
-                      
+                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
                       <td className="p-3 font-mono font-black text-red-600">
                         {c.running_tasks && c.running_tasks < 0 ? `$${Math.abs(c.running_tasks).toFixed(2)}` : '$0.00'}
                       </td>
-
                       <td className="p-3 font-bold text-amber-700">{c.vip_level || 'VIP 0'}</td>
-                      
-                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">
-                        {c.completed_tasks} / 25
-                      </td>
-
+                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
                       <td className="p-3">
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
@@ -2671,17 +1777,15 @@ const filteredDeposits = deposits.filter((d) => {
                             onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                          <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                         </label>
                       </td>
-
                       <td className="p-3 text-right">
                         <button
                           onClick={() => handleOpenFullPageTaskSettings(c)}
-                          className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 flex items-center space-x-1 ml-auto"
+                          className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 ml-auto"
                         >
-                          <span>⚙️</span>
-                          <span>Settings</span>
+                          Settings
                         </button>
                       </td>
                     </tr>
@@ -2692,376 +1796,169 @@ const filteredDeposits = deposits.filter((d) => {
           </div>
         )}
 
-      ```tsx
-  {/* TAB 5: PRODUCTS MANAGEMENT */}
-  {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between">
-        <div className="space-y-1">
-          <h2 className="text-base font-black flex items-center gap-2">
-            <span>⚡</span> Auto-Import E-Commerce Products
-          </h2>
-          <p className="text-xs text-blue-200">
-            Import sample catalogue products without duplicating existing entries.
-          </p>
-        </div>
+        {/* TAB 5: PRODUCTS MANAGEMENT */}
+        {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between">
+              <div className="space-y-1">
+                <h2 className="text-base font-black flex items-center gap-2">
+                  <span>⚡</span> Auto-Import E-Commerce Products
+                </h2>
+                <p className="text-xs text-blue-200">Import sample catalogue products from AI.</p>
+              </div>
 
-        <button
-          onClick={handleFetchLiveProductsFromAPI}
-          disabled={isFetchingLive}
-          className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider disabled:opacity-50 flex items-center gap-2"
-        >
-          <span>
-            {isFetchingLive ? 'Fetching Products...' : '📥 Fetch Products'}
-          </span>
-        </button>
-      </div>
+              <button
+                onClick={handleFetchLiveProductsFromAPI}
+                disabled={isFetchingLive}
+                className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-lg transition uppercase tracking-wider disabled:opacity-50"
+              >
+                {isFetchingLive ? 'Fetching...' : '📥 Fetch Products'}
+              </button>
+            </div>
 
-      {/* AI PREMIUM PRODUCT GENERATOR */}
-      <div className="bg-gradient-to-br from-indigo-950 via-blue-900 to-slate-900 rounded-3xl p-6 text-white shadow-xl space-y-5">
-        <div>
-          <h2 className="text-lg font-black flex items-center gap-2">
-            <span>✨</span> AI Premium Product Generator
-          </h2>
-          <p className="text-sm text-blue-200 mt-2">
-            Generate premium product suggestions with Gemini AI and save them
-            to your Supabase catalogue.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-blue-100 mb-2">
-              Select Product Category
-            </label>
-
-            <select
-              value={newProdCategory}
-              onChange={(e) => setNewProdCategory(e.target.value)}
-              disabled={isFetchingLive}
-              className="w-full rounded-xl bg-white text-slate-900 border border-blue-200 p-3 text-sm font-bold disabled:opacity-60"
-            >
-              <option value="Premium Watches">Premium Watches</option>
-              <option value="Premium Smartphones">Premium Smartphones</option>
-              <option value="Beauty & Skincare">Beauty &amp; Skincare</option>
-            </select>
-          </div>
-
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={handleFetchLiveProductsFromAPI}
-              disabled={isFetchingLive}
-              className="w-full px-5 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 rounded-xl text-white text-sm font-black shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {isFetchingLive
-                ? "✨ Generating Products..."
-                : "✨ Generate AI Products"}
-            </button>
-          </div>
-       
-<div className="pt-2">
-  <button
-    type="button"
-    onClick={handleGenerateMissingPremiumProducts}
-    disabled={isFetchingLive}
-    className="w-full px-5 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 rounded-xl text-white text-sm font-black shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-  >
-    {isFetchingLive
-      ? "⏳ Processing Categories..."
-      : "✨ Generate Missing Premium Products"}
-  </button>
-  <p className="text-xs text-blue-200 mt-2">
-    Checks all 25 categories and generates products for categories
-    that are not yet complete.
-  </p>
-</div>
-
-        </div>
-
-        <p className="text-xs text-blue-200">
-          Products are saved to your existing Supabase products table.
-          Your existing Fetch Products feature remains unchanged.
-        </p>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-        <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
-          <span>📁</span> Upload Custom Products via CSV File
-        </h2>
-        <input
-          type="file"
-          accept=".csv"
-          onChange={handleFileUpload}
-          className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-        />
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-        <h2 className="text-lg font-black text-blue-900 flex items-center gap-2">
-          <span>🛍️</span> Add Single Product Manually
-        </h2>
-
-        <form
-          onSubmit={handleAddProductSubmit}
-          className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs"
-        >
-          <div>
-            <label className="font-bold text-slate-600 block mb-1">
-              Product Name
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Premium Watch"
-              value={newProdName}
-              onChange={(e) => setNewProdName(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-medium"
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-slate-600 block mb-1">
-              Store / Platform
-            </label>
-            <select
-              value={newProdStore}
-              onChange={(e) => setNewProdStore(e.target.value as any)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
-            >
-              <option value="Amazon">Amazon</option>
-              <option value="AliExpress">AliExpress</option>
-              <option value="Shopify">Shopify</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="font-bold text-slate-600 block mb-1">
-              Price ($)
-            </label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              placeholder="e.g. 185"
-              value={newProdPrice}
-              onChange={(e) => setNewProdPrice(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-slate-600 block mb-1">
-              Product Category
-            </label>
-           
-<select
-  value={newProdCategory}
-  onChange={(e) => setNewProdCategory(e.target.value)}
-  disabled={isFetchingLive}
-  className="w-full rounded-xl bg-white text-slate-900 border border-blue-200 p-3 text-sm font-bold disabled:opacity-60"
->
-  <option value="Premium Laptops">Premium Laptops</option>
-  <option value="Premium Smartphones">Premium Smartphones</option>
-  <option value="Premium Watches">Premium Watches</option>
-  <option value="Luxury Handbags">Luxury Handbags</option>
-  <option value="Fashion & Clothing">Fashion &amp; Clothing</option>
-  <option value="Fragrances">Fragrances</option>
-  <option value="Beauty & Skincare">Beauty &amp; Skincare</option>
-  <option value="Jewelry & Accessories">Jewelry &amp; Accessories</option>
-  <option value="Fitness & Sports Equipment">Fitness &amp; Sports Equipment</option>
-  <option value="Pet Supplies">Pet Supplies</option>
-  <option value="Kitchen Appliances">Kitchen Appliances</option>
-  <option value="Home Decor">Home Decor</option>
-  <option value="Home Furniture">Home Furniture</option>
-  <option value="Audio & Headphones">Audio &amp; Headphones</option>
-  <option value="Gaming & Consoles">Gaming &amp; Consoles</option>
-  <option value="Computer Accessories">Computer Accessories</option>
-  <option value="Tablets">Tablets</option>
-  <option value="Smart Home Devices">Smart Home Devices</option>
-  <option value="Travel & Luggage">Travel &amp; Luggage</option>
-  <option value="Footwear">Footwear</option>
-  <option value="Sunglasses & Eyewear">Sunglasses &amp; Eyewear</option>
-  <option value="Baby & Kids Products">Baby &amp; Kids Products</option>
-  <option value="Outdoor & Camping">Outdoor &amp; Camping</option>
-  <option value="Automotive Accessories">Automotive Accessories</option>
-  <option value="Office & Stationery">Office &amp; Stationery</option>
-</select>
-
-          </div>
-
-          <div className="md:col-span-4">
-            <label className="font-bold text-slate-600 block mb-1">
-              Image URL
-            </label>
-            <input
-              type="text"
-              placeholder="https://..."
-              value={newProdImageUrl}
-              onChange={(e) => setNewProdImageUrl(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
-            />
-          </div>
-
-          <div className="md:col-span-4 pt-2">
-            <button
-              type="submit"
-              className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow transition uppercase tracking-wider"
-            >
-              + Add Product to Database
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-        <div className="flex justify-between items-center border-b pb-3 flex-wrap gap-3">
-          <div>
-            <h3 className="text-base font-black text-blue-900">
-              Manage Existing Products
-            </h3>
-            <p className="text-xs text-slate-500">
-              Total Products in Inventory:{' '}
-              <span className="font-bold text-blue-700">
-                {productsList.length}
-              </span>
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleDeleteAllProducts}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow transition flex items-center gap-1.5"
-            >
-              <span>🗑️</span>
-              <span>Delete All Products</span>
-            </button>
-
-            <div className="w-72">
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+              <h2 className="text-lg font-black text-blue-900">📁 Upload Products via CSV</h2>
               <input
-                type="text"
-                placeholder="Search product name or store..."
-                value={productSearchQuery}
-                onChange={(e) => setProductSearchQuery(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>
-          </div>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-[#1e3a8a] text-white font-bold">
-                <th className="p-3">Image</th>
-                <th className="p-3">Product Name</th>
-                <th className="p-3">Category</th>
-                <th className="p-3">Store</th>
-                <th className="p-3">Price</th>
-                <th className="p-3 text-right">Remove / Action</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-200 font-medium">
-              {filteredProducts.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="text-center py-6 text-slate-400 italic"
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+              <h2 className="text-lg font-black text-blue-900">🛍️ Add Single Product Manually</h2>
+              <form onSubmit={handleAddProductSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                <div>
+                  <label className="font-bold text-slate-600 block mb-1">Product Name</label>
+                  <input
+                    type="text"
+                    placeholder="Product Name"
+                    value={newProdName}
+                    onChange={(e) => setNewProdName(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-600 block mb-1">Store</label>
+                  <select
+                    value={newProdStore}
+                    onChange={(e) => setNewProdStore(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-blue-900"
                   >
-                    No products found.
-                  </td>
-                </tr>
-              ) : (
-                filteredProducts.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50 transition">
-                    <td className="p-3">
-                      <img
-                        src={p.image_url}
-                        alt={p.name}
-                        className="w-10 h-10 object-cover rounded-xl border border-slate-300"
-                      />
-                    </td>
+                    <option value="Amazon">Amazon</option>
+                    <option value="AliExpress">AliExpress</option>
+                    <option value="Shopify">Shopify</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-slate-600 block mb-1">Price ($)</label>
+                  <input
+                    type="number"
+                    placeholder="185"
+                    value={newProdPrice}
+                    onChange={(e) => setNewProdPrice(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-600 block mb-1">Image URL</label>
+                  <input
+                    type="text"
+                    placeholder="https://..."
+                    value={newProdImageUrl}
+                    onChange={(e) => setNewProdImageUrl(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
+                  />
+                </div>
+                <div className="md:col-span-4 pt-2">
+                  <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">
+                    + Add Product to Database
+                  </button>
+                </div>
+              </form>
+            </div>
 
-                    <td className="p-3 font-bold text-slate-800">
-                      {p.name}
-                    </td>
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+              <div className="flex justify-between items-center border-b pb-3 flex-wrap gap-3">
+                <div>
+                  <h3 className="text-base font-black text-blue-900">Manage Existing Products</h3>
+                  <p className="text-xs text-slate-500">Total: <span className="font-bold text-blue-700">{productsList.length}</span></p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleDeleteAllProducts}
+                    className="px-4 py-2 bg-red-600 text-white font-black text-xs rounded-xl shadow"
+                  >
+                    🗑️ Delete All
+                  </button>
+                  <input
+                    type="text"
+                    placeholder="Search product..."
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    className="w-64 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+              </div>
 
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 bg-purple-100 text-purple-800 font-bold rounded text-[10px]">
-                        {p.category || 'Uncategorized'}
-                      </span>
-                    </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#1e3a8a] text-white font-bold">
+                      <th className="p-3">Image</th>
+                      <th className="p-3">Product Name</th>
+                      <th className="p-3">Store</th>
+                      <th className="p-3">Price</th>
+                      <th className="p-3 text-right">Remove</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-medium">
+                    {filteredProducts.map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition">
+                        <td className="p-3">
+                          <img src={p.image_url} alt={p.name} className="w-10 h-10 object-cover rounded-xl border border-slate-300" />
+                        </td>
+                        <td className="p-3 font-bold text-slate-800">{p.name}</td>
+                        <td className="p-3"><span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">{p.store}</span></td>
+                        <td className="p-3 font-mono font-black text-emerald-600">${Number(p.price).toFixed(2)}</td>
+                        <td className="p-3 text-right">
+                          <button onClick={() => handleDeleteProduct(p.id)} className="px-3 py-1.5 bg-red-600 text-white font-bold text-[10px] rounded-lg shadow">
+                            🗑️ Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
-                        {p.store}
-                      </span>
-                    </td>
-
-                    <td className="p-3 font-mono font-black text-emerald-600">
-                      ${Number(p.price).toFixed(2)}
-                    </td>
-
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => handleDeleteProduct(p.id)}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-lg shadow transition"
-                      >
-                        🗑️ Remove Product
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )}
-```
         {/* TAB 6: LIVE SUPPORT & CHAT */}
         {!isFullPageTaskSettings && activeTab === 'support' && (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden grid grid-cols-3 h-[420px]">
               <div className="border-r border-slate-200 bg-slate-50 p-3 space-y-2 overflow-y-auto">
-                <div className="border-b pb-2 space-y-2">
-                  <h4 className="font-bold text-xs text-slate-700">Customer Inbox</h4>
-                  <input
-                    type="text"
-                    placeholder="Search by ID, Name or Phone..."
-                    value={chatSearchQuery}
-                    onChange={(e) => setChatSearchQuery(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl p-2 text-[10px] font-semibold"
-                  />
-                </div>
-
-                {filteredChatUsers.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic p-2">No matching customer chats.</p>
-                ) : (
-                  filteredChatUsers.map((uId) => {
-                    const custDetails = getCustomerDetailsByUserId(uId);
-                    return (
-                      <button
-                        key={uId}
-                        onClick={() => setActiveChatUserId(uId)}
-                        className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${
-                          activeChatUserId === uId ? 'bg-blue-900 text-white shadow-lg' : 'bg-white text-slate-800 hover:bg-slate-100 border border-slate-200'
-                        }`}
-                      >
-                        <span className="font-mono">{custDetails.customId} - {custDetails.name}</span>
-                      </button>
-                    );
-                  })
-                )}
+                <h4 className="font-bold text-xs text-slate-700">Customer Inbox</h4>
+                {filteredChatUsers.map((uId) => {
+                  const custDetails = getCustomerDetailsByUserId(uId);
+                  return (
+                    <button
+                      key={uId}
+                      onClick={() => setActiveChatUserId(uId)}
+                      className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${activeChatUserId === uId ? 'bg-blue-900 text-white' : 'bg-white text-slate-800 border'}`}
+                    >
+                      <span className="font-mono">{custDetails.customId} - {custDetails.name}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="col-span-2 flex flex-col justify-between p-4 bg-white">
-                <div className="border-b pb-2 font-bold text-xs text-blue-900 flex justify-between items-center">
-                  <span>Live Conversation: <span className="font-mono text-blue-700">{activeChatUserId ? getCustomerDetailsByUserId(activeChatUserId).customId : 'Select a user'}</span></span>
-                  <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Live Active
-                  </span>
+                <div className="border-b pb-2 font-bold text-xs text-blue-900">
+                  Live Chat: <span className="font-mono text-blue-700">{activeChatUserId ? getCustomerDetailsByUserId(activeChatUserId).customId : 'Select user'}</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto my-3 space-y-2 pr-1 text-xs">
@@ -3069,9 +1966,6 @@ const filteredDeposits = deposits.filter((d) => {
                     <div key={m.id} className={`flex ${m.is_admin ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[75%] p-2.5 rounded-xl ${m.is_admin ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-800 border'}`}>
                         <p>{m.message}</p>
-                        <span className="text-[8px] opacity-70 block text-right mt-1 font-mono">
-                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
                       </div>
                     </div>
                   ))}
@@ -3080,257 +1974,115 @@ const filteredDeposits = deposits.filter((d) => {
                 <form onSubmit={handleSendAdminReply} className="flex gap-2 border-t pt-2">
                   <input
                     type="text"
-                    placeholder="Type reply to customer..."
+                    placeholder="Type reply..."
                     value={replyMessage}
                     onChange={(e) => setReplyMessage(e.target.value)}
                     className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
                   />
-                  <button type="submit" className="px-5 py-2 bg-blue-900 text-white font-black text-xs rounded-xl shadow hover:bg-blue-800">Send</button>
+                  <button type="submit" className="px-5 py-2 bg-blue-900 text-white font-black text-xs rounded-xl">Send</button>
                 </form>
               </div>
             </div>
-
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-              <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">📢 Official Telegram & WhatsApp Support Links</h3>
-              <form onSubmit={handleSaveMainSettings} className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Telegram URL</label>
-                  <input type="text" value={telegramUrl} onChange={(e) => setTelegramUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">WhatsApp URL</label>
-                  <input type="text" value={whatsappUrl} onChange={(e) => setWhatsappUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                </div>
-                <div className="col-span-2">
-                  <button type="submit" className="py-2.5 px-6 bg-blue-900 text-white font-black text-xs rounded-xl shadow">Save Support Links</button>
-                </div>
-              </form>
-            </div>
           </div>
         )}
 
-        {/* MAIN ADMIN TAB: WHATSAPP & TELEGRAM QR CODE SCAN & MANAGEMENT */}
+        {/* TAB 7: WHATSAPP & TELEGRAM */}
         {!isFullPageTaskSettings && activeTab === 'whatsapp_telegram' && isMainAdmin && (
           <div className="space-y-6">
-            <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-emerald-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between">
-              <div className="space-y-1">
-                <h2 className="text-lg font-black flex items-center gap-2">
-                  <span>📱</span> Main Admin WhatsApp & Telegram QR Terminal
-                </h2>
-                <p className="text-xs text-emerald-200">
-                  Manage device connections, scan QR codes safely, and update official customer support links directly.
-                </p>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-base font-extrabold text-emerald-800 border-b pb-2 flex items-center gap-2">
-                    <span>🟢</span> WhatsApp Device Scan & Login
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Scan the QR code below using your WhatsApp mobile application to link the device securely.
-                  </p>
-
-                  <div className="flex flex-col items-center justify-center my-6 space-y-3">
-                    <div className="p-3 bg-emerald-50 rounded-2xl border-2 border-emerald-300 shadow-inner">
-                      <img src={whatsappQrUrl} alt="WhatsApp QR Code" className="w-48 h-48 rounded-xl" />
-                    </div>
-
-                    <div className="text-center space-y-1">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black inline-block ${
-                        waConnected ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
-                      }`}>
-                        {waConnected ? '✓ WhatsApp Device Connected & Synced' : '⌛ Waiting for WhatsApp QR Scan...'}
-                      </span>
-                    </div>
-                  </div>
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
+                <h3 className="text-base font-extrabold text-emerald-800 border-b pb-2">🟢 WhatsApp QR</h3>
+                <div className="flex flex-col items-center justify-center my-4 space-y-2">
+                  <img src={whatsappQrUrl} alt="WhatsApp QR" className="w-40 h-40 rounded-xl border p-2" />
+                  <button onClick={() => { setWaConnected(true); showToast('WhatsApp connected!'); }} className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow">
+                    {waConnected ? 'Connected ✓' : 'Connect WhatsApp'}
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => {
-                    setWaConnected(true);
-                    showToast('WhatsApp Device successfully connected!');
-                  }}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition"
-                >
-                  Simulate WhatsApp Connected
-                </button>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-base font-extrabold text-blue-800 border-b pb-2 flex items-center gap-2">
-                    <span>🔵</span> Telegram Device Scan & Login
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Scan the QR code below using your Telegram mobile app to link and manage customer bot support.
-                  </p>
-
-                  <div className="flex flex-col items-center justify-center my-6 space-y-3">
-                    <div className="p-3 bg-blue-50 rounded-2xl border-2 border-blue-300 shadow-inner">
-                      <img src={telegramQrUrl} alt="Telegram QR Code" className="w-48 h-48 rounded-xl" />
-                    </div>
-
-                    <div className="text-center space-y-1">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black inline-block ${
-                        tgConnected ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
-                      }`}>
-                        {tgConnected ? '✓ Telegram Device Connected & Synced' : '⌛ Waiting for Telegram QR Scan...'}
-                      </span>
-                    </div>
-                  </div>
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
+                <h3 className="text-base font-extrabold text-blue-800 border-b pb-2">🔵 Telegram QR</h3>
+                <div className="flex flex-col items-center justify-center my-4 space-y-2">
+                  <img src={telegramQrUrl} alt="Telegram QR" className="w-40 h-40 rounded-xl border p-2" />
+                  <button onClick={() => { setTgConnected(true); showToast('Telegram connected!'); }} className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl shadow">
+                    {tgConnected ? 'Connected ✓' : 'Connect Telegram'}
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => {
-                    setTgConnected(true);
-                    showToast('Telegram Device successfully connected!');
-                  }}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition"
-                >
-                  Simulate Telegram Connected
-                </button>
               </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-              <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🔗 Update Customer Service & Support Links</h3>
-              <form onSubmit={handleSaveMainSettings} className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">Telegram Service URL</label>
-                  <input type="text" value={telegramUrl} onChange={(e) => setTelegramUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium" />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-600 block mb-1">WhatsApp Service URL</label>
-                  <input type="text" value={whatsappUrl} onChange={(e) => setWhatsappUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium" />
-                </div>
-                <div className="col-span-2">
-                  <button type="submit" className="py-3 px-8 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow">Save Support Links</button>
-                </div>
-              </form>
             </div>
           </div>
         )}
 
-        {/* TAB 7: ADMIN SETTINGS & SUB-ADMIN PROFILE */}
+        {/* TAB 8: ADMIN SETTINGS & SUB-ADMIN NOTIFICATIONS */}
         {!isFullPageTaskSettings && activeTab === 'settings' && (
           <div className="space-y-6">
             
             {!isMainAdmin && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                  <h3 className="text-base font-extrabold text-blue-900 border-b pb-2 flex items-center gap-2">
-                    <span>🛠️</span> Sub-Admin Profile & Settings
-                  </h3>
-                  <p className="text-xs text-slate-500">You can update your Email, Password, Invitation Code, and Support Links.</p>
-                  
-                  <form onSubmit={handleSaveSubAdminSelfProfile} className="space-y-3 text-xs">
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">Sub-Admin Email (Editable)</label>
-                      <input
-                        type="email"
-                        value={subAdminEditableEmail}
-                        onChange={(e) => setSubAdminEditableEmail(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-semibold text-blue-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">New Password (Optional)</label>
-                      <input
-                        type="password"
-                        placeholder="Enter new password if changing"
-                        value={subAdminEditablePassword}
-                        onChange={(e) => setSubAdminEditablePassword(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">Invitation Code (Editable)</label>
-                      <input
-                        type="text"
-                        value={subAdminEditableInviteCode}
-                        onChange={(e) => setSubAdminEditableInviteCode(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold uppercase text-blue-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">Telegram Support Link</label>
-                      <input type="text" value={telegramUrl} onChange={(e) => setTelegramUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                    </div>
-
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">WhatsApp Support Link</label>
-                      <input type="text" value={whatsappUrl} onChange={(e) => setWhatsappUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                    </div>
-
-                    <button type="submit" className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow uppercase tracking-wider">
-                      Save Changes
-                    </button>
-                  </form>
-                </div>
-
-                <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4 flex flex-col justify-between">
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
+                <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🛠️ Sub-Admin Profile Settings</h3>
+                <form onSubmit={handleSaveSubAdminSelfProfile} className="space-y-3 text-xs">
                   <div>
-                    <h3 className="text-base font-extrabold text-emerald-800 border-b pb-2 flex items-center gap-2">
-                      <span>📱</span> WhatsApp & Telegram Device QR Scan
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Scan to link your device directly. Main admin can disable this feature anytime.
-                    </p>
-
-                    <div className="flex items-center justify-center gap-4 my-6">
-                      <div className="text-center space-y-2">
-                        <span className="text-[10px] font-bold text-emerald-700">WhatsApp QR</span>
-                        <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-300">
-                          <img src={whatsappQrUrl} alt="WA QR" className="w-28 h-28 rounded-lg" />
-                        </div>
-                      </div>
-                      <div className="text-center space-y-2">
-                        <span className="text-[10px] font-bold text-blue-700">Telegram QR</span>
-                        <div className="p-2 bg-blue-50 rounded-xl border border-blue-300">
-                          <img src={telegramQrUrl} alt="TG QR" className="w-28 h-28 rounded-lg" />
-                        </div>
-                      </div>
-                    </div>
+                    <label className="font-bold text-slate-600 block mb-1">Email</label>
+                    <input type="email" value={subAdminEditableEmail} onChange={(e) => setSubAdminEditableEmail(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
                   </div>
-
-                  <span className="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-center text-[11px] font-bold">
-                    🔒 Managed by Main Admin Terminal
-                  </span>
-                </div>
+                  <div>
+                    <label className="font-bold text-slate-600 block mb-1">New Password (Optional)</label>
+                    <input type="password" value={subAdminEditablePassword} onChange={(e) => setSubAdminEditablePassword(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-600 block mb-1">Invitation Code</label>
+                    <input type="text" value={subAdminEditableInviteCode} onChange={(e) => setSubAdminEditableInviteCode(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5 font-bold uppercase" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">Save Changes</button>
+                </form>
               </div>
             )}
 
             {isMainAdmin && (
               <div className="space-y-6">
+                
+                {/* NOTIFICATIONS DROPDOWN / ACCORDION UI */}
                 <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-200 space-y-3">
-                  <h3 className="text-base font-extrabold text-blue-900 border-b pb-2 flex items-center justify-between">
-                    <span className="flex items-center gap-2">🔔 Sub-Admin Activity Notifications (Real-Time Log)</span>
-                    <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-mono">{notifications.length} Logs</span>
-                  </h3>
-
-                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                    {notifications.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic py-3 text-center">No recent changes recorded from Sub-Admins.</p>
-                    ) : (
-                      notifications.map((notif) => (
-                        <div key={notif.id} className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs flex justify-between items-center">
-                          <span className="font-bold text-blue-950">{notif.message}</span>
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            {new Date(notif.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                      ))
-                    )}
+                  <div 
+                    onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+                    className="flex items-center justify-between cursor-pointer border-b pb-3 select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🔔</span>
+                      <h3 className="text-base font-extrabold text-blue-900">
+                        Sub-Admin Activity Notifications (Real-Time Log)
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-mono font-bold">
+                        {notifications.length} Logs
+                      </span>
+                      <span className="text-blue-900 font-bold text-sm">
+                        {showNotificationsDropdown ? '▲ Hide' : '▼ View Logs'}
+                      </span>
+                    </div>
                   </div>
+
+                  {showNotificationsDropdown && (
+                    <div className="max-h-60 overflow-y-auto space-y-2.5 pt-2">
+                      {notifications.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-3 text-center">No recent changes recorded from Sub-Admins.</p>
+                      ) : (
+                        notifications.map((notif) => (
+                          <div key={notif.id} className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-xs flex justify-between items-center shadow-sm">
+                            <span className="font-bold text-blue-950">{notif.message}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {new Date(notif.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* GLOBAL SYSTEM SETTINGS & LIVE INVITATION CODE */}
                   <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
                     <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">👑 Main System & Global Settings</h3>
                     <form onSubmit={handleSaveMainSettings} className="space-y-3 text-xs">
@@ -3339,8 +2091,14 @@ const filteredDeposits = deposits.filter((d) => {
                         <input type="text" value={depositTrc20} onChange={(e) => setDepositTrc20(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-blue-900 font-bold" />
                       </div>
                       <div>
-                        <label className="font-bold text-slate-600 block mb-1">Main Invitation Code</label>
-                        <input type="text" value={mainInviteCode} onChange={(e) => setMainInviteCode(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold uppercase" />
+                        <label className="font-bold text-slate-600 block mb-1">Main Invitation Code (Live Database Sync)</label>
+                        <input 
+                          type="text" 
+                          value={mainInviteCode} 
+                          onChange={(e) => setMainInviteCode(e.target.value)} 
+                          className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-2.5 font-bold uppercase text-emerald-900" 
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1">Users registering with this code will connect to the main system instantly.</p>
                       </div>
                       <div>
                         <label className="font-bold text-slate-600 block mb-1">Telegram Support Link</label>
@@ -3354,6 +2112,7 @@ const filteredDeposits = deposits.filter((d) => {
                     </form>
                   </div>
 
+                  {/* MAIN ADMIN CREDENTIALS */}
                   <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
                     <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🔑 Main Admin Credentials</h3>
                     <form onSubmit={handleUpdateAdminCredentials} className="space-y-3 text-xs">
@@ -3363,14 +2122,15 @@ const filteredDeposits = deposits.filter((d) => {
                       </div>
                       <div>
                         <label className="font-bold text-slate-600 block mb-1">New Password</label>
-                        <input type="password" placeholder="Enter new password if changing" value={mainAdminPassword} onChange={(e) => setMainAdminPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
+                        <input type="password" placeholder="Enter new password" value={mainAdminPassword} onChange={(e) => setMainAdminPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
                       </div>
-                      <button type="submit" className="w-full py-3 bg-indigo-900 text-white font-black text-xs rounded-xl shadow mt-6">Update Admin Credentials</button>
+                      <button type="submit" className="w-full py-3 bg-indigo-900 text-white font-black text-xs rounded-xl shadow mt-6">Update Credentials</button>
                     </form>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                {/* SUB-ADMIN CREATION & PERMISSIONS */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
                     <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🛡️ Create Sub-Admin & Permissions</h3>
                     <form onSubmit={handleCreateSubAdmin} className="space-y-3 text-xs">
@@ -3390,9 +2150,10 @@ const filteredDeposits = deposits.filter((d) => {
                     </form>
                   </div>
 
+                  {/* EXISTING SUB-ADMINS LIST */}
                   <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
                     <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">📋 Existing Sub-Admins & Access Control</h3>
-                    <div className="overflow-y-auto max-h-[480px] space-y-2.5">
+                    <div className="overflow-y-auto max-h-[350px] space-y-2.5">
                       {subAdmins.length === 0 ? (
                         <p className="text-xs text-slate-400 italic">No sub-admins created yet.</p>
                       ) : (
@@ -3409,14 +2170,11 @@ const filteredDeposits = deposits.filter((d) => {
                                   setEditSubEmail(sub.email || '');
                                   setEditSubPassword('');
                                   setEditSubInviteCode(sub.invite_code || '');
-                                  setEditSubTelegram(sub.telegram_url || '');
-                                  setEditSubWhatsapp(sub.whatsapp_url || '');
                                   setEditSubPerms(sub.permissions || { users: true, deposits: true, withdrawals: true, tasks: true, support: true, products: true });
                                 }}
-                                className="px-3 py-1.5 bg-blue-900 text-white font-black text-[10px] rounded-xl shadow hover:bg-blue-800 transition flex items-center space-x-1"
+                                className="px-3 py-1.5 bg-blue-900 text-white font-black text-[10px] rounded-xl shadow hover:bg-blue-800 transition"
                               >
-                                <span>⚙️</span>
-                                <span>Settings</span>
+                                ⚙️ Settings
                               </button>
                               <button
                                 onClick={() => handleDeleteSubAdmin(sub.id)}
@@ -3438,7 +2196,7 @@ const filteredDeposits = deposits.filter((d) => {
           </div>
         )}
 
-        {/* TAB 8: DELETE CUSTOMERS PANEL */}
+        {/* TAB 9: DELETE CUSTOMERS PANEL */}
         {!isFullPageTaskSettings && activeTab === 'delete_users' && isMainAdmin && (
           <div className="bg-white rounded-3xl shadow-xl border border-red-200 p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-red-100 pb-4">
@@ -3446,13 +2204,13 @@ const filteredDeposits = deposits.filter((d) => {
                 <h2 className="text-lg font-black text-red-700 flex items-center gap-2">
                   <span>🗑️</span> Customer Deletion Management
                 </h2>
-                <p className="text-xs text-slate-500 font-medium">Yahan se aap kisi bhi customer account ko permanently delete kar sakte hain.</p>
+                <p className="text-xs text-slate-500 font-medium">Permanently delete customer accounts.</p>
               </div>
 
               <div className="w-80">
                 <input
                   type="text"
-                  placeholder="Search by ID, Name, Phone or Invi Code..."
+                  placeholder="Search to delete..."
                   value={deleteSearchQuery}
                   onChange={(e) => setDeleteSearchQuery(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-red-500"
@@ -3477,17 +2235,10 @@ const filteredDeposits = deposits.filter((d) => {
                       <td className="p-3 whitespace-nowrap">
                         <div className="text-sm font-mono font-black text-red-900">#{c.custom_id}</div>
                         <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                        <div className="text-[11px] text-slate-500">📞 {c.phone || 'No Phone'}</div>
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {renderSimpleInvitationCodes(c)}
-                      </td>
-                      <td className="p-3 text-slate-700 font-semibold">
-                        {c.email || 'customer@appuser.local'}
-                      </td>
-                      <td className="p-3 font-mono font-bold text-emerald-600">
-                        ${c.balance.toFixed(2)}
-                      </td>
+                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
+                      <td className="p-3 text-slate-700 font-semibold">{c.email || 'customer@appuser.local'}</td>
+                      <td className="p-3 font-mono font-bold text-emerald-600">${c.balance.toFixed(2)}</td>
                       <td className="p-3 text-right">
                         <button
                           onClick={() => handleDeleteCustomer(c)}
@@ -3527,9 +2278,7 @@ const filteredDeposits = deposits.filter((d) => {
               <button onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-200 text-slate-700 font-bold text-xs rounded-xl">Cancel</button>
               <button
                 onClick={handleFundSubmit}
-                className={`flex-1 py-2.5 text-white font-black text-xs rounded-xl shadow ${
-                  modalType === 'add_funds' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
-                }`}
+                className={`flex-1 py-2.5 text-white font-black text-xs rounded-xl shadow ${modalType === 'add_funds' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
               >
                 Submit
               </button>
@@ -3567,11 +2316,23 @@ const filteredDeposits = deposits.filter((d) => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">Customer Login Password</label>
-                  <input type="password" disabled value="••••••••" className="w-full bg-slate-100 border border-slate-300 rounded-xl p-2.5 text-slate-400 cursor-not-allowed" />
+                  <input 
+                    type="text" 
+                    placeholder="New Login Password" 
+                    value={editLoginPass} 
+                    onChange={(e) => setEditLoginPass(e.target.value)} 
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono text-xs" 
+                  />
                 </div>
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">Customer Withdraw Password</label>
-                  <input type="password" placeholder="New withdraw password" value={editWithdrawPass} onChange={(e) => setEditWithdrawPass(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5" />
+                  <input 
+                    type="text" 
+                    placeholder="New Withdraw Password" 
+                    value={editWithdrawPass} 
+                    onChange={(e) => setEditWithdrawPass(e.target.value)} 
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono text-xs" 
+                  />
                 </div>
               </div>
 
@@ -3604,8 +2365,8 @@ const filteredDeposits = deposits.filter((d) => {
                 </label>
                 {disableWithdraw && (
                   <div>
-                    <label className="font-bold text-slate-700 block mb-1">Notification Message (Displayed to User on Withdraw)</label>
-                    <textarea rows={2} placeholder="Message displayed when customer clicks withdraw..." value={withdrawNotificationMsg} onChange={(e) => setWithdrawNotificationMsg(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs" />
+                    <label className="font-bold text-slate-700 block mb-1">Notification Message</label>
+                    <textarea rows={2} placeholder="Message displayed on withdraw..." value={withdrawNotificationMsg} onChange={(e) => setWithdrawNotificationMsg(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs" />
                   </div>
                 )}
               </div>
@@ -3621,7 +2382,7 @@ const filteredDeposits = deposits.filter((d) => {
         </div>
       )}
 
-      {/* MODAL 3: SUB-ADMIN SETTINGS FOR MAIN ADMIN */}
+      {/* MODAL 3: SUB-ADMIN SETTINGS */}
       {selectedSubAdminForModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#ffffff] rounded-3xl p-6 w-full max-w-md space-y-4 shadow-2xl border-2 border-blue-900 max-h-[90vh] overflow-y-auto">
@@ -3634,67 +2395,39 @@ const filteredDeposits = deposits.filter((d) => {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="font-bold text-slate-600 block mb-1">Sub-Admin Email (Editable)</label>
+                <label className="font-bold text-slate-600 block mb-1">Sub-Admin Email</label>
                 <input type="email" value={editSubEmail} onChange={(e) => setEditSubEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-semibold text-blue-900" />
               </div>
               <div>
                 <label className="font-bold text-slate-600 block mb-1">Update Invitation Code</label>
                 <input type="text" value={editSubInviteCode} onChange={(e) => setEditSubInviteCode(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold uppercase" />
               </div>
-              <div>
-                <label className="font-bold text-slate-600 block mb-1">New Password (Optional)</label>
-                <input type="password" placeholder="Enter new password" value={editSubPassword} onChange={(e) => setEditSubPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-              </div>
 
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                <span className="font-extrabold text-blue-900 block uppercase text-[10px]">Sub-Admin Portal Permissions (On/Off Access):</span>
+                <span className="font-extrabold text-blue-900 block uppercase text-[10px]">Sub-Admin Permissions:</span>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.users}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, users: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.users} onChange={(e) => setEditSubPerms({ ...editSubPerms, users: e.target.checked })} />
                     <span>Users</span>
                   </label>
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.deposits}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, deposits: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.deposits} onChange={(e) => setEditSubPerms({ ...editSubPerms, deposits: e.target.checked })} />
                     <span>Deposit Records</span>
                   </label>
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.withdrawals}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, withdrawals: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.withdrawals} onChange={(e) => setEditSubPerms({ ...editSubPerms, withdrawals: e.target.checked })} />
                     <span>Withdrawals</span>
                   </label>
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.tasks}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, tasks: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.tasks} onChange={(e) => setEditSubPerms({ ...editSubPerms, tasks: e.target.checked })} />
                     <span>Task Management</span>
                   </label>
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.support}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, support: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.support} onChange={(e) => setEditSubPerms({ ...editSubPerms, support: e.target.checked })} />
                     <span>Live Support</span>
                   </label>
                   <label className="flex items-center space-x-2 font-bold text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editSubPerms.products}
-                      onChange={(e) => setEditSubPerms({ ...editSubPerms, products: e.target.checked })}
-                    />
+                    <input type="checkbox" checked={editSubPerms.products} onChange={(e) => setEditSubPerms({ ...editSubPerms, products: e.target.checked })} />
                     <span>Products</span>
                   </label>
                 </div>

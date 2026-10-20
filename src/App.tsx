@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { testTrc20Scanner } from './lib/scanner-test';
 import { AuthProvider } from './context/AuthContext';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminRoute } from './components/AdminRoute';
@@ -11,32 +10,9 @@ import { AuthPage } from './pages/AuthPage';
 import CustomerDashboard from './pages/CustomerDashboard';
 
 export default function App() {
- 
- const runScannerTest = async () => {
-  await testTrc20Scanner();
-};
-   return (
+  return (
     <AuthProvider>
       <BrowserRouter>
-
-        <button
-          onClick={runScannerTest}
-          style={{
-            position: 'fixed',
-            bottom: 20,
-            right: 20,
-            zIndex: 99999,
-            padding: '12px 16px',
-            background: '#111',
-            color: '#fff',
-            border: '1px solid #d4af37',
-            borderRadius: 8,
-            cursor: 'pointer'
-          }}
-        >
-          Test TRC20 Scanner
-        </button>
-
         <Routes>
           {/* Customer Routes */}
           <Route path="/" element={<AuthPage />} />
@@ -55,7 +31,7 @@ export default function App() {
             } 
           />
 
-          {/* Sub-Admin Portal Route */}s
+          {/* Sub-Admin Portal Route */}
           <Route 
             path="/sub-admin/dashboard" 
             element={

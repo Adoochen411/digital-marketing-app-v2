@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+
 interface ProductTask {
   id: number;
   name: string;
-  store: string; // Isko 'Amazon' | 'AliExpress' | 'Shopify' ki jagah sirf 'string' kar dein
+  store: string;
   price: number;
   commission: number;
   rating: number;
@@ -74,8 +75,6 @@ export const CustomerDashboard: React.FC = () => {
 
   const [userEmail, setUserEmail] = useState(user?.email || '');
   const [userPhone, setUserPhone] = useState('');
-  
-  // Permanent Invite Code State
   const [myInviteCode, setMyInviteCode] = useState('');
 
   const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
@@ -86,6 +85,10 @@ export const CustomerDashboard: React.FC = () => {
   const [todayCommission, setTodayCommission] = useState<number>(0.00);
   const [runningTasksVal, setRunningTasksVal] = useState<number>(0);
   const [activeVipLevel, setActiveVipLevel] = useState<string>('VIP 0 - Regular');
+
+  // Account Frozen & Task Lock States
+  const [isAccountFrozen, setIsAccountFrozen] = useState<boolean>(false);
+  const [isAutoTaskLocked, setIsAutoTaskLocked] = useState<boolean>(true);
 
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
   const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
@@ -208,6 +211,8 @@ Digital Marketing is an international legal platform offering genuine earning op
         if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
         if (data.vip_level) setActiveVipLevel(data.vip_level);
         if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
+        if (data.is_frozen !== undefined) setIsAccountFrozen(Boolean(data.is_frozen));
+        if (data.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(data.auto_task_lock));
 
         if (data.pending_task) {
           setCurrentTask(data.pending_task);
@@ -261,6 +266,8 @@ Digital Marketing is an international legal platform offering genuine earning op
         if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
         if (data.vip_level) setActiveVipLevel(data.vip_level);
         if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
+        if (data.is_frozen !== undefined) setIsAccountFrozen(Boolean(data.is_frozen));
+        if (data.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(data.auto_task_lock));
       }
     }, 2000);
 
@@ -277,6 +284,8 @@ Digital Marketing is an international legal platform offering genuine earning op
             if (payload.new.completed_tasks !== undefined) setCompletedTasks(payload.new.completed_tasks);
             if (payload.new.vip_level) setActiveVipLevel(payload.new.vip_level);
             if (payload.new.withdraw_message) setWithdrawLockedMsg(payload.new.withdraw_message);
+            if (payload.new.is_frozen !== undefined) setIsAccountFrozen(Boolean(payload.new.is_frozen));
+            if (payload.new.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(payload.new.auto_task_lock));
             if (payload.new.pending_task) {
               setCurrentTask(payload.new.pending_task);
             }
@@ -336,269 +345,272 @@ Digital Marketing is an international legal platform offering genuine earning op
     setActiveTab('grabbing');
   };
 
-const handleGrabTask = async () => {
-  if (completedTasks >= 25) {
-    showToast(
-      'Daily task limit (25/25) completed! Please contact customer service.',
-      'error'
-    );
-    return;
-  }
-
-  if (isGrabbing) return;
-
-  if (currentTask && runningTasksVal < 0) {
-    setShowFullPageTask(true);
-    return;
-  }
-
-  if (!user) {
-    showToast('Please sign in first.', 'error');
-    return;
-  }
-
-  setIsGrabbing(true);
-  const nextTaskNum = completedTasks + 1;
-
-  const { data: customTaskData, error: customTaskError } = await supabase
-    .from('custom_tasks')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('task_number', nextTaskNum)
-    .eq('is_active', true)
-    .eq('status', 'pending')
-    .eq('is_lucky_order', true)
-    .maybeSingle();
-
-  if (customTaskError) {
-    console.error('Lucky Order lookup failed:', customTaskError);
-    showToast('Could not load your task. Please try again.', 'error');
-    setIsGrabbing(false);
-    return;
-  }
-
-  setTimeout(async () => {
-    try {
-      let grabbedProduct: ProductTask;
-      const activePool =
-        dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
-
-      if (customTaskData) {
-        // Use the exact amount and commission saved by admin.
-        const targetLuckyAmount = Number(
-          customTaskData.locked_price ?? customTaskData.task_amount
-        );
-
-        const taskComm = Number(
-          customTaskData.locked_commission ?? customTaskData.commission
-        );
-
-        if (
-          !Number.isFinite(targetLuckyAmount) ||
-          targetLuckyAmount <= 0 ||
-          !Number.isFinite(taskComm) ||
-          taskComm < 0
-        ) {
-          showToast('Lucky Order amount or commission is invalid.', 'error');
-          setIsGrabbing(false);
-          return;
-        }
-
-        const displayNegativeAmt = -Math.abs(targetLuckyAmount);
-        const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
-        const selectedLuckyProd = activePool[luckyProdIndex];
-
-        grabbedProduct = {
-          id: nextTaskNum,
-          name: selectedLuckyProd.name,
-          store: selectedLuckyProd.store || 'Amazon',
-          price: targetLuckyAmount,
-          commission: taskComm,
-          rating: 5,
-          imageUrl:
-            selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
-          isLucky: true,
-        };
-
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            running_tasks: displayNegativeAmt,
-            pending_task: grabbedProduct,
-          })
-          .eq('id', user.id);
-
-        if (profileError) {
-          console.error('Lucky Order save failed:', profileError);
-          showToast('Lucky Order could not be saved. Please try again.', 'error');
-          setIsGrabbing(false);
-          return;
-        }
-
-        setRunningTasksVal(displayNegativeAmt);
-      } else {
-        if (balance <= 0) {
-          showToast(
-            'Insufficient balance! Please make a deposit request.',
-            'error'
-          );
-          setIsGrabbing(false);
-          setShowDepositModal(true);
-          return;
-        }
-
-        const uniquePoolIndex =
-          (completedTasks +
-            Math.floor(completedTasks / activePool.length) * 7) %
-          activePool.length;
-
-        const selectedOfficialProd = activePool[uniquePoolIndex];
-
-
-const itemPrice = Number(selectedOfficialProd.price);
-
-// Regular task commission: fixed dollar ranges.
-const vipLevel = String(activeVipLevel);
-
-let minCommissionCents = 50;  // Normal: $0.50
-let maxCommissionCents = 75;  // Normal: $0.75
-
-if (vipLevel.includes('VIP 3')) {
-  minCommissionCents = 100;   // VIP 3: $1.00
-  maxCommissionCents = 1200;  // VIP 3: $12.00
-} else if (vipLevel.includes('VIP 2')) {
-  minCommissionCents = 100;   // VIP 2: $1.00
-  maxCommissionCents = 1000;  // VIP 2: $10.00
-} else if (vipLevel.includes('VIP 1')) {
-  minCommissionCents = 100;   // VIP 1: $1.00
-  maxCommissionCents = 500;   // VIP 1: $5.00
-}
-
-// Random commission in cents, including cents such as $1.20.
-const calculatedCommission =
-  (
-    Math.floor(
-      Math.random() *
-        (maxCommissionCents - minCommissionCents + 1)
-    ) + minCommissionCents
-  ) / 100;
-
-
-        grabbedProduct = {
-          id: nextTaskNum,
-          name: selectedOfficialProd.name,
-          store: selectedOfficialProd.store || 'Amazon',
-          price: itemPrice,
-          commission: calculatedCommission,
-          rating: 5,
-          imageUrl:
-            selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
-          isLucky: false,
-        };
-
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            pending_task: grabbedProduct,
-            running_tasks: 0,
-          })
-          .eq('id', user.id);
-
-        if (profileError) {
-          console.error('Product task save failed:', profileError);
-          showToast('Could not save task. Please try again.', 'error');
-          setIsGrabbing(false);
-          return;
-        }
-
-        setRunningTasksVal(0);
-      }
-
-      setCurrentTask(grabbedProduct);
-      setShowFullPageTask(true);
-    } catch (error) {
-      console.error('Grab task failed:', error);
-      showToast('Could not load task. Please try again.', 'error');
-    } finally {
-      setIsGrabbing(false);
+  const handleGrabTask = async () => {
+    if (isAccountFrozen) {
+      showToast('Your account is frozen by admin. Please contact customer support.', 'error');
+      return;
     }
-  }, 1000);
-};
 
-const handleConfirmTask = async () => {
-  if (!currentTask || !user) return;
+    // New user auto task lock constraint or $30 recharge requirement
+    if ((isAutoTaskLocked || (balance < 30 && completedTasks === 0))) {
+      showToast('Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.', 'error');
+      setShowDepositModal(true);
+      return;
+    }
 
-  if (runningTasksVal < 0 || balance < 0) {
-    showToast(
-      'Your lucky order is pending. Please contact customer service for assistance.',
-      'error'
-    );
-    setShowFullPageTask(false);
-    setShowDepositModal(true);
-    return;
-  }
-
-  const newCompletedCount = completedTasks + 1;
-  const newComm = parseFloat(
-    (todayCommission + currentTask.commission).toFixed(2)
-  );
-  const newBal = parseFloat(
-    (balance + currentTask.commission).toFixed(2)
-  );
-
-  // Update the profile first; do not change local state if it fails.
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .update({
-      balance: newBal,
-      total_profits: newComm,
-      completed_tasks: newCompletedCount,
-      running_tasks: 0,
-      pending_task: null,
-    })
-    .eq('id', user.id);
-
-  if (profileError) {
-    console.error('Task completion profile update failed:', profileError);
-    showToast('Task completion could not be saved. Please try again.', 'error');
-    return;
-  }
-
-  // Preserve the Lucky Order row for admin records.
-  if (currentTask.isLucky) {
-    const { error: taskError } = await supabase
-      .from('custom_tasks')
-      .update({
-        status: 'completed',
-        is_active: false,
-      })
-      .eq('user_id', user.id)
-      .eq('task_number', currentTask.id)
-      .eq('is_lucky_order', true);
-
-    if (taskError) {
-      console.error('Lucky Order status update failed:', taskError);
+    if (completedTasks >= 25) {
       showToast(
-        'Profile saved, but task status could not be updated. Contact support before retrying.',
+        'Daily task limit (25/25) completed! Please contact customer service.',
         'error'
       );
       return;
     }
-  }
 
-  setCompletedTasks(newCompletedCount);
-  setTodayCommission(newComm);
-  setBalance(newBal);
-  setRunningTasksVal(0);
-  setRecordsList((prev) => [currentTask, ...prev]);
+    if (isGrabbing) return;
 
-  showToast(
-    `Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`
-  );
+    if (currentTask && runningTasksVal < 0) {
+      setShowFullPageTask(true);
+      return;
+    }
 
-  setCurrentTask(null);
-  setShowFullPageTask(false);
-};
+    if (!user) {
+      showToast('Please sign in first.', 'error');
+      return;
+    }
+
+    setIsGrabbing(true);
+    const nextTaskNum = completedTasks + 1;
+
+    const { data: customTaskData, error: customTaskError } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('task_number', nextTaskNum)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .eq('is_lucky_order', true)
+      .maybeSingle();
+
+    if (customTaskError) {
+      console.error('Lucky Order lookup failed:', customTaskError);
+      showToast('Could not load your task. Please try again.', 'error');
+      setIsGrabbing(false);
+      return;
+    }
+
+    setTimeout(async () => {
+      try {
+        let grabbedProduct: ProductTask;
+        const activePool =
+          dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
+
+        if (customTaskData) {
+          const targetLuckyAmount = Number(
+            customTaskData.locked_price ?? customTaskData.task_amount
+          );
+
+          const taskComm = Number(
+            customTaskData.locked_commission ?? customTaskData.commission
+          );
+
+          if (
+            !Number.isFinite(targetLuckyAmount) ||
+            targetLuckyAmount <= 0 ||
+            !Number.isFinite(taskComm) ||
+            taskComm < 0
+          ) {
+            showToast('Lucky Order amount or commission is invalid.', 'error');
+            setIsGrabbing(false);
+            return;
+          }
+
+          const displayNegativeAmt = -Math.abs(targetLuckyAmount);
+          const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
+          const selectedLuckyProd = activePool[luckyProdIndex];
+
+          grabbedProduct = {
+            id: nextTaskNum,
+            name: selectedLuckyProd.name,
+            store: selectedLuckyProd.store || 'Amazon',
+            price: targetLuckyAmount,
+            commission: taskComm,
+            rating: 5,
+            imageUrl:
+              selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
+            isLucky: true,
+          };
+
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              running_tasks: displayNegativeAmt,
+              pending_task: grabbedProduct,
+            })
+            .eq('id', user.id);
+
+          if (profileError) {
+            console.error('Lucky Order save failed:', profileError);
+            showToast('Lucky Order could not be saved. Please try again.', 'error');
+            setIsGrabbing(false);
+            return;
+          }
+
+          setRunningTasksVal(displayNegativeAmt);
+        } else {
+          if (balance <= 0) {
+            showToast(
+              'Insufficient balance! Please make a deposit request.',
+              'error'
+            );
+            setIsGrabbing(false);
+            setShowDepositModal(true);
+            return;
+          }
+
+          const uniquePoolIndex =
+            (completedTasks +
+              Math.floor(completedTasks / activePool.length) * 7) %
+            activePool.length;
+
+          const selectedOfficialProd = activePool[uniquePoolIndex];
+          const itemPrice = Number(selectedOfficialProd.price);
+
+          const vipLevel = String(activeVipLevel);
+          let minCommissionCents = 50;
+          let maxCommissionCents = 75;
+
+          if (vipLevel.includes('VIP 3')) {
+            minCommissionCents = 100;
+            maxCommissionCents = 1200;
+          } else if (vipLevel.includes('VIP 2')) {
+            minCommissionCents = 100;
+            maxCommissionCents = 1000;
+          } else if (vipLevel.includes('VIP 1')) {
+            minCommissionCents = 100;
+            maxCommissionCents = 500;
+          }
+
+          const calculatedCommission =
+            (
+              Math.floor(
+                Math.random() *
+                  (maxCommissionCents - minCommissionCents + 1)
+              ) + minCommissionCents
+            ) / 100;
+
+          grabbedProduct = {
+            id: nextTaskNum,
+            name: selectedOfficialProd.name,
+            store: selectedOfficialProd.store || 'Amazon',
+            price: itemPrice,
+            commission: calculatedCommission,
+            rating: 5,
+            imageUrl:
+              selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
+            isLucky: false,
+          };
+
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              pending_task: grabbedProduct,
+              running_tasks: 0,
+            })
+            .eq('id', user.id);
+
+          if (profileError) {
+            console.error('Product task save failed:', profileError);
+            showToast('Could not save task. Please try again.', 'error');
+            setIsGrabbing(false);
+            return;
+          }
+
+          setRunningTasksVal(0);
+        }
+
+        setCurrentTask(grabbedProduct);
+        setShowFullPageTask(true);
+      } catch (error) {
+        console.error('Grab task failed:', error);
+        showToast('Could not load task. Please try again.', 'error');
+      } finally {
+        setIsGrabbing(false);
+      }
+    }, 1000);
+  };
+
+  const handleConfirmTask = async () => {
+    if (!currentTask || !user) return;
+
+    if (runningTasksVal < 0 || balance < 0) {
+      showToast(
+        'Your lucky order is pending. Please contact customer service for assistance.',
+        'error'
+      );
+      setShowFullPageTask(false);
+      setShowDepositModal(true);
+      return;
+    }
+
+    const newCompletedCount = completedTasks + 1;
+    const newComm = parseFloat(
+      (todayCommission + currentTask.commission).toFixed(2)
+    );
+    const newBal = parseFloat(
+      (balance + currentTask.commission).toFixed(2)
+    );
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        balance: newBal,
+        total_profits: newComm,
+        completed_tasks: newCompletedCount,
+        running_tasks: 0,
+        pending_task: null,
+      })
+      .eq('id', user.id);
+
+    if (profileError) {
+      console.error('Task completion profile update failed:', profileError);
+      showToast('Task completion could not be saved. Please try again.', 'error');
+      return;
+    }
+
+    if (currentTask.isLucky) {
+      const { error: taskError } = await supabase
+        .from('custom_tasks')
+        .update({
+          status: 'completed',
+          is_active: false,
+        })
+        .eq('user_id', user.id)
+        .eq('task_number', currentTask.id)
+        .eq('is_lucky_order', true);
+
+      if (taskError) {
+        console.error('Lucky Order status update failed:', taskError);
+        showToast(
+          'Profile saved, but task status could not be updated. Contact support before retrying.',
+          'error'
+        );
+        return;
+      }
+    }
+
+    setCompletedTasks(newCompletedCount);
+    setTodayCommission(newComm);
+    setBalance(newBal);
+    setRunningTasksVal(0);
+    setRecordsList((prev) => [currentTask, ...prev]);
+
+    showToast(
+      `Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`
+    );
+
+    setCurrentTask(null);
+    setShowFullPageTask(false);
+  };
 
   const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -790,9 +802,15 @@ const handleConfirmTask = async () => {
                   {userPhone && <p className="text-[10px] text-gray-400 font-medium">📱 {userPhone}</p>}
                 </div>
               </div>
+              
+              {/* Profile Badge Status */}
               <div className="text-right space-y-1">
-                <div className="px-3 py-1 bg-[#d4af37]/10 border border-[#d4af37] text-[#f3e5ab] text-[10px] font-bold rounded-full">
-                  👑 {activeVipLevel}
+                <div className={`px-3 py-1 text-[10px] font-bold rounded-full border ${
+                  isAccountFrozen 
+                    ? 'bg-red-950/80 border-red-500 text-red-400 animate-pulse' 
+                    : 'bg-[#d4af37]/10 border-[#d4af37] text-[#f3e5ab]'
+                }`}>
+                  {isAccountFrozen ? '❄️ ACCOUNT FROZEN' : `👑 ${activeVipLevel}`}
                 </div>
                 <div className="text-[9px] font-mono text-emerald-400 font-bold px-1">
                   Invite Code: {myInviteCode || 'Loading...'}
@@ -1378,9 +1396,10 @@ const handleConfirmTask = async () => {
                     <div key={i} className="p-3 bg-[#18150a] border border-[#d4af37]/30 rounded-2xl flex justify-between items-center text-xs">
                       <div>
                         <p className="font-bold text-white">{rec.name}</p>
-<p className="text-[10px] text-gray-400">
-  {rec.store === "AI Generated Catalogue" ? "Amazon" : (rec.store || "Amazon")} Official Category
-</p>                      </div>
+                        <p className="text-[10px] text-gray-400">
+                          {rec.store === "AI Generated Catalogue" ? "Amazon" : (rec.store || "Amazon")} Official Category
+                        </p>
+                      </div>
                       <span className="font-mono font-bold text-[#50e3c2]">+${rec.commission.toFixed(2)}</span>
                     </div>
                   ))}
@@ -1625,11 +1644,14 @@ const handleConfirmTask = async () => {
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
             <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Withdraw Funds</h3>
+            
             {withdrawLockedMsg && (
-              <div className="p-3 bg-red-950/80 border border-red-600 rounded-xl text-red-300 text-xs text-center font-bold">
-                ⚠️ Withdrawal Locked: {withdrawLockedMsg}
+              <div className="p-3.5 bg-red-950/90 border-2 border-red-500 rounded-2xl text-red-200 text-xs text-center font-bold shadow-lg animate-pulse">
+                ⚠️ Withdrawal Restricted:
+                <p className="text-[11px] font-medium text-white mt-1 leading-relaxed">{withdrawLockedMsg}</p>
               </div>
             )}
+
             <form onSubmit={handleWithdrawSubmit} className="space-y-3">
               <input
                 type="number"
@@ -1742,7 +1764,8 @@ const handleConfirmTask = async () => {
               <div className="w-1/2 flex flex-col justify-between py-1">
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">
-                 {currentTask.store === "AI Generated Catalogue" ? "Amazon" : (currentTask.store || "Amazon")}                  </div>
+                    {currentTask.store === "AI Generated Catalogue" ? "Amazon" : (currentTask.store || "Amazon")}
+                  </div>
                   <h3 className="text-sm font-bold text-white leading-tight line-clamp-2 mt-0.5">
                     {currentTask.name}
                   </h3>

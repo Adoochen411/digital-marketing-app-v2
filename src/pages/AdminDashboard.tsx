@@ -106,7 +106,7 @@ interface AdminNotification {
 export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'users' | 'deposits' | 'withdrawals' | 'tasks' | 'products' | 'support' | 'whatsapp_telegram' | 'settings' | 'delete_users'
-  >('tasks');
+  >('deposits');
 
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'zh' | 'ur' | 'ar'>('en');
   const [searchQuery, setSearchQuery] = useState('');
@@ -768,6 +768,7 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  // AUTO ADD & RELEASE LOCK ON DEPOSIT APPROVAL
   const handleDepositAction = async (deposit: DepositRecord, status: 'approved' | 'rejected') => {
     if (deposit.status !== 'pending') {
       showToast('This deposit has already been processed.', 'error');
@@ -780,7 +781,7 @@ export const AdminDashboard: React.FC = () => {
         .update({ status })
         .eq('id', deposit.id)
         .eq('status', 'pending')
-        .select('id, status')
+        .select('id, status, amount, user_id')
         .maybeSingle();
 
       if (depError || !updatedDeposit) {
@@ -788,7 +789,16 @@ export const AdminDashboard: React.FC = () => {
         return;
       }
 
-      showToast(`Deposit request ${status.toUpperCase()}!`);
+      if (status === 'approved') {
+        const user = customers.find((c) => c.id === deposit.user_id);
+        if (user) {
+          const newBal = user.balance + deposit.amount;
+          await supabase.from('profiles').update({ balance: newBal, auto_task_lock: false }).eq('id', deposit.user_id);
+          setCustomers((prev) => prev.map((c) => (c.id === deposit.user_id ? { ...c, balance: newBal, auto_task_lock: false } : c)));
+        }
+      }
+
+      showToast(`Deposit request ${status.toUpperCase()}! Funds added & task lock released.`);
       setDeposits((prev) => prev.map((item) => (item.id === deposit.id ? { ...item, status } : item)));
     } catch (err: any) {
       showToast(err?.message || 'Could not process deposit.', 'error');
@@ -1030,10 +1040,20 @@ export const AdminDashboard: React.FC = () => {
     );
   };
 
+  // EXACT MATCHING SEARCH FILTER
   const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
-    if (!q) return true;
+    if (!q || !q.trim()) return true;
     const cleanQ = q.toLowerCase().trim().replace('#', '');
-    return c.custom_id.toString().includes(cleanQ) || (c.email || '').toLowerCase().includes(cleanQ);
+
+    if (/^\d+$/.test(cleanQ)) {
+      return c.custom_id === Number(cleanQ);
+    }
+
+    const nameStr = (c.full_name || c.username || c.name || c.display_name || '').toLowerCase();
+    const emailStr = (c.email || '').toLowerCase();
+    const phoneStr = (c.phone || '').toLowerCase();
+
+    return nameStr.includes(cleanQ) || emailStr.includes(cleanQ) || phoneStr.includes(cleanQ);
   };
 
   const isCustomerOfSubAdmin = (c: CustomerProfile, subCode: string) => {
@@ -1056,9 +1076,12 @@ export const AdminDashboard: React.FC = () => {
       const cust = customers.find((c) => c.id === d.user_id);
       if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
     }
-    if (!depositSearchQuery) return true;
-    const q = depositSearchQuery.toLowerCase().trim();
+    if (!depositSearchQuery || !depositSearchQuery.trim()) return true;
+    const q = depositSearchQuery.toLowerCase().trim().replace('#', '');
     const custDetails = getCustomerDetailsByUserId(d.user_id);
+    if (/^\d+$/.test(q)) {
+      return custDetails.customId.replace('#', '') === q;
+    }
     return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
   });
 
@@ -1067,9 +1090,12 @@ export const AdminDashboard: React.FC = () => {
       const cust = customers.find(c => c.id === w.user_id);
       if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
     }
-    if (!withdrawSearchQuery) return true;
-    const q = withdrawSearchQuery.toLowerCase().trim();
+    if (!withdrawSearchQuery || !withdrawSearchQuery.trim()) return true;
+    const q = withdrawSearchQuery.toLowerCase().trim().replace('#', '');
     const custDetails = getCustomerDetailsByUserId(w.user_id);
+    if (/^\d+$/.test(q)) {
+      return custDetails.customId.replace('#', '') === q;
+    }
     return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
   });
 
@@ -1570,7 +1596,7 @@ export const AdminDashboard: React.FC = () => {
               <div className="w-80 max-w-full">
                 <input
                   type="text"
-                  placeholder="Search deposits..."
+                  placeholder="Search by ID, Name, Phone or TRC20..."
                   value={depositSearchQuery}
                   onChange={(e) => setDepositSearchQuery(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
@@ -1602,7 +1628,7 @@ export const AdminDashboard: React.FC = () => {
                     <th className="p-3">Users</th>
                     <th className="p-3">Deposit Amount</th>
                     <th className="p-3">TRC20 Wallet Address</th>
-                    <th className="p-3">Date & Time</th>
+                    <th className="p-3">Date & Time (Real-Time)</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Action</th>
                   </tr>
@@ -1615,6 +1641,7 @@ export const AdminDashboard: React.FC = () => {
                         <td className="p-3 whitespace-nowrap">
                           <div className="text-sm font-mono font-black text-blue-900">{custDetails.customId}</div>
                           <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {custDetails.name}</div>
+                          <div className="text-[10px] text-slate-500">📞 {custDetails.phone}</div>
                         </td>
                         <td className="p-3 font-mono font-black text-emerald-600 text-sm">${dep.amount} USDT</td>
                         <td className="p-3 font-mono text-slate-600 text-[11px]">{dep.trc20_address || 'Not provided'}</td>
@@ -1629,13 +1656,13 @@ export const AdminDashboard: React.FC = () => {
                             <div className="inline-flex gap-1.5">
                               <button
                                 onClick={() => handleDepositAction(dep, 'approved')}
-                                className="px-3 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-emerald-700"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] rounded-xl shadow transition"
                               >
-                                Approve
+                                Approve (+Auto Add & Release Lock)
                               </button>
                               <button
                                 onClick={() => handleDepositAction(dep, 'rejected')}
-                                className="px-3 py-1 bg-red-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-red-700"
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-xl shadow transition"
                               >
                                 Reject
                               </button>

@@ -351,7 +351,6 @@ Digital Marketing is an international legal platform offering genuine earning op
       return;
     }
 
-    // New user auto task lock constraint or $30 recharge requirement
     if ((isAutoTaskLocked || (balance < 30 && completedTasks === 0))) {
       showToast('Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.', 'error');
       setShowDepositModal(true);
@@ -701,9 +700,15 @@ Digital Marketing is an international legal platform offering genuine earning op
     setNewWithdrawPass('');
   };
 
+  // UPDATED WITHDRAW SUBMIT WITH BALANCE DEDUCTION & ADMIN LOCK / FROZEN CHECK
   const handleWithdrawSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = Number(withdrawAmount);
+
+    if (isAccountFrozen) {
+      showToast('Your account is frozen by admin. Withdrawals are restricted.', 'error');
+      return;
+    }
 
     if (withdrawLockedMsg) {
       showToast(`Withdrawal Locked: ${withdrawLockedMsg}`, 'error');
@@ -725,6 +730,10 @@ Digital Marketing is an international legal platform offering genuine earning op
       return;
     }
 
+    // 1. Calculate new reduced balance immediately
+    const newBalance = balance - amt;
+
+    // 2. Insert withdrawal record into database
     const { error } = await supabase.from('withdrawals').insert([
       {
         user_id: user.id,
@@ -735,10 +744,23 @@ Digital Marketing is an international legal platform offering genuine earning op
     ]);
 
     if (!error) {
+      // 3. Update profiles table balance so funds are deducted instantly
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ balance: newBalance })
+        .eq('id', user.id);
+
+      if (updateError) {
+        showToast(`Warning: Request sent but balance sync failed`, 'error');
+      }
+
+      setBalance(newBalance);
+
       showToast(`Withdrawal request for $${withdrawAmount} processed!`);
       setShowWithdrawModal(false);
       setWithdrawAmount('');
       setWithdrawPasswordInput('');
+      
       const { data: witData } = await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
       if (witData) setWithdrawHistory(witData);
     } else {
@@ -803,7 +825,7 @@ Digital Marketing is an international legal platform offering genuine earning op
                 </div>
               </div>
               
-              {/* Profile Badge Status */}
+              {/* Profile Badge Status - FROZEN OR VIP */}
               <div className="text-right space-y-1">
                 <div className={`px-3 py-1 text-[10px] font-bold rounded-full border ${
                   isAccountFrozen 

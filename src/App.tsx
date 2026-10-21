@@ -6,8 +6,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 
 // Customer pages
 import { AuthPage } from './pages/AuthPage';
-import CustomerDashboard from './pages/CustomerDashboard';
-
+import { CustomerDashboard } from './pages/CustomerDashboard';
 export default function App() {
   return (
     <AuthProvider>

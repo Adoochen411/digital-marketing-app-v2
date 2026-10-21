@@ -28,6 +28,7 @@ interface CustomerProfile {
   withdraw_message?: string;
   is_frozen?: boolean;
   auto_task_lock?: boolean;
+ withdraw_locked?: boolean;
 }
 
 interface CustomTaskSlot {
@@ -186,6 +187,9 @@ export const AdminDashboard: React.FC = () => {
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerResult, setScannerResult] = useState<any>(null);
 
+const [newProdImageFile, setNewProdImageFile] = useState<File | null>(null);
+const [newProdVipLevel, setNewProdVipLevel] = useState('VIP 1');
+
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawRecord[]>([]);
@@ -216,7 +220,7 @@ export const AdminDashboard: React.FC = () => {
   const [editBankAccount, setEditBankAccount] = useState('');
   const [disableWithdraw, setDisableWithdraw] = useState(false);
   const [withdrawNotificationMsg, setWithdrawNotificationMsg] = useState('');
-
+ const [, setUserCustomTasks] = useState<any[]>([]);
   const [slotTaskNum, setSlotTaskNum] = useState('');
   const [slotMinAmount, setSlotMinAmount] = useState('');
   const [slotMaxAmount, setSlotMaxAmount] = useState('');
@@ -393,248 +397,193 @@ export const AdminDashboard: React.FC = () => {
     await supabase.auth.signOut();
     window.location.href = '/admin/login';
   };
+const handleFundSubmit = async () => {
+  if (!selectedUserForModal || !fundInput) return;
 
-  const handleFundSubmit = async () => {
-    if (!selectedUserForModal || !fundInput) return;
-    const val = Number(fundInput);
-    if (isNaN(val) || val <= 0) {
-      showToast('Enter a valid amount', 'error');
-      return;
-    }
+  if (!isMainAdmin) {
+    showToast('Only Main Admin can manually adjust customer balance.', 'error');
+    return;
+  }
 
-    const isAdd = modalType === 'add_funds';
-    const newBal = isAdd ? selectedUserForModal.balance + val : Math.max(0, selectedUserForModal.balance - val);
+  const val = Number(fundInput);
 
-    const { error } = await supabase.from('profiles').update({ balance: newBal }).eq('id', selectedUserForModal.id);
+  if (!Number.isFinite(val) || val <= 0) {
+    showToast('Enter a valid amount.', 'error');
+    return;
+  }
 
-    if (error) {
-      showToast(`Error updating balance: ${error.message}`, 'error');
-      return;
-    }
+  const isAdd = modalType === 'add_funds';
+  const userId = selectedUserForModal.id;
 
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === selectedUserForModal.id ? { ...c, balance: newBal } : c))
+  try {
+    // 1. Customer ka current profile fetch karein
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id, balance')
+      .eq('id', userId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentBalance = Number(profile.balance ?? 0);
+    const newBal = Number(
+      (
+        isAdd
+          ? currentBalance + val
+          : Math.max(0, currentBalance - val)
+      ).toFixed(2)
     );
 
-    showToast(`$${val} ${isAdd ? 'Added' : 'Deducted'} for #${selectedUserForModal.custom_id}`);
+    // 2. Balance update karein profiles table mein
+    const { data: updatedProfile, error: updateError } = await supabase
+      .from('profiles')
+      .update({ balance: newBal })
+      .eq('id', userId)
+      .select('id, balance')
+      .single();
+
+    if (updateError) throw updateError;
+
+    if (!updatedProfile) {
+      throw new Error('Balance update could not be verified.');
+    }
+
+    // 3. Agar funds add kiye gaye hain, toh user ke sabhi pending lucky orders ko 'funded' kar dein taake wo unlock ho jayein
+    if (isAdd) {
+      const { error: fundingError } = await supabase
+        .from('custom_tasks')
+        .update({
+          funding_status: 'funded',
+          funded_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .eq('is_active', true)
+        .eq('is_lucky_order', true);
+
+      if (fundingError) {
+        console.error('Lucky order funding update warning:', fundingError);
+      }
+
+      // Optional: Deposits table mein entry record karein
+      await supabase.from('deposits').insert([
+        {
+          user_id: userId,
+          amount: val,
+          trc20_address: 'ADMIN_MANUAL_ADDITION',
+          status: 'approved'
+        }
+      ]);
+    }
+
+    // 4. Local admin UI state update karein
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === updatedProfile.id
+          ? { ...customer, balance: Number(updatedProfile.balance) }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === updatedProfile.id
+        ? { ...prev, balance: Number(updatedProfile.balance) }
+        : prev
+    );
+
+    showToast(
+      `$${val.toFixed(2)} ${
+        isAdd ? 'added to' : 'deducted from'
+      } customer #${selectedUserForModal.custom_id}. Balance: $${Number(
+        updatedProfile.balance
+      ).toFixed(2)}`
+    );
+
     setModalType(null);
     setFundInput('');
-  };
-
-  const handleStatusChange = async (user: CustomerProfile, isFrozen: boolean) => {
-    await supabase.from('profiles').update({ is_frozen: isFrozen }).eq('id', user.id);
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === user.id ? { ...c, is_frozen: isFrozen } : c))
+  } catch (err: any) {
+    console.error('Manual balance update failed:', err);
+    showToast(
+      err?.message || 'Could not update customer balance.',
+      'error'
     );
-    showToast(`User #${user.custom_id} status updated to ${isFrozen ? 'Disabled' : 'Active'}`);
-  };
+  }
+};
+ 
+const allowedTypes = ['image/png', 'image/jpeg', 'image/webp']; 
 
-  const handleAutoTaskLockToggle = async (user: CustomerProfile, isLocked: boolean) => {
-    const { error } = await supabase.from('profiles').update({ auto_task_lock: isLocked }).eq('id', user.id);
-    if (!error) {
-      setCustomers((prev) =>
-        prev.map((c) => (c.id === user.id ? { ...c, auto_task_lock: isLocked } : c))
-      );
-      showToast(`User #${user.custom_id} task lock updated to ${isLocked ? 'LOCKED' : 'UNLOCKED'}`);
-    } else {
-      showToast(`Error updating task lock: ${error.message}`, 'error');
+const handleUploadQr = async () => {
+  if (!isMainAdmin) {
+    showToast('Only Main Admin can upload the QR code.', 'error');
+    return;
+  }
+
+  // Ensure a file has been selected before accessing its properties.
+  if (!qrFile) {
+    showToast('Please select a QR image first.', 'error');
+    return;
+  }
+
+  if (!allowedTypes.includes(qrFile.type)) {
+    showToast('Please select a PNG, JPG, or WebP image.', 'error');
+    return;
+  }
+
+  if (qrFile.size > 2 * 1024 * 1024) {
+    showToast('QR image must be 2 MB or smaller.', 'error');
+    return;
+  }
+
+  setQrUploading(true);
+
+  try {
+    const extension =
+      qrFile.type === 'image/png'
+        ? 'png'
+        : qrFile.type === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+
+    const filePath = `main/payment-qr-${Date.now()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('payment-qr')
+      .upload(filePath, qrFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: qrFile.type,
+      });
+
+    if (uploadError) {
+      throw uploadError;
     }
-  };
 
-  const handleDeleteCustomer = async (user: CustomerProfile) => {
-    if (!isMainAdmin) {
-      showToast('Only Main Admin can delete customers!', 'error');
-      return;
+    const { data } = supabase.storage
+      .from('payment-qr')
+      .getPublicUrl(filePath);
+
+    if (!data?.publicUrl) {
+      throw new Error('Could not generate QR image URL.');
     }
 
-    if (!window.confirm(`Are you sure you want to permanently delete Customer #${user.custom_id} (${user.email})?`)) {
-      return;
-    }
+    setQrCodeUrl(data.publicUrl);
+    setQrPreviewUrl(data.publicUrl);
 
-    try {
-      const { error } = await supabase.from('profiles').delete().eq('id', user.id);
-      if (error) throw error;
-
-      setCustomers((prev) => prev.filter((c) => c.id !== user.id));
-      showToast(`Customer #${user.custom_id} deleted successfully!`);
-    } catch (err: any) {
-      showToast(err.message || 'Failed to delete customer', 'error');
-    }
-  };
-
-  const handleDeleteCustomTask = async (taskId: string) => {
-    try {
-      const { error } = await supabase.from('custom_tasks').delete().eq('id', taskId);
-      if (error) throw error;
-
-      showToast('Lucky Order deleted successfully.');
-      if (selectedUserForModal) {
-        await fetchUserCustomTasks(selectedUserForModal.id);
-      }
-    } catch (err: any) {
-      showToast(err?.message || 'Could not delete Lucky Order.', 'error');
-    }
-  };
-
-  const handleResetUserTasks = async (user: CustomerProfile) => {
-    await supabase.from('profiles').update({ completed_tasks: 0, running_tasks: 0 }).eq('id', user.id);
-    await supabase.from('custom_tasks').delete().eq('user_id', user.id);
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === user.id ? { ...c, completed_tasks: 0, running_tasks: 0 } : c))
+    showToast(
+      'QR image uploaded. Now click Save Global System Settings.'
     );
-    showToast(`Tasks & Lucky Orders reset to 0/25 for #${user.custom_id}`);
-  };
+  } catch (err: any) {
+    console.error('QR upload failed:', err);
 
-  const fetchUserCustomTasks = async (userId: string) => {
-    const { data } = await supabase
-      .from('custom_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('task_number', { ascending: true });
-    if (data) setCustomTasksList(data);
-  };
+    showToast(
+      err?.message || 'QR upload failed.',
+      'error'
+    );
+  } finally {
+    setQrUploading(false);
+  }
+};
 
-  const handlePublishLuckyOrder = async () => {
-    if (!selectedUserForModal) {
-      showToast('Please select a customer first.', 'error');
-      return;
-    }
-
-    const taskNum = Number(slotTaskNum);
-    const minAmt = Number(slotMinAmount);
-    const maxAmt = slotMaxAmount.trim() !== '' ? Number(slotMaxAmount) : minAmt;
-    const commPercent = slotCommPercent.trim() !== '' ? Number(slotCommPercent) : 10;
-
-    if (
-      !Number.isInteger(taskNum) ||
-      taskNum < 1 ||
-      !Number.isFinite(minAmt) ||
-      !Number.isFinite(maxAmt) ||
-      minAmt <= 0 ||
-      maxAmt < minAmt ||
-      !Number.isFinite(commPercent) ||
-      commPercent < 0 ||
-      commPercent > 100
-    ) {
-      showToast('Enter a valid task number, amount range, and commission (0–100%).', 'error');
-      return;
-    }
-
-    const minCents = Math.round(minAmt * 100);
-    const maxCents = Math.round(maxAmt * 100);
-    const exactAmount = (Math.floor(Math.random() * (maxCents - minCents + 1)) + minCents) / 100;
-
-    try {
-      const { data: existingTask, error: checkError } = await supabase
-        .from('custom_tasks')
-        .select('id')
-        .eq('user_id', selectedUserForModal.id)
-        .eq('task_number', taskNum)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      if (existingTask) {
-        showToast(`An active order already exists for Task #${taskNum}.`, 'error');
-        return;
-      }
-
-      const { data: savedTask, error: insertError } = await supabase
-        .from('custom_tasks')
-        .insert([
-          {
-            user_id: selectedUserForModal.id,
-            task_number: taskNum,
-            min_amount: minAmt,
-            max_amount: maxAmt,
-            task_amount: exactAmount,
-            commission: Number(((exactAmount * commPercent) / 100).toFixed(2)),
-            commission_rate: commPercent,
-            locked_price: exactAmount,
-            locked_commission: Number(((exactAmount * commPercent) / 100).toFixed(2)),
-            is_lucky_order: true,
-            status: 'pending',
-            is_active: true,
-            funding_status: 'pending',
-            funded_at: null,
-          }
-        ])
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      showToast(`Lucky Order #${savedTask.task_number} saved: $${Number(savedTask.task_amount).toFixed(2)}`);
-
-      setSlotTaskNum('');
-      setSlotMinAmount('');
-      setSlotMaxAmount('');
-      setSlotCommPercent('');
-
-      await fetchUserCustomTasks(selectedUserForModal.id);
-    } catch (err: any) {
-      showToast(err?.message || 'Could not save the Lucky Order.', 'error');
-    }
-  };
-
-  const handleUploadQr = async () => {
-    if (!isMainAdmin) {
-      showToast('Only Main Admin can upload the QR code.', 'error');
-      return;
-    }
-
-    if (!qrFile) {
-      showToast('Please select a QR image first.', 'error');
-      return;
-    }
-
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
-
-    if (!allowedTypes.includes(qrFile.type)) {
-      showToast('Please select a PNG, JPG, or WebP image.', 'error');
-      return;
-    }
-
-    if (qrFile.size > 2 * 1024 * 1024) {
-      showToast('QR image must be 2 MB or smaller.', 'error');
-      return;
-    }
-
-    setQrUploading(true);
-
-    try {
-      const filePath = `main/payment-qr-${Date.now()}.${qrFile.type === 'image/png' ? 'png' : qrFile.type === 'image/webp' ? 'webp' : 'jpg'}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('payment-qr')
-        .upload(filePath, qrFile, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: qrFile.type,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage
-        .from('payment-qr')
-        .getPublicUrl(filePath);
-
-      if (!data.publicUrl) {
-        throw new Error('Could not generate QR image URL.');
-      }
-
-      setQrCodeUrl(data.publicUrl);
-      setQrPreviewUrl(data.publicUrl);
-
-      showToast('QR image uploaded. Now click Save Global System Settings.');
-    } catch (err: any) {
-      console.error('QR upload failed:', err);
-      showToast(err.message || 'QR upload failed.', 'error');
-    } finally {
-      setQrUploading(false);
-    }
-  };
 
   const handleResetAutoSlots = () => {
     setAutoSlots([
@@ -722,12 +671,84 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleAddProductSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  
+const handleAddProductSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (!newProdName.trim() || !newProdPrice || !newProdImageUrl.trim()) {
-      showToast('Please fill all product fields!', 'error');
-      return;
+  if (!newProdName.trim() || !newProdPrice ||
+      (!newProdImageFile && !newProdImageUrl.trim())) {
+    showToast('Enter product name, price and image.', 'error');
+    return;
+  }
+
+  let imageUrl = newProdImageUrl.trim();
+  let imagePath: string | null = null;
+
+    try {
+    // CHECK SUPABASE LOGIN SESSION
+    
+const { data: authData, error: authError } =
+  await supabase.auth.getUser();
+
+console.log('Verified Supabase user:', authData.user?.email);
+console.log('Auth check error:', authError);
+
+if (
+  authError ||
+  authData.user?.email?.toLowerCase() !== 'adoochen64@gmail.com'
+) {
+  showToast(
+    'Please log in with the main admin account before uploading images.',
+    'error'
+  );
+  return;
+}
+
+
+console.log('Logged-in email:', authData.user?.email);
+    if (newProdImageFile) {
+      const file = newProdImageFile;
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+      if (!allowedTypes.includes(file.type)) {
+        showToast('Use JPG, PNG or WEBP images only.', 'error');
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Image must be 5 MB or smaller.', 'error');
+        return;
+      }
+
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (!ext || !['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+        showToast('Invalid image extension.', 'error');
+        return;
+      }
+
+      imagePath = `products/${crypto.randomUUID()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(imagePath, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+    if (uploadError) {
+  console.error('IMAGE UPLOAD ERROR:', uploadError);
+  showToast(
+    `Image upload failed: ${uploadError.message}`,
+    'error'
+  );
+  return;
+}
+
+      const { data: urlData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(imagePath);
+
+      imageUrl = urlData.publicUrl;
     }
 
     const { data, error } = await supabase
@@ -736,25 +757,31 @@ export const AdminDashboard: React.FC = () => {
         name: newProdName.trim(),
         store: newProdStore,
         price: Number(newProdPrice),
-        image_url: newProdImageUrl.trim(),
-        category: newProdCategory
+        image_url: imageUrl,
+        category: newProdCategory,
+        vip_level: newProdVipLevel,
+        is_active: true,
+        image_storage_path: imagePath,
+        product_source: newProdImageFile ? 'uploaded' : 'manual',
       }])
       .select()
       .single();
 
-    if (error) {
-      showToast(`Error: ${error.message}`, 'error');
-      return;
-    }
+    if (error) throw error;
 
     if (data) {
       setProductsList(prev => [data, ...prev]);
       setNewProdName('');
       setNewProdPrice('');
       setNewProdImageUrl('');
+      setNewProdImageFile(null);
+      setNewProdVipLevel('VIP 1');
       showToast('Product added successfully!');
     }
-  };
+  } catch (err: any) {
+    showToast(`Product error: ${err.message}`, 'error');
+  }
+};
 
   const handleFetchLiveProductsFromAPI = async () => {
     setIsFetchingLive(true);
@@ -809,56 +836,90 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleOpenUserProfileModal = (user: CustomerProfile) => {
-    setSelectedUserForModal(user);
-    setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
-    setDisableWithdraw(Boolean(user.is_frozen || user.withdraw_message));
-    setWithdrawNotificationMsg(user.withdraw_message || '');
-    setEditTrc20(user.trc20_address || '');
-    setEditErc20(user.erc20_address || '');
-    setEditBankName(user.bank_name || '');
-    setEditBankAccount(user.bank_account_number || '');
-    setEditWithdrawPass('');
-    setEditLoginPass('');
-    setModalType('user_profile_all');
-  };
+  
+const handleOpenUserProfileModal = (user: CustomerProfile) => {
+  setSelectedUserForModal(user);
+  setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
+  setDisableWithdraw(Boolean(user.withdraw_locked));
+  setWithdrawNotificationMsg(user.withdraw_message || '');
+  setEditTrc20(user.trc20_address || '');
+  setEditErc20(user.erc20_address || '');
+  setEditBankName(user.bank_name || '');
+  setEditBankAccount(user.bank_account_number || '');
+  setEditWithdrawPass('');
+  setEditLoginPass('');
+  setModalType('user_profile_all');
+};
 
-  const handleSaveAllUserSettings = async () => {
-    if (!selectedUserForModal) return;
+const handleSaveAllUserSettings = async () => {
+  if (!selectedUserForModal) return;
+const payload: Record<string, any> = {
+  vip_level: editVipLevel,
+  withdraw_locked: disableWithdraw,
+  withdraw_message: withdrawNotificationMsg.trim(),
+  trc20_address: editTrc20.trim(),
+  bank_name: editBankName.trim(),
+  account_number: editBankAccount.trim(),
+};
 
-    const payload: any = {
-      vip_level: editVipLevel,
-      is_frozen: disableWithdraw,
-      withdraw_message: disableWithdraw ? (withdrawNotificationMsg || 'Withdrawal is temporarily disabled.') : '',
-      trc20_address: editTrc20,
-      erc20_address: editErc20,
-      bank_name: editBankName,
-      bank_account_number: editBankAccount,
-    };
+  if (editWithdrawPass.trim()) {
+    payload.withdraw_password = editWithdrawPass.trim();
+  }
 
-    if (editWithdrawPass) payload.withdraw_password = editWithdrawPass;
+  const { data: savedUser, error: saveError } = await supabase
+    .from('profiles')
+    .update(payload)
+    .eq('id', selectedUserForModal.id)
+    .select('id')
+    .maybeSingle();
+if (saveError || !savedUser) {
+ console.error('Save user settings failed:', {
+  message: saveError?.message,
+  code: saveError?.code,
+  details: saveError?.details,
+  hint: saveError?.hint,
+  userId: selectedUserForModal.id,
+});
 
-    await supabase.from('profiles').update(payload).eq('id', selectedUserForModal.id);
+  showToast(
+    saveError?.message ||
+      'Settings save nahi hui. Admin update permission ya database response check karein.',
+    'error'
+  );
 
-    if (editLoginPass.trim()) {
-      try {
-        const { error: rpcError } = await supabase.rpc('admin_update_user_password', {
-          target_user_id: selectedUserForModal.id,
-          new_password: editLoginPass.trim()
-        });
-        if (rpcError) throw rpcError;
-      } catch (err) {
-        await supabase.from('profiles').update({ temp_login_pass: editLoginPass.trim() }).eq('id', selectedUserForModal.id);
+  return;
+}
+
+  if (editLoginPass.trim()) {
+    const { error: rpcError } = await supabase.rpc(
+      'admin_update_user_password',
+      {
+        target_user_id: selectedUserForModal.id,
+        new_password: editLoginPass.trim(),
       }
-    }
-
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === selectedUserForModal.id ? { ...c, ...payload } : c))
     );
 
-    showToast(`All User Settings saved for #${selectedUserForModal.custom_id}`);
-    setModalType(null);
-  };
+    if (rpcError) {
+      console.error('Login password update failed:', rpcError);
+      showToast(
+        'Other settings were saved, but the login password update failed.',
+        'error'
+      );
+      return;
+    }
+  }
+
+  setCustomers((prev) =>
+    prev.map((c) =>
+      c.id === selectedUserForModal.id
+        ? { ...c, ...payload }
+        : c
+    )
+  );
+
+  showToast(`All User Settings saved for #${selectedUserForModal.custom_id}`);
+  setModalType(null);
+};
 
   const handleOpenFullPageTaskSettings = async (user: CustomerProfile) => {
     setSelectedUserForModal(user);
@@ -866,7 +927,194 @@ export const AdminDashboard: React.FC = () => {
     await fetchUserCustomTasks(user.id);
     setIsFullPageTaskSettings(true);
   };
+const fetchUserCustomTasks = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
+    if (error) throw error;
+
+    setUserCustomTasks(data || []);
+  } catch (err: any) {
+    console.error('Failed to fetch user custom tasks:', err);
+    showToast(
+      err?.message || 'Could not load user custom tasks.',
+      'error'
+    );
+  }
+};
+
+const handleDeleteCustomTask = async (taskId: string) => {
+  if (!window.confirm('Are you sure you want to delete this custom task?')) {
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('custom_tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) throw error;
+
+    setUserCustomTasks((prev: any[]) =>
+      prev.filter((task) => String(task.id) !== String(taskId))
+    );
+
+    showToast('Custom task deleted successfully.');
+  } catch (err: any) {
+    console.error('Delete custom task failed:', err);
+    showToast(err?.message || 'Could not delete custom task.', 'error');
+  }
+};
+
+const handleAutoTaskLockToggle = async (
+  user: CustomerProfile,
+  shouldLock: boolean
+) => {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ auto_task_locked: shouldLock })
+      .eq('id', user.id);
+
+    if (error) throw error;
+
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === user.id
+          ? { ...customer, auto_task_locked: shouldLock }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === user.id
+        ? { ...prev, auto_task_locked: shouldLock }
+        : prev
+    );
+
+    showToast(
+      shouldLock
+        ? 'Customer auto tasks locked.'
+        : 'Customer auto tasks unlocked.'
+    );
+  } catch (err: any) {
+    console.error('Auto task lock update failed:', err);
+    showToast(
+      err?.message || 'Could not update auto task lock.',
+      'error'
+    );
+  }
+};
+const handlePublishLuckyOrderSlot = async () => {
+  if (!selectedUserForModal) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
+
+  const taskNumber = Number(slotTaskNum);
+  const rate = Number(slotCommPercent);
+  const minAmount = Number(slotMinAmount);
+  const maxAmount = Number(slotMaxAmount);
+
+  if (
+    !Number.isInteger(taskNumber) ||
+    taskNumber < 1 ||
+    taskNumber > 25
+  ) {
+    showToast('Enter a task number between 1 and 25.', 'error');
+    return;
+  }
+
+  if (
+    !Number.isFinite(rate) ||
+    rate <= 0 ||
+    rate > 100 ||
+    !Number.isFinite(minAmount) ||
+    minAmount <= 0
+  ) {
+    showToast('Please enter a valid commission rate and amount.', 'error');
+    return;
+  }
+
+  try {
+    const userId = selectedUserForModal.id;
+
+    // Minimum aur Maximum amount ke darmian random price calculate karein
+    const minVal = minAmount;
+    const maxVal = Number.isFinite(maxAmount) && maxAmount >= minAmount ? maxAmount : minAmount;
+
+    // Min aur Max range ke andar random price generate karna (cents/decimals handle karne ke liye)
+    const centsMin = Math.ceil(minVal * 100);
+    const centsMax = Math.floor(maxVal * 100);
+    
+    const randomCents = Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
+    const taskAmount = Number((randomCents / 100).toFixed(2));
+
+    const commission = Number((taskAmount * rate / 100).toFixed(2));
+
+    // Is user ke pehle ke sabhi pending lucky orders delete kar dein taaki multiple active orders ka conflict na ho
+    await supabase
+      .from('custom_tasks')
+      .delete()
+      .eq('user_id', userId)
+      .eq('is_lucky_order', true)
+      .eq('status', 'pending');
+
+    // Random calculated taskAmount database mein insert karein
+    const { error: insertError } = await supabase
+      .from('custom_tasks')
+      .insert({
+        user_id: userId,
+        task_number: taskNumber,
+        task_amount: taskAmount,
+        min_amount: minVal,
+        max_amount: maxVal,
+        commission_rate: rate,
+        commission,
+        locked_price: taskAmount,
+        locked_commission: commission,
+        vip_level: selectedUserForModal.vip_level || 'VIP 0 - Regular',
+        status: 'pending',
+        is_active: true,
+        is_lucky_order: true,
+        funding_status: 'pending'
+      });
+
+    if (insertError) throw insertError;
+
+    await fetchUserCustomTasks(userId);
+
+    const { data: refreshedTasks, error: refreshError } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_lucky_order', true)
+      .order('task_number', { ascending: true });
+
+    if (refreshError) throw refreshError;
+
+    setCustomTasksList(refreshedTasks || []);
+    setSlotTaskNum('');
+    setSlotMinAmount('');
+    setSlotMaxAmount('');
+    setSlotCommPercent('');
+
+    showToast(
+      `Lucky Order Slot #${taskNumber} published successfully with generated amount $${taskAmount.toFixed(2)}!`
+    );
+  } catch (err: any) {
+    console.error('Publish Lucky Order Slot failed:', err);
+    showToast(
+      err?.message || 'Could not publish Lucky Order Slot.',
+      'error'
+    );
+  }
+};
   const handleSaveFullPageTaskSettings = async () => {
     if (!selectedUserForModal) return;
     try {
@@ -1374,6 +1622,126 @@ export const AdminDashboard: React.FC = () => {
     );
   };
 
+  const handleStatusChange = async (
+    customer: CustomerProfile,
+    shouldFreeze: boolean
+  ) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_frozen: shouldFreeze })
+        .eq('id', customer.id);
+
+      if (error) throw error;
+
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customer.id
+            ? { ...c, is_frozen: shouldFreeze }
+            : c
+        )
+      );
+
+      showToast(
+        shouldFreeze
+          ? 'Customer account frozen successfully.'
+          : 'Customer account activated successfully.'
+      );
+    } catch (err: any) {
+      console.error('Customer status update failed:', err);
+      showToast(
+        err?.message || 'Could not update customer status.',
+        'error'
+      );
+    }
+  };
+
+const handleResetUserTasks = async (customer: CustomerProfile) => {
+  const confirmed = window.confirm(
+    `Reset task progress for customer #${customer.custom_id}?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        completed_tasks: 0,
+        running_tasks: 0,
+        pending_task: null
+      })
+      .eq('id', customer.id);
+
+    if (error) throw error;
+
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customer.id
+          ? {
+              ...c,
+              completed_tasks: 0,
+              running_tasks: 0,
+              pending_task: null
+            }
+          : c
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? {
+            ...prev,
+            completed_tasks: 0,
+            running_tasks: 0,
+            pending_task: null
+          }
+        : prev
+    );
+
+    showToast('Customer task progress reset successfully.');
+  } catch (err: any) {
+    console.error('Reset customer tasks failed:', err);
+    showToast(
+      err?.message || 'Could not reset customer task progress.',
+      'error'
+    );
+  }
+};
+
+const handleDeleteCustomer = async (customer: CustomerProfile) => {
+  const confirmed = window.confirm(
+    `Are you sure you want to delete customer #${customer.custom_id}? This action cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', customer.id);
+
+    if (error) throw error;
+
+    setCustomers((prev) =>
+      prev.filter((c) => c.id !== customer.id)
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev?.id === customer.id ? null : prev
+    );
+
+    showToast('Customer profile deleted successfully.');
+  } catch (err: any) {
+    console.error('Delete customer failed:', err);
+    showToast(
+      err?.message || 'Could not delete customer profile.',
+      'error'
+    );
+  }
+};
+
   const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
     if (!q || !q.trim()) return true;
     const cleanQ = q.toLowerCase().trim().replace('#', '');
@@ -1679,8 +2047,8 @@ export const AdminDashboard: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={handlePublishLuckyOrder}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-200 transition uppercase tracking-wider flex items-center justify-center gap-1.5"
+              onClick={handlePublishLuckyOrderSlot}
+                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-200 transition uppercase tracking-wider flex items-center justify-center gap-1.5"
                 >
                   <span>⚡</span>
                   <span>Publish & Synchronize Lucky Order Slot</span>
@@ -2242,6 +2610,36 @@ export const AdminDashboard: React.FC = () => {
                     onChange={(e) => setNewProdImageUrl(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-mono"
                   />
+                  
+<div>
+  <label className="font-bold text-slate-600 block mb-1">
+    Upload Product Image
+  </label>
+  <input
+    type="file"
+    accept="image/png,image/jpeg,image/webp"
+    onChange={(e) =>
+      setNewProdImageFile(e.target.files?.[0] || null)
+    }
+    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5"
+  />
+</div>
+
+<div>
+  <label className="font-bold text-slate-600 block mb-1">
+    VIP Level
+  </label>
+  <select
+    value={newProdVipLevel}
+    onChange={(e) => setNewProdVipLevel(e.target.value)}
+    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5"
+  >
+    <option value="VIP 1">VIP 1</option>
+    <option value="VIP 2">VIP 2</option>
+    <option value="VIP 3">VIP 3</option>
+  </select>
+</div>
+
                 </div>
                 <div className="md:col-span-4 pt-2">
                   <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">

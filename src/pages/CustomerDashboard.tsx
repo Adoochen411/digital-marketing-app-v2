@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
+
 interface ProductTask {
   id: number;
   name: string;
@@ -11,7 +12,10 @@ interface ProductTask {
   rating: number;
   imageUrl: string;
   isLucky?: boolean;
- luckyAmount?: number;
+  luckyAmount?: number;
+  customTaskId?: string;
+  fundingStatus?: string;
+  fundedAt?: string | null;
 }
 
 interface ChatMessage {
@@ -78,7 +82,7 @@ export const CustomerDashboard: React.FC = () => {
   const [userPhone, setUserPhone] = useState('');
   const [myInviteCode, setMyInviteCode] = useState('');
 
-  
+const [isLuckyOrderDeposit, setIsLuckyOrderDeposit] = useState(false);
 const [paymentMethod, setPaymentMethod] = useState<'trc20' | 'bank'>('trc20');
 const [paymentReference, setPaymentReference] = useState('');
 const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -254,6 +258,57 @@ const applyProfileSettings = (profile: any) => {
     void supabase.removeChannel(profileChannel);
   };
 }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const luckyOrdersChannel = supabase
+      .channel(`customer-lucky-orders-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'custom_tasks',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const updatedOrder = payload.new as {
+            id?: string;
+            funding_status?: string;
+            funded_at?: string | null;
+            status?: string;
+          };
+
+          setCurrentTask((previousTask) => {
+            if (
+              !previousTask ||
+              !previousTask.isLucky ||
+              previousTask.customTaskId !== updatedOrder.id
+            ) {
+              return previousTask;
+            }
+
+            return {
+              ...previousTask,
+              fundingStatus: updatedOrder.funding_status,
+              fundedAt: updatedOrder.funded_at ?? null,
+            };
+          });
+        }
+      )
+      .subscribe((status, error) => {
+        console.log('Lucky Order realtime status:', status);
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('Lucky Order realtime error:', error);
+        }
+      });
+
+    return () => {
+      void supabase.removeChannel(luckyOrdersChannel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -443,6 +498,7 @@ if (prodError) {
     showToast(`Successfully switched to ${vipName}!`);
     setActiveTab('grabbing');
   };
+
 const handleGrabTask = async () => {
     if (isAccountFrozen) {
       showToast('Your account is frozen by admin. Please contact customer support.', 'error');
@@ -484,7 +540,6 @@ const handleGrabTask = async () => {
       .select('*')
       .eq('user_id', user.id)
       .eq('task_number', nextTaskNum)
-      .eq('is_active', true)
       .eq('status', 'pending')
       .eq('is_lucky_order', true)
       .maybeSingle();
@@ -496,211 +551,289 @@ const handleGrabTask = async () => {
       return;
     }
 
-    setTimeout(async () => {
-      try {
-        let grabbedProduct: ProductTask;
-        const activePool =
-          dbProducts.length > 0 ? dbProducts : INTERNAL_PRODUCT_INVENTORY;
+  
+setTimeout(async () => {
+  try {
+    let grabbedProduct: ProductTask;
+    let displayNegativeAmt = 0;
 
-        if (customTaskData) {
-          // ADMIN KA SET KIYA HUA LUCKY ORDER
-          const targetLuckyAmount = Number(
-            customTaskData.locked_price ?? customTaskData.task_amount
-          );
+    const activePool =
+      dbProducts.length > 0
+        ? dbProducts
+        : INTERNAL_PRODUCT_INVENTORY;
 
-          const taskComm = Number(
-            customTaskData.locked_commission ?? customTaskData.commission
-          );
+    if (customTaskData) {
+      // Sirf admin ki database mein saved Lucky Order use hoga.
+      const targetLuckyAmount = Number(
+        customTaskData.locked_price ?? customTaskData.task_amount
+      );
 
-          const displayNegativeAmt = -Math.abs(targetLuckyAmount);
-          const luckyProdIndex = (nextTaskNum - 1) % activePool.length;
-          const selectedLuckyProd = activePool[luckyProdIndex];
+      const taskComm = Number(
+        customTaskData.locked_commission ?? customTaskData.commission
+      );
 
-          grabbedProduct = {
-            id: nextTaskNum,
-            name: selectedLuckyProd.name,
-            store: selectedLuckyProd.store || 'Amazon',
-            price: Number(selectedLuckyProd.price) || 0,
-            luckyAmount: targetLuckyAmount,
-            commission: taskComm,
-            rating: 5,
-            imageUrl: selectedLuckyProd.image_url || selectedLuckyProd.imageUrl,
-            isLucky: true,
-          };
-
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-              running_tasks: displayNegativeAmt,
-              pending_task: grabbedProduct,
-            })
-            .eq('id', user.id);
-
-          if (profileError) {
-            showToast('Lucky Order could not be saved. Please try again.', 'error');
-            setIsGrabbing(false);
-            return;
-          }
-          
-
-          setRunningTasksVal(displayNegativeAmt);
-        } else {
-          // NORMAL PRODUCT TASK (YAHAN KOI AUTOMATIC LUCKY ORDER NAHI BANEGA)
-          if (balance <= 0) {
-            showToast(
-              'Insufficient balance! Please make a deposit request.',
-              'error'
-            );
-            setIsGrabbing(false);
-            setShowDepositModal(true);
-            return;
-          }
-
-          const uniquePoolIndex =
-            (completedTasks +
-              Math.floor(completedTasks / activePool.length) * 7) %
-            activePool.length;
-
-          const selectedOfficialProd = activePool[uniquePoolIndex];
-          const itemPrice = Number(selectedOfficialProd.price);
-
-          const vipLevel = String(activeVipLevel);
-          let minCommissionCents = 50;
-          let maxCommissionCents = 75;
-
-          if (vipLevel.includes('VIP 3')) {
-            minCommissionCents = 100;
-            maxCommissionCents = 1200;
-          } else if (vipLevel.includes('VIP 2')) {
-            minCommissionCents = 100;
-            maxCommissionCents = 1000;
-          } else if (vipLevel.includes('VIP 1')) {
-            minCommissionCents = 100;
-            maxCommissionCents = 500;
-          }
-
-          const calculatedCommission =
-            (
-              Math.floor(
-                Math.random() *
-                  (maxCommissionCents - minCommissionCents + 1)
-              ) + minCommissionCents
-            ) / 100;
-
-          grabbedProduct = {
-            id: nextTaskNum,
-            name: selectedOfficialProd.name,
-            store: selectedOfficialProd.store || 'Amazon',
-            price: itemPrice,
-            commission: calculatedCommission,
-            rating: 5,
-            imageUrl:
-              selectedOfficialProd.image_url || selectedOfficialProd.imageUrl,
-            isLucky: false,
-          };
-
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-              pending_task: grabbedProduct,
-              running_tasks: 0,
-            })
-            .eq('id', user.id);
-
-          if (profileError) {
-            showToast('Could not save task. Please try again.', 'error');
-            setIsGrabbing(false);
-            return;
-          }
-
-          setRunningTasksVal(0);
-        }
-
-        setCurrentTask(grabbedProduct);
-        setShowFullPageTask(true);
-      } catch (error) {
-        showToast('Could not load task. Please try again.', 'error');
-      } finally {
-        setIsGrabbing(false);
-      }
-    }, 1000);
-  };
-const handleConfirmTask = async () => {
-       if (!user || !currentTask) return;
-
-    // 1. STRICT CHECK: Agar yeh Lucky Order hai
-    if (currentTask.isLucky) {
-      // Database se live check karein ke funding_status waqai 'funded' hua hai ya nahi
-      const { data: taskCheck, error: checkErr } = await supabase
-        .from('custom_tasks')
-        .select('funding_status')
-        .eq('user_id', user.id)
-        .eq('task_number', currentTask.id)
-        .eq('is_lucky_order', true)
-        .eq('status', 'pending')
-        .maybeSingle();
-
-      if (checkErr) {
-        console.error('Funding check error:', checkErr);
+      if (
+        !Number.isFinite(targetLuckyAmount) ||
+        targetLuckyAmount <= 0 ||
+        !Number.isFinite(taskComm) ||
+        taskComm < 0
+      ) {
+        showToast(
+          'Lucky Order settings are invalid. Please contact support.',
+          'error'
+        );
+        return;
       }
 
-      // Agar database mein funding_status 'funded' NAHI hai, toh task yahin STUCK rahega!
-      // Chahe user ke account mein kitna bhi balance ho, jab tak admin manual funds add karke ya recharge approve karke 'funded' nahi karta, task aage nahi barhega.
-      if (!taskCheck || taskCheck.funding_status !== 'funded') {
-        showToast('This lucky order requires recharge/funding approval. Please complete the deposit first.', 'error');
-        setShowDepositModal(true); // Deposit modal khul jayega taake user recharge kar sake
-        return; // Yahin execution rok di gayi hai, task complete nahi hoga!
-      }
-    }
+      displayNegativeAmt = -Math.abs(targetLuckyAmount);
 
-    // 2. Task Completion Logic (Yeh tab hi chalega jab funding_status 100% 'funded' hoga)
-    try {
-      setIsGrabbing(true);
+      const luckyProdIndex =
+        (nextTaskNum - 1) % activePool.length;
 
-      const nextCompletedTasks = completedTasks + 1;
-      const earnedCommission = Number(currentTask.commission || 0);
-      const newBalance = Number((balance + earnedCommission).toFixed(2));
+      const selectedLuckyProd = activePool[luckyProdIndex];
 
-      // Profile balance aur completed tasks update karein
+      grabbedProduct = {
+        id: nextTaskNum,
+       customTaskId: customTaskData.id,
+        name: selectedLuckyProd.name,
+        store: selectedLuckyProd.store || 'Amazon',
+        price: Number(selectedLuckyProd.price) || 0,
+        luckyAmount: targetLuckyAmount,
+        commission: taskComm,
+        rating: 5,
+        imageUrl:
+          selectedLuckyProd.image_url ||
+          selectedLuckyProd.imageUrl,
+        isLucky: true,
+      };
+
+      // Save the admin-configured Lucky Order to the customer profile.
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
-          balance: newBalance,
-          completed_tasks: nextCompletedTasks,
-          running_tasks: 0,
-          pending_task: null
+          running_tasks: displayNegativeAmt,
+          pending_task: grabbedProduct,
         })
         .eq('id', user.id);
 
-      if (profileError) throw profileError;
-
-      // Custom task ko completed mark kar dein taake wo dobara show na ho
-      if (currentTask.isLucky) {
-        await supabase
-          .from('custom_tasks')
-          .update({
-            status: 'completed',
-            is_active: false
-          })
-          .eq('user_id', user.id)
-          .eq('task_number', currentTask.id)
-          .eq('is_lucky_order', true);
+      if (profileError) {
+        throw profileError;
       }
 
-      setCompletedTasks(nextCompletedTasks);
-      setBalance(newBalance);
-      setCurrentTask(null);
+      setRunningTasksVal(displayNegativeAmt);
+    } else {
+      // Normal task: no automatic Lucky Order is created here.
+      if (balance <= 0) {
+        showToast(
+          'Insufficient balance! Please make a deposit request.',
+          'error'
+        );
+        setShowDepositModal(true);
+        return;
+      }
+
+      const uniquePoolIndex =
+        (completedTasks +
+          Math.floor(completedTasks / activePool.length) * 7) %
+        activePool.length;
+
+      const selectedOfficialProd = activePool[uniquePoolIndex];
+      const itemPrice = Number(selectedOfficialProd.price);
+
+      const vipLevel = String(activeVipLevel);
+
+      let minCommissionCents = 50;
+      let maxCommissionCents = 75;
+
+      if (vipLevel.includes('VIP 3')) {
+        minCommissionCents = 100;
+        maxCommissionCents = 1200;
+      } else if (vipLevel.includes('VIP 2')) {
+        minCommissionCents = 100;
+        maxCommissionCents = 1000;
+      } else if (vipLevel.includes('VIP 1')) {
+        minCommissionCents = 100;
+        maxCommissionCents = 500;
+      }
+
+      const calculatedCommission =
+        (
+          Math.floor(
+            Math.random() *
+              (maxCommissionCents - minCommissionCents + 1)
+          ) + minCommissionCents
+        ) / 100;
+
+      grabbedProduct = {
+        id: nextTaskNum,
+        name: selectedOfficialProd.name,
+        store: selectedOfficialProd.store || 'Amazon',
+        price: itemPrice,
+        commission: calculatedCommission,
+        rating: 5,
+        imageUrl:
+          selectedOfficialProd.image_url ||
+          selectedOfficialProd.imageUrl,
+        isLucky: false,
+      };
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          pending_task: grabbedProduct,
+          running_tasks: 0,
+        })
+        .eq('id', user.id);
+
+      if (profileError) {
+        throw profileError;
+      }
+
       setRunningTasksVal(0);
+    }
+
+    setCurrentTask(grabbedProduct);
+    setShowFullPageTask(true);
+  } catch (error) {
+    console.error('Task loading failed:', error);
+    showToast(
+      'Could not load task. Please try again.',
+      'error'
+    );
+  } finally {
+    setIsGrabbing(false);
+  }
+}, 1000);
+
+  };
+
+const handleConfirmTask = async () => {
+  if (!user || !currentTask) return;
+  if (isGrabbing) return;
+
+  setIsGrabbing(true);
+
+  try {
+    // LUCKY ORDER: completion, commission aur balance ek RPC transaction mein
+    if (currentTask.isLucky) {
+     const customTaskId = currentTask.customTaskId;
+
+if (
+  typeof customTaskId !== 'string' ||
+  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customTaskId)
+) {
+  showToast(
+    'Lucky Order ID is missing or invalid. Please refresh and try again.',
+    'error'
+  );
+  return;
+} 
+
+      const { data, error } = await supabase.rpc(
+        'complete_funded_lucky_order',
+        {
+          p_custom_task_id: customTaskId,
+        }
+      );
+
+      if (error) {
+        console.error('Lucky Order completion RPC failed:', error);
+        showToast(
+          error.message || 'Lucky Order could not be completed.',
+          'error'
+        );
+        return;
+      }
+
+      if (!data || data.success !== true) {
+        showToast(
+          'Lucky Order completion was not confirmed. Please refresh and check your account.',
+          'error'
+        );
+        return;
+      }
+
+      // UI ko database ke confirmed results se update karein
+      setBalance(Number(data.balance));
+      setTodayCommission(Number(data.total_profits));
+      setCompletedTasks(Number(data.completed_tasks));
+      setRunningTasksVal(0);
+      setCurrentTask(null);
       setShowFullPageTask(false);
 
-      showToast('Lucky order completed successfully! Commission added.');
-    } catch (err: any) {
-      console.error('Task completion error:', err);
-      showToast(err?.message || 'Could not complete task. Please try again.', 'error');
-    } finally {
-      setIsGrabbing(false);
+      showToast(
+        `Lucky Order completed successfully! Commission added: $${Number(
+          data.commission
+        ).toFixed(2)}.`
+      );
+
+      return;
     }
-  };
+
+    // NORMAL TASK: existing completion flow
+    const earnedCommission = Number(currentTask.commission || 0);
+
+    if (
+      !Number.isFinite(earnedCommission) ||
+      earnedCommission < 0
+    ) {
+      showToast('Invalid task commission.', 'error');
+      return;
+    }
+
+    const nextCompletedTasks = completedTasks + 1;
+
+    const newTotalProfits = Number(
+      (Number(todayCommission) + earnedCommission).toFixed(2)
+    );
+
+    const newBalance = Number(
+      (Number(balance) + earnedCommission).toFixed(2)
+    );
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        balance: newBalance,
+        total_profits: newTotalProfits,
+        completed_tasks: nextCompletedTasks,
+        running_tasks: 0,
+        pending_task: null,
+      })
+      .eq('id', user.id);
+
+    if (profileError) {
+      console.error('Normal task completion failed:', profileError);
+      showToast(
+        'Task could not be completed. Please try again.',
+        'error'
+      );
+      return;
+    }
+
+    setBalance(newBalance);
+    setTodayCommission(newTotalProfits);
+    setCompletedTasks(nextCompletedTasks);
+    setRunningTasksVal(0);
+    setCurrentTask(null);
+    setShowFullPageTask(false);
+
+_setRecordsList((prev) => [currentTask, ...prev]);
+    showToast(
+      `Task #${currentTask.id} completed! Earned +$${earnedCommission.toFixed(2)}.`
+    );
+  } catch (err: any) {
+    console.error('Task completion error:', err);
+
+    showToast(
+      err?.message || 'Could not complete task. Please try again.',
+      'error'
+    );
+  } finally {
+    setIsGrabbing(false);
+  }
+};
+
   const handleWalletBindSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -779,6 +912,47 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
     return;
   }
 
+if (currentTask?.isLucky) {
+  if (!user || !currentTask.customTaskId) {
+    showToast('Lucky Order ID missing. Please refresh and try again.', 'error');
+    return;
+  }
+
+  const { data: luckyOrder, error: luckyOrderError } = await supabase
+    .from('custom_tasks')
+    .select('id, user_id, is_lucky_order, locked_price, task_amount, funding_status')
+    .eq('id', currentTask.customTaskId)
+    .eq('user_id', user.id)
+    .eq('is_lucky_order', true)
+    .maybeSingle();
+
+  if (luckyOrderError || !luckyOrder) {
+    showToast('Could not verify Lucky Order. Please try again.', 'error');
+    return;
+  }
+
+  if (luckyOrder.funding_status === 'funded') {
+    showToast('This Lucky Order is already funded.', 'error');
+    return;
+  }
+
+  const requiredAmount = Number(
+    luckyOrder.locked_price ?? luckyOrder.task_amount
+  );
+
+  if (
+    !Number.isFinite(requiredAmount) ||
+    requiredAmount <= 0 ||
+    Math.abs(amt - requiredAmount) > 0.009
+  ) {
+    showToast(
+      `Amount must match the Lucky Order amount: $${requiredAmount.toFixed(2)}`,
+      'error'
+    );
+    return;
+  }
+}
+
   // TXID/reference OR receipt: at least one is required
   if (!reference && !receiptFile) {
     showToast('Please enter a TXID or upload a payment screenshot.', 'error');
@@ -832,16 +1006,18 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
       : `Bank: ${bankName} - Account: ${accountNumber}`;
 
   const { error } = await supabase.from('deposits').insert({
-    user_id: user.id,
-    amount: amt,
-    trc20_address: addressOrBankInfo,
-    status: 'pending',
-    payment_method: paymentMethod,
-    txid: paymentMethod === 'trc20' ? reference || null : null,
-    payment_reference: reference || null,
-    receipt_path: receiptPath,
-  });
-
+  user_id: user.id,
+ custom_task_id: isLuckyOrderDeposit
+  ? currentTask?.customTaskId ?? null
+  : null,
+  amount: amt,
+  trc20_address: addressOrBankInfo,
+  status: 'pending',
+  payment_method: paymentMethod,
+  txid: paymentMethod === 'trc20' ? reference || null : null,
+  payment_reference: reference || null,
+  receipt_path: receiptPath,
+});
   if (error) {
     console.error('Deposit request failed:', error);
     showToast(`Deposit Error: ${error.message}`, 'error');
@@ -1094,8 +1270,15 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <button
-                  onClick={() => setShowDepositModal(true)}
-                  className="py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow-lg flex items-center justify-center space-x-1.5 uppercase tracking-wider"
+ onClick={() => {
+  setIsLuckyOrderDeposit(false);
+  setDepositAmount('');
+  setDepositStep(1);
+  setPaymentReference('');
+  setReceiptFile(null);
+  setShowDepositModal(true);
+}}
+  className="py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-2xl shadow-lg flex items-center justify-center space-x-1.5 uppercase tracking-wider"
                 >
                   <span>👛</span>
                   <span>DEPOSIT</span>
@@ -1951,10 +2134,10 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
 <form onSubmit={handleDepositSubmit} className="space-y-3">
 
-  {/* STEP 1: AMOUNT */}
-  {depositStep === 1 && (
-    <>
-      <div>
+{/* STEP 1: AMOUNT */}
+{depositStep === 1 && (
+  <>
+{!isLuckyOrderDeposit && (      <div>
         <label className="text-[10px] text-gray-400 block mb-1">
           Select Quick Amount ($)
         </label>
@@ -1976,50 +2159,52 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
           ))}
         </div>
       </div>
+    )}
 
-      <div>
-        <label className="text-[10px] text-gray-400 block mb-1">
-          Deposit Amount ($)
-        </label>
+    <div>
+      <label className="text-[10px] text-gray-400 block mb-1">
+        Deposit Amount ($)
+      </label>
 
-        <input
-          type="number"
-          min="0.01"
-          step="0.01"
-          placeholder="Enter amount"
-          value={depositAmount}
-          onChange={(e) => setDepositAmount(e.target.value)}
-          className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white"
-          required
-        />
-      </div>
+      <input
+        type="number"
+        min="0.01"
+        step="0.01"
+        placeholder="Enter amount"
+        value={depositAmount}
+readOnly={isLuckyOrderDeposit}
+        onChange={(e) => setDepositAmount(e.target.value)}
+        className="w-full bg-black border border-[#d4af37]/50 rounded-xl px-3 py-2 text-xs text-white read-only:opacity-80"
+        required
+      />
+    </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          const amount = Number(depositAmount);
+    <button
+      type="button"
+      onClick={() => {
+        const amount = Number(depositAmount);
 
-          if (!Number.isFinite(amount) || amount <= 0) {
-            showToast('Please enter a valid deposit amount', 'error');
-            return;
-          }
+        if (!Number.isFinite(amount) || amount <= 0) {
+          showToast('Please enter a valid deposit amount', 'error');
+          return;
+        }
 
-          if (
-            paymentMethod === 'bank' &&
-            (!bankName.trim() || !accountNumber.trim())
-          ) {
-            showToast('Please enter bank name and account number', 'error');
-            return;
-          }
+        if (
+          paymentMethod === 'bank' &&
+          (!bankName.trim() || !accountNumber.trim())
+        ) {
+          showToast('Please enter bank name and account number', 'error');
+          return;
+        }
 
-          setDepositStep(2);
-        }}
-        className="w-full py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
-      >
-        Next
-      </button>
-    </>
-  )}
+        setDepositStep(2);
+      }}
+      className="w-full py-2 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black text-xs font-black rounded-xl"
+    >
+      Next
+    </button>
+  </>
+)}
 
   {/* STEP 2: PAYMENT PROOF */}
   {depositStep === 2 && (
@@ -2349,9 +2534,60 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                 </div>
               </div>
             )}
+<button
+  onClick={async () => {
+    if (!currentTask) return;
 
-          <button
-  onClick={handleConfirmTask}
+    // Normal task: existing completion flow
+    if (!currentTask.isLucky) {
+      await handleConfirmTask();
+      return;
+    }
+
+    // Lucky Order must have its exact database ID
+    if (!user || !currentTask.customTaskId) {
+      showToast('Lucky Order ID missing. Please refresh and try again.', 'error');
+      return;
+    }
+
+    // Fetch the latest status and required amount for this exact order
+    const { data: luckyOrder, error } = await supabase
+      .from('custom_tasks')
+      .select('id, funding_status, locked_price, task_amount, user_id')
+      .eq('id', currentTask.customTaskId)
+      .eq('user_id', user.id)
+      .eq('is_lucky_order', true)
+      .maybeSingle();
+
+    if (error || !luckyOrder) {
+      showToast('Could not load this Lucky Order. Please try again.', 'error');
+      return;
+    }
+
+    // If verified funding already exists, use the existing completion handler
+    if (luckyOrder.funding_status === 'funded') {
+      await handleConfirmTask();
+      return;
+    }
+
+    const requiredAmount = Number(
+      luckyOrder.locked_price ?? luckyOrder.task_amount
+    );
+
+    if (!Number.isFinite(requiredAmount) || requiredAmount <= 0) {
+      showToast('Lucky Order amount is invalid. Please contact support.', 'error');
+      return;
+    }
+
+   // Open Deposit specifically for this Lucky Order
+setIsLuckyOrderDeposit(true);
+setDepositAmount(requiredAmount.toFixed(2));
+setPaymentReference('');
+setReceiptFile(null);
+setDepositStep(1);
+setShowFullPageTask(false);
+setShowDepositModal(true);
+  }}
   className="w-full py-4 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 font-black text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
 >
   <span>📋</span>

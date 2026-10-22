@@ -397,18 +397,21 @@ const [newProdVipLevel, setNewProdVipLevel] = useState('VIP 1');
     await supabase.auth.signOut();
     window.location.href = '/admin/login';
   };
+ 
 const handleFundSubmit = async () => {
   if (!selectedUserForModal || !fundInput) return;
 
-  if (!isMainAdmin) {
-    showToast('Only Main Admin can manually adjust customer balance.', 'error');
-    return;
-  }
-
   const val = Number(fundInput);
 
-  if (!Number.isFinite(val) || val <= 0) {
-    showToast('Enter a valid amount.', 'error');
+  if (
+    !Number.isFinite(val) ||
+    val <= 0 ||
+    Math.abs(val * 100 - Math.round(val * 100)) > 0.000001
+  ) {
+    showToast(
+      'Enter a valid amount with up to 2 decimal places.',
+      'error'
+    );
     return;
   }
 
@@ -416,99 +419,110 @@ const handleFundSubmit = async () => {
   const userId = selectedUserForModal.id;
 
   try {
-    // 1. Customer ka current profile fetch karein
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('id, balance')
-      .eq('id', userId)
-      .single();
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-    if (fetchError) throw fetchError;
+    if (sessionError) throw sessionError;
 
-    const currentBalance = Number(profile.balance ?? 0);
-    const newBal = Number(
-      (
-        isAdd
-          ? currentBalance + val
-          : Math.max(0, currentBalance - val)
-      ).toFixed(2)
+    if (!session) {
+      throw new Error(
+        'Supabase login session missing. Please log out and log in again.'
+      );
+    }
+
+    // This RPC updates the balance once and records eligible
+    // pending Lucky Order funding without double-crediting funds.
+    const { data, error } = await supabase.rpc(
+      'admin_adjust_customer_balance_and_lucky_order' as any,
+      {
+        p_target_user_id: userId,
+        p_amount: val,
+        p_action: isAdd ? 'add' : 'deduct',
+        p_note: isAdd
+          ? 'Manual Add Funds by Admin'
+          : 'Manual Deduct Funds by Admin',
+      } as any
     );
 
-    // 2. Balance update karein profiles table mein
-    const { data: updatedProfile, error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: newBal })
-      .eq('id', userId)
-      .select('id, balance')
-      .single();
+    if (error) throw error;
 
-    if (updateError) throw updateError;
+    const result = data as {
+      success?: boolean;
+      balance_after?: number;
+      amount?: number;
+      action?: string;
+      lucky_order_funding_added?: number;
+      lucky_order_funding_status?: string;
+    } | null;
 
-    if (!updatedProfile) {
-      throw new Error('Balance update could not be verified.');
+    if (
+      !result?.success ||
+      result.balance_after == null ||
+      !Number.isFinite(Number(result.balance_after))
+    ) {
+      throw new Error(
+        'Balance update could not be verified. Please check the database before retrying.'
+      );
     }
 
-    // 3. Agar funds add kiye gaye hain, toh user ke sabhi pending lucky orders ko 'funded' kar dein taake wo unlock ho jayein
-    if (isAdd) {
-      const { error: fundingError } = await supabase
-        .from('custom_tasks')
-        .update({
-          funding_status: 'funded',
-          funded_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .eq('is_active', true)
-        .eq('is_lucky_order', true);
+    const newBalance = Number(result.balance_after);
 
-      if (fundingError) {
-        console.error('Lucky order funding update warning:', fundingError);
-      }
-
-      // Optional: Deposits table mein entry record karein
-      await supabase.from('deposits').insert([
-        {
-          user_id: userId,
-          amount: val,
-          trc20_address: 'ADMIN_MANUAL_ADDITION',
-          status: 'approved'
-        }
-      ]);
-    }
-
-    // 4. Local admin UI state update karein
     setCustomers((prev) =>
       prev.map((customer) =>
-        customer.id === updatedProfile.id
-          ? { ...customer, balance: Number(updatedProfile.balance) }
+        customer.id === userId
+          ? { ...customer, balance: newBalance }
           : customer
       )
     );
 
     setSelectedUserForModal((prev) =>
-      prev && prev.id === updatedProfile.id
-        ? { ...prev, balance: Number(updatedProfile.balance) }
+      prev && prev.id === userId
+        ? { ...prev, balance: newBalance }
         : prev
     );
 
-    showToast(
-      `$${val.toFixed(2)} ${
-        isAdd ? 'added to' : 'deducted from'
-      } customer #${selectedUserForModal.custom_id}. Balance: $${Number(
-        updatedProfile.balance
-      ).toFixed(2)}`
+    const fundingAdded = Number(
+      result.lucky_order_funding_added ?? 0
     );
 
-    setModalType(null);
+    const customerNumber = selectedUserForModal.custom_id;
+
+    if (isAdd && fundingAdded > 0) {
+      showToast(
+        `$${val.toFixed(2)} added to customer #${customerNumber}. ` +
+          `Lucky Order funding recorded: $${fundingAdded.toFixed(2)}. ` +
+          `New balance: $${newBalance.toFixed(2)}`
+      );
+    } else {
+      showToast(
+        `$${val.toFixed(2)} ${
+          isAdd ? 'added to' : 'deducted from'
+        } customer #${customerNumber}. ` +
+          `New balance: $${newBalance.toFixed(2)}`
+      );
+    }
+
     setFundInput('');
+    setModalType(null);
   } catch (err: any) {
-    console.error('Manual balance update failed:', err);
+    console.error('Manual balance adjustment failed:', err);
+
+    console.error('Error details:', {
+      message: err?.message,
+      code: err?.code,
+      details: err?.details,
+      hint: err?.hint,
+    });
+
     showToast(
       err?.message || 'Could not update customer balance.',
       'error'
     );
   }
 };
+
  
 const allowedTypes = ['image/png', 'image/jpeg', 'image/webp']; 
 
@@ -760,7 +774,7 @@ console.log('Logged-in email:', authData.user?.email);
         image_url: imageUrl,
         category: newProdCategory,
         vip_level: newProdVipLevel,
-        is_active: true,
+        is_active: false,
         image_storage_path: imagePath,
         product_source: newProdImageFile ? 'uploaded' : 'manual',
       }])
@@ -853,100 +867,149 @@ const handleOpenUserProfileModal = (user: CustomerProfile) => {
 
 const handleSaveAllUserSettings = async () => {
   if (!selectedUserForModal) return;
-const payload: Record<string, any> = {
-  vip_level: editVipLevel,
-  withdraw_locked: disableWithdraw,
-  withdraw_message: withdrawNotificationMsg.trim(),
-  trc20_address: editTrc20.trim(),
-  bank_name: editBankName.trim(),
-  account_number: editBankAccount.trim(),
-};
 
-  if (editWithdrawPass.trim()) {
-    payload.withdraw_password = editWithdrawPass.trim();
+  const userId = selectedUserForModal.id;
+  const newLoginPassword = editLoginPass.trim();
+  const newWithdrawPassword = editWithdrawPass.trim();
+
+  if (newLoginPassword && newLoginPassword.length < 6) {
+    showToast('Login password must be at least 6 characters.', 'error');
+    return;
   }
 
-  const { data: savedUser, error: saveError } = await supabase
-    .from('profiles')
-    .update(payload)
-    .eq('id', selectedUserForModal.id)
-    .select('id')
-    .maybeSingle();
-if (saveError || !savedUser) {
- console.error('Save user settings failed:', {
-  message: saveError?.message,
-  code: saveError?.code,
-  details: saveError?.details,
-  hint: saveError?.hint,
-  userId: selectedUserForModal.id,
-});
+  const payload: Record<string, any> = {
+    vip_level: editVipLevel,
+    withdraw_locked: disableWithdraw,
+    withdraw_message: withdrawNotificationMsg.trim(),
+    trc20_address: editTrc20.trim(),
+    bank_name: editBankName.trim(),
+    account_number: editBankAccount.trim(),
+  };
 
-  showToast(
-    saveError?.message ||
-      'Settings save nahi hui. Admin update permission ya database response check karein.',
-    'error'
+  if (newWithdrawPassword) {
+    payload.withdraw_password = newWithdrawPassword;
+  }
+
+  try {
+    // 1. Save existing profile settings.
+    const { data: savedUser, error: saveError } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .select('*')
+      .maybeSingle();
+
+    if (saveError) throw saveError;
+
+    if (!savedUser) {
+      throw new Error(
+        'Profile settings were not saved. Check admin database permissions.'
+      );
+    }
+
+    // 2. Update the customer's actual Supabase Auth password.
+    if (newLoginPassword) {
+     
+const { data, error } = await supabase.functions.invoke(
+  'admin-update-user-password',
+  {
+    body: {
+      target_user_id: userId,
+      new_password: newLoginPassword,
+    },
+  }
+);
+
+if (error) {
+  console.error('Login password update failed:', error);
+  throw new Error(
+    'Profile settings saved, but login password failed to update: ' +
+    error.message
   );
-
-  return;
 }
 
-  if (editLoginPass.trim()) {
-    const { error: rpcError } = await supabase.rpc(
-      'admin_update_user_password',
-      {
-        target_user_id: selectedUserForModal.id,
-        new_password: editLoginPass.trim(),
+if (!data?.success) {
+  throw new Error(
+    data?.message || 'The login password was not updated.'
+  );
+}
+
+      if (error) {
+        console.error('Login password RPC failed:', error);
+        throw new Error(
+          'Profile settings saved, but login password failed to update: ' +
+          error.message
+        );
       }
+
+      // Handle RPCs that return { success: false }.
+      if (data && typeof data === 'object' && data.success === false) {
+        throw new Error(
+          data.message || 'The login password was not updated.'
+        );
+      }
+    }
+
+    // 3. Refresh local customer data immediately.
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === userId
+          ? { ...customer, ...savedUser }
+          : customer
+      )
     );
 
-    if (rpcError) {
-      console.error('Login password update failed:', rpcError);
-      showToast(
-        'Other settings were saved, but the login password update failed.',
-        'error'
-      );
-      return;
-    }
-  }
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === userId
+        ? { ...prev, ...savedUser }
+        : prev
+    );
 
-  setCustomers((prev) =>
-    prev.map((c) =>
-      c.id === selectedUserForModal.id
-        ? { ...c, ...payload }
-        : c
-    )
-  );
+    setEditLoginPass('');
+    setEditWithdrawPass('');
+    setModalType(null);
 
-  showToast(`All User Settings saved for #${selectedUserForModal.custom_id}`);
-  setModalType(null);
-};
-
-  const handleOpenFullPageTaskSettings = async (user: CustomerProfile) => {
-    setSelectedUserForModal(user);
-    setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
-    await fetchUserCustomTasks(user.id);
-    setIsFullPageTaskSettings(true);
-  };
-const fetchUserCustomTasks = async (userId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('custom_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    setUserCustomTasks(data || []);
-  } catch (err: any) {
-    console.error('Failed to fetch user custom tasks:', err);
     showToast(
-      err?.message || 'Could not load user custom tasks.',
+      newLoginPassword
+        ? 'Profile settings and login password updated successfully.'
+        : 'Profile settings saved successfully.'
+    );
+  } catch (err: any) {
+    console.error('Save user settings failed:', err);
+    showToast(
+      err?.message || 'Could not save user settings.',
       'error'
     );
   }
 };
+const handleOpenFullPageTaskSettings = async (user: CustomerProfile) => {
+  setSelectedUserForModal(user);
+  setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
 
+  // Load all custom tasks for the selected customer.
+  await fetchUserCustomTasks(user.id);
+
+  // Load only this customer's Lucky Orders.
+  try {
+    const { data, error } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_lucky_order', true)
+      .order('task_number', { ascending: true });
+
+    if (error) throw error;
+
+    setCustomTasksList(data ?? []);
+    setIsFullPageTaskSettings(true);
+  } catch (err: any) {
+    console.error('Failed to load Lucky Orders:', err);
+    showToast(
+      err?.message || 'Could not load Lucky Orders.',
+      'error'
+    );
+  }
+};
 const handleDeleteCustomTask = async (taskId: string) => {
   if (!window.confirm('Are you sure you want to delete this custom task?')) {
     return;
@@ -960,6 +1023,11 @@ const handleDeleteCustomTask = async (taskId: string) => {
 
     if (error) throw error;
 
+    // Update both lists immediately after successful deletion.
+    setCustomTasksList((prev: any[]) =>
+      prev.filter((task) => String(task.id) !== String(taskId))
+    );
+
     setUserCustomTasks((prev: any[]) =>
       prev.filter((task) => String(task.id) !== String(taskId))
     );
@@ -967,7 +1035,33 @@ const handleDeleteCustomTask = async (taskId: string) => {
     showToast('Custom task deleted successfully.');
   } catch (err: any) {
     console.error('Delete custom task failed:', err);
-    showToast(err?.message || 'Could not delete custom task.', 'error');
+    showToast(
+      err?.message || 'Could not delete custom task.',
+      'error'
+    );
+  }
+};
+
+const fetchUserCustomTasks = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    setUserCustomTasks(data ?? []);
+  } catch (err: unknown) {
+    console.error('Failed to fetch user custom tasks:', err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Could not load user custom tasks.',
+      'error'
+    );
   }
 };
 
@@ -978,7 +1072,7 @@ const handleAutoTaskLockToggle = async (
   try {
     const { error } = await supabase
       .from('profiles')
-      .update({ auto_task_locked: shouldLock })
+      .update({ auto_task_lock: shouldLock })
       .eq('id', user.id);
 
     if (error) throw error;
@@ -986,14 +1080,14 @@ const handleAutoTaskLockToggle = async (
     setCustomers((prev) =>
       prev.map((customer) =>
         customer.id === user.id
-          ? { ...customer, auto_task_locked: shouldLock }
+          ? { ...customer, auto_task_lock: shouldLock }
           : customer
       )
     );
 
     setSelectedUserForModal((prev) =>
       prev && prev.id === user.id
-        ? { ...prev, auto_task_locked: shouldLock }
+        ? { ...prev, auto_task_lock: shouldLock }
         : prev
     );
 
@@ -1002,14 +1096,75 @@ const handleAutoTaskLockToggle = async (
         ? 'Customer auto tasks locked.'
         : 'Customer auto tasks unlocked.'
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Auto task lock update failed:', err);
+
     showToast(
-      err?.message || 'Could not update auto task lock.',
+      err instanceof Error
+        ? err.message
+        : 'Could not update auto task lock.',
       'error'
     );
   }
 };
+
+
+const handleClearLuckyOrderConfig = async () => {
+  if (!selectedUserForModal) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
+
+  const confirmed = window.confirm(
+    'Clear completed Lucky Order configurations? Order history, funding records, and wallet balance will be preserved.'
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'admin_clear_completed_lucky_orders',
+      {
+        p_user_id: selectedUserForModal.id,
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error('Could not clear Lucky Order configurations.');
+    }
+
+    // Refresh the active Lucky Order list
+    const { data: activeTasks, error: refreshError } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', selectedUserForModal.id)
+      .eq('is_lucky_order', true)
+      .eq('is_active', true)
+      .order('task_number', { ascending: true });
+
+    if (refreshError) throw refreshError;
+
+    setCustomTasksList(activeTasks ?? []);
+
+    await fetchUserCustomTasks(selectedUserForModal.id);
+
+    showToast(
+      `Cleared ${data.cleared_count ?? 0} completed Lucky Order configuration(s). History and balance were preserved.`
+    );
+  } catch (err: unknown) {
+    console.error('Clear Lucky Order configuration failed:', err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Could not clear Lucky Order configurations.',
+      'error'
+    );
+  }
+};
+
 const handlePublishLuckyOrderSlot = async () => {
   if (!selectedUserForModal) {
     showToast('Please select a customer first.', 'error');
@@ -1021,100 +1176,118 @@ const handlePublishLuckyOrderSlot = async () => {
   const minAmount = Number(slotMinAmount);
   const maxAmount = Number(slotMaxAmount);
 
-  if (
-    !Number.isInteger(taskNumber) ||
-    taskNumber < 1 ||
-    taskNumber > 25
-  ) {
+  if (!Number.isInteger(taskNumber) || taskNumber < 1 || taskNumber > 25) {
     showToast('Enter a task number between 1 and 25.', 'error');
     return;
   }
 
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 100) {
+    showToast('Commission rate must be greater than 0 and at most 100%.', 'error');
+    return;
+  }
+
   if (
-    !Number.isFinite(rate) ||
-    rate <= 0 ||
-    rate > 100 ||
     !Number.isFinite(minAmount) ||
-    minAmount <= 0
+    !Number.isFinite(maxAmount) ||
+    minAmount <= 0 ||
+    maxAmount < minAmount
   ) {
-    showToast('Please enter a valid commission rate and amount.', 'error');
+    showToast('Enter a valid minimum and maximum amount.', 'error');
+    return;
+  }
+
+  const centsMin = Math.ceil(minAmount * 100);
+  const centsMax = Math.floor(maxAmount * 100);
+
+  if (centsMax < centsMin) {
+    showToast('The amount range must allow at least one valid cent value.', 'error');
     return;
   }
 
   try {
     const userId = selectedUserForModal.id;
 
-    // Minimum aur Maximum amount ke darmian random price calculate karein
-    const minVal = minAmount;
-    const maxVal = Number.isFinite(maxAmount) && maxAmount >= minAmount ? maxAmount : minAmount;
+    // Generate a random amount within the chosen range.
+    const randomCents =
+      Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
 
-    // Min aur Max range ke andar random price generate karna (cents/decimals handle karne ke liye)
-    const centsMin = Math.ceil(minVal * 100);
-    const centsMax = Math.floor(maxVal * 100);
-    
-    const randomCents = Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
     const taskAmount = Number((randomCents / 100).toFixed(2));
-
     const commission = Number((taskAmount * rate / 100).toFixed(2));
+   
+    // Check whether this customer already has an active pending Lucky Order.
+   const { data: activeLuckyOrder, error: activeCheckError } =
+  await supabase
+    .from('custom_tasks')
+    .select('id, task_number')
+    .eq('user_id', userId)
+    .eq('is_lucky_order', true)
+    .eq('is_active', true)
+    .eq('status', 'pending')
+    .limit(1)
+    .maybeSingle();
 
-    // Is user ke pehle ke sabhi pending lucky orders delete kar dein taaki multiple active orders ka conflict na ho
-    await supabase
-      .from('custom_tasks')
-      .delete()
-      .eq('user_id', userId)
-      .eq('is_lucky_order', true)
-      .eq('status', 'pending');
-
-    // Random calculated taskAmount database mein insert karein
+if (activeCheckError) throw activeCheckError;
+    // Save a new order without deleting existing orders.
     const { error: insertError } = await supabase
       .from('custom_tasks')
       .insert({
         user_id: userId,
         task_number: taskNumber,
         task_amount: taskAmount,
-        min_amount: minVal,
-        max_amount: maxVal,
+        min_amount: minAmount,
+        max_amount: maxAmount,
         commission_rate: rate,
         commission,
         locked_price: taskAmount,
         locked_commission: commission,
         vip_level: selectedUserForModal.vip_level || 'VIP 0 - Regular',
         status: 'pending',
-        is_active: true,
+         is_active: !activeLuckyOrder,
         is_lucky_order: true,
-        funding_status: 'pending'
+        funding_status: 'pending',
       });
 
     if (insertError) throw insertError;
 
-    await fetchUserCustomTasks(userId);
+    // Refresh the Lucky Order list.
+  
+const { data: refreshedTasks, error: refreshError } = await supabase
+  .from('custom_tasks')
+  .select('*')
+  .eq('user_id', userId)
+  .eq('is_lucky_order', true)
+  .eq('is_active', true)
+  .order('task_number', { ascending: true });
 
-    const { data: refreshedTasks, error: refreshError } = await supabase
-      .from('custom_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_lucky_order', true)
-      .order('task_number', { ascending: true });
+if (refreshError) throw refreshError;
+
+setCustomTasksList(refreshedTasks ?? []);
+
 
     if (refreshError) throw refreshError;
 
-    setCustomTasksList(refreshedTasks || []);
+    setCustomTasksList(refreshedTasks ?? []);
+
+    // Refresh the complete custom-task list too.
+    await fetchUserCustomTasks(userId);
+
     setSlotTaskNum('');
     setSlotMinAmount('');
     setSlotMaxAmount('');
     setSlotCommPercent('');
 
     showToast(
-      `Lucky Order Slot #${taskNumber} published successfully with generated amount $${taskAmount.toFixed(2)}!`
+      `Lucky Order #${taskNumber} saved. Amount: $${taskAmount.toFixed(2)}, commission: $${commission.toFixed(2)}.`
     );
-  } catch (err: any) {
-    console.error('Publish Lucky Order Slot failed:', err);
-    showToast(
-      err?.message || 'Could not publish Lucky Order Slot.',
-      'error'
-    );
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : 'Could not save the lucky order.';
+
+    console.error('Publish Lucky Order failed:', err);
+    showToast(message, 'error');
   }
 };
+
   const handleSaveFullPageTaskSettings = async () => {
     if (!selectedUserForModal) return;
     try {
@@ -2122,37 +2295,70 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
 
               </div>
 
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
-                <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
-                  📋 Configured Synchronized Lucky Orders:
-                </h4>
+            
+<div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
+</div>
+  <div className="flex items-center justify-between gap-3">
+    <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
+      📋 Configured Synchronized Lucky Orders:
+    </h4>
 
-                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                  {customTasksList.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-8 bg-white rounded-xl border border-dashed border-slate-300">No active synchronized lucky orders for this user.</p>
-                  ) : (
-                    customTasksList.map((task, idx) => (
-                      <div key={idx} className="p-3.5 bg-white border border-slate-200 rounded-2xl flex items-center justify-between text-xs w-full shadow-sm">
-                        <div className="flex-1">
-                          <div className="font-bold text-slate-800 text-sm">
-                            Task #{task.task_number} — <span className="text-indigo-600 font-mono">${task.min_amount} - ${task.max_amount} USDT</span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-medium mt-0.5">
-                            Commission: {task.commission_rate || 10}% | Status: Direct Synchronized ⚡
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteCustomTask(task.id)}
-                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl transition text-xs shadow-sm"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+    <button
+      type="button"
+      disabled={customTasksList.length === 0}
+      onClick={handleClearLuckyOrderConfig}
+      className="shrink-0 px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+    >
+      Clear Completed
+    </button>
+  </div>
+
+  <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+    {customTasksList.length === 0 ? (
+      <p className="text-xs text-slate-400 text-center py-8 bg-white rounded-xl border border-dashed border-slate-300">
+        No active synchronized lucky orders for this user.
+      </p>
+    ) : (
+      customTasksList.map((task) => (
+        <div
+          key={task.id}
+          className="p-3.5 bg-white border border-slate-200 rounded-2xl flex items-center justify-between text-xs w-full shadow-sm"
+        >
+          <div className="flex-1">
+            <div className="font-bold text-slate-800 text-sm">
+              Task #{task.task_number} —{" "}
+              <span className="text-indigo-600 font-mono">
+                ${task.min_amount} - ${task.max_amount} USDT
+              </span>
             </div>
+
+          
+<div className="text-[11px] text-slate-500 font-medium mt-0.5">
+  Commission: {task.commission_rate || 10}% | Status:{" "}
+  {("status" in task && task.status === "completed") ? (
+    <span className="text-green-600 font-bold">
+      Completed ✓
+    </span>
+  ) : (
+    <span className="text-amber-600 font-bold">
+      Pending
+    </span>
+  )}
+</div>
+</div>
+
+          <button
+            type="button"
+            onClick={() => handleDeleteCustomTask(task.id)}
+            className="ml-3 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 font-bold hover:bg-red-100"
+          >
+            Delete
+          </button>
+        </div>
+      ))
+    )}
+  </div>
+</div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <button
@@ -2171,123 +2377,175 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
           </div>
         ) : null}
 
-        {/* TAB 1: USERS */}
-        {!isFullPageTaskSettings && activeTab === 'users' && (
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-            <div className="flex justify-between items-center border-b pb-4">
-              <div>
-                <h2 className="text-lg font-black text-blue-900">Users</h2>
-                <p className="text-xs text-slate-500 font-medium">Assigned Customers: <span className="font-bold text-blue-700">{filteredCustomers.length}</span></p>
-              </div>
-              <div className="w-80">
-                <input
-                  type="text"
-                  placeholder="Search by ID, Name, Phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-                />
-              </div>
-            </div>
+      
+{/* TAB 1: USERS */}
+{!isFullPageTaskSettings && activeTab === 'users' && (
+  <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+    <div className="flex justify-between items-center border-b pb-4">
+      <div>
+        <h2 className="text-lg font-black text-blue-900">Users</h2>
+        <p className="text-xs text-slate-500 font-medium">
+          Assigned Customers:{' '}
+          <span className="font-bold text-blue-700">
+            {filteredCustomers.length}
+          </span>
+        </p>
+      </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[#1e3a8a] text-white font-bold">
-                    <th className="p-3">Users</th>
-                    <th className="p-3">Invite Code</th>
-                    <th className="p-3">Gmail / VIP Status</th>
-                    <th className="p-3">Tasks</th>
-                    <th className="p-3">Bal</th>
-                    <th className="p-3">Task Lock</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Actions & Settings</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredCustomers.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
-                        <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
-                      <td className="p-3">
-                        <div className="text-slate-700 font-semibold">{c.email || 'customer@appuser.local'}</div>
-                        <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
-                          {c.vip_level || 'VIP 0 - Regular'}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
-                      <td className="p-3 font-mono">
-                        <div className="font-black text-emerald-600 text-sm">${c.balance.toFixed(2)}</div>
-                        <div className="flex gap-1 mt-1">
-                          <button
-                            onClick={() => { setSelectedUserForModal(c); setModalType('add_funds'); setFundInput(''); }}
-                            className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-bold rounded hover:bg-emerald-700 shadow-sm"
-                          >
-                            + Add
-                          </button>
-                          <button
-                            onClick={() => { setSelectedUserForModal(c); setModalType('cut_funds'); setFundInput(''); }}
-                            className="px-2 py-0.5 bg-red-600 text-white text-[9px] font-bold rounded hover:bg-red-700 shadow-sm"
-                          >
-                            - Cut
-                          </button>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(c.auto_task_lock)}
-                            onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                        </label>
-                      </td>
-                      <td className="p-3">
-                        <select
-                          value={c.is_frozen ? 'frozen' : 'active'}
-                          onChange={(e) => handleStatusChange(c, e.target.value === 'frozen')}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border focus:outline-none ${
-                            c.is_frozen ? 'bg-red-100 border-red-300 text-red-700' : 'bg-emerald-100 border-emerald-300 text-emerald-700'
-                          }`}
-                        >
-                          <option value="active">Active</option>
-                          <option value="frozen">Disabled / Frozen</option>
-                        </select>
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="inline-flex gap-1.5">
-                          <button
-                            onClick={() => handleResetUserTasks(c)}
-                            className="px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600"
-                          >
-                            Reset
-                          </button>
-                          <button
-                            onClick={() => handleOpenFullPageTaskSettings(c)}
-                            className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
-                          >
-                            Settings
-                          </button>
-                          <button
-                            onClick={() => handleOpenUserProfileModal(c)}
-                            className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
-                          >
-                            Profile
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+      <div className="w-80">
+        <input
+          type="text"
+          placeholder="Search by ID, Name, Phone..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+        />
+      </div>
+    </div>
+
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr className="bg-[#1e3a8a] text-white font-bold">
+            <th className="p-3">Users</th>
+            <th className="p-3">Invite Code</th>
+            <th className="p-3">Gmail / VIP Status</th>
+            <th className="p-3">Tasks</th>
+            <th className="p-3">Bal</th>
+            <th className="p-3">Task Lock</th>
+            <th className="p-3">Status</th>
+            <th className="p-3 text-right">Actions &amp; Settings</th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-200 font-medium">
+          {filteredCustomers.map((c) => (
+            <tr key={c.id} className="hover:bg-slate-50 transition">
+              <td className="p-3 whitespace-nowrap">
+                <div className="text-sm font-mono font-black text-blue-900">
+                  #{c.custom_id}
+                </div>
+                <div className="text-xs font-bold text-slate-700 mt-0.5">
+                  👤 {c.full_name || c.username || c.name || 'No Name'}
+                </div>
+              </td>
+
+              <td className="p-3 whitespace-nowrap">
+                <div className="inline-flex items-center whitespace-nowrap font-mono text-[11px] font-bold">
+                  {renderSimpleInvitationCodes(c)}
+                </div>
+              </td>
+
+              <td className="p-3">
+                <div className="text-slate-700 font-semibold">
+                  {c.email || 'customer@appuser.local'}
+                </div>
+                <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
+                  {c.vip_level || 'VIP 0 - Regular'}
+                </span>
+              </td>
+
+              <td className="p-3 font-mono font-bold text-blue-900 text-sm">
+                {c.completed_tasks} / 25
+              </td>
+
+              <td className="p-3 font-mono whitespace-nowrap">
+                <div className="font-black text-emerald-600 text-sm">
+                  ${Number(c.balance || 0).toFixed(2)}
+                </div>
+
+                <div className="flex items-center gap-1.5 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserForModal(c);
+                      setModalType('add_funds');
+                      setFundInput('');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
+                  >
+                    <span>+</span> Add Funds
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserForModal(c);
+                      setModalType('cut_funds');
+                      setFundInput('');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-bold text-rose-700 transition hover:bg-rose-600 hover:text-white"
+                  >
+                    <span>−</span> Deduct
+                  </button>
+                </div>
+              </td>
+
+              <td className="p-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(c.auto_task_lock)}
+                    onChange={(e) =>
+                      handleAutoTaskLockToggle(c, e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </td>
+
+              <td className="p-3">
+                <select
+                  value={c.is_frozen ? 'frozen' : 'active'}
+                  onChange={(e) =>
+                    handleStatusChange(c, e.target.value === 'frozen')
+                  }
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border focus:outline-none ${
+                    c.is_frozen
+                      ? 'bg-red-100 border-red-300 text-red-700'
+                      : 'bg-emerald-100 border-emerald-300 text-emerald-700'
+                  }`}
+                >
+                  <option value="active">Active</option>
+                  <option value="frozen">Disabled / Frozen</option>
+                </select>
+              </td>
+
+              <td className="p-3 text-right">
+                <div className="inline-flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleResetUserTasks(c)}
+                    className="px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600"
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFullPageTaskSettings(c)}
+                    className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
+                  >
+                    Settings
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUserProfileModal(c)}
+                    className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
+                  >
+                    Profile
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
 
         {/* TAB 2: DEPOSIT RECORDS */}
         {!isFullPageTaskSettings && activeTab === 'deposits' && (
@@ -2467,7 +2725,7 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
           </div>
         )}
 
-        {/* TAB 4: TASK MANAGEMENT */}
+   {/* TAB 4: TASK MANAGEMENT */}
         {!isFullPageTaskSettings && activeTab === 'tasks' && (
           <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
@@ -2487,55 +2745,105 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#1e3a8a] text-white font-bold">
-                    <th className="p-3">Users</th>
-                    <th className="p-3">Invite Code</th>
-                    <th className="p-3">Neg Bal</th>
-                    <th className="p-3">VIP Level</th>
-                    <th className="p-3">Tasks</th>
-                    <th className="p-3">Task Lock</th>
-                    <th className="p-3 text-right">Task Settings</th>
+                    <th className="p-3.5 px-5">Users</th>
+                    <th className="p-3.5 px-5">Invite Code</th>
+                    <th className="p-3.5 px-5 text-center">Neg Bal</th>
+                    <th className="p-3.5 px-5 text-center">VIP Level</th>
+                    <th className="p-3.5 px-5 text-center">Tasks</th>
+                    <th className="p-3.5 px-5 text-center">Task Lock</th>
+                    <th className="p-3.5 px-5 text-right">Task Settings</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredTaskCustomers.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
-                        <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
-                      <td className="p-3 font-mono font-black text-red-600">
-                        {c.running_tasks && c.running_tasks < 0 ? `$${Math.abs(c.running_tasks).toFixed(2)}` : '$0.00'}
-                      </td>
-                      <td className="p-3 font-bold text-amber-700">{c.vip_level || 'VIP 0'}</td>
-                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
-                      <td className="p-3">
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(c.auto_task_lock)}
-                            onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                        </label>
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => handleOpenFullPageTaskSettings(c)}
-                          className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 ml-auto"
-                        >
-                          Settings
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredTaskCustomers.map((c) => {
+                    const negVal = Number(c.running_tasks || 0);
+                    const hasNeg = negVal < 0;
+
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-50 transition">
+                        <td className="p-3.5 px-5 whitespace-nowrap">
+                          <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
+                          <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
+                        </td>
+                        <td className="p-3.5 px-5 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
+                        
+                        {/* Prominent & Larger Negative Balance Style */}
+                        <td className="p-3.5 px-5 text-center">
+                          <span className={`inline-block px-2.5 py-1 rounded-md font-mono text-sm font-black ${
+                            hasNeg 
+                              ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm' 
+                              : 'text-red-500 font-bold text-xs'
+                          }`}>
+                            {hasNeg ? `$${Math.abs(negVal).toFixed(2)}` : '$0.00'}
+                          </span>
+                        </td>
+
+                        <td className="p-3.5 px-5 text-center font-bold text-amber-700">{c.vip_level || 'VIP 0'}</td>
+                        <td className="p-3.5 px-5 text-center font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
+                        <td className="p-3.5 px-5 text-center">
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(c.auto_task_lock)}
+                              onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                          </label>
+                        </td>
+                        
+                        {/* Action Buttons: Reset & Settings side-by-side */}
+                        <td className="p-3.5 px-5 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end space-x-2">
+                            <button
+                              onClick={async () => {
+                                if (!window.confirm(`Are you sure you want to reset tasks for user #${c.custom_id}?`)) return;
+                                try {
+                                  const { error: profileErr } = await supabase
+                                    .from('profiles')
+                                    .update({ completed_tasks: 0, running_tasks: 0, pending_task: null })
+                                    .eq('id', c.id);
+
+                                  if (profileErr) throw profileErr;
+
+                                  await supabase
+                                    .from('custom_tasks')
+                                    .update({ status: 'cancelled', is_active: false })
+                                    .eq('user_id', c.id)
+                                    .eq('status', 'pending');
+
+                                  if (typeof showToast === 'function') {
+                                    showToast('User tasks reset successfully!', 'success');
+                                  }
+                                } catch (err: any) {
+                                  console.error('Task reset error:', err);
+                                  if (typeof showToast === 'function') {
+                                    showToast(err?.message || 'Could not reset tasks.', 'error');
+                                  }
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-600 font-bold text-[10px] rounded-lg shadow-sm transition"
+                              title="Reset User Tasks"
+                            >
+                              🔄 Reset
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenFullPageTaskSettings(c)}
+                              className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 transition"
+                            >
+                              Settings
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
-
         {/* TAB 5: PRODUCTS MANAGEMENT */}
         {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
           <div className="space-y-6">
@@ -3226,7 +3534,24 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
             </div>
 
             <div className="space-y-3 text-xs">
+              
+<div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+  <label className="font-bold text-slate-700 block">
+    Main / Customer Invitation Codes
+  </label>
+<div className="font-mono font-extrabold text-blue-900 break-all">
+    {mainInviteCode || 'Not set'}
+    /
+    {selectedUserForModal.user_invite_code ||
+      selectedUserForModal.invite_code ||
+      selectedUserForModal.invitation_code ||
+      'Not set'}
+  </div>
+</div>
+
+              
               <div>
+              
                 <label className="font-bold text-slate-700 block mb-1">VIP Level Upgrade</label>
                 <select
                   value={editVipLevel}

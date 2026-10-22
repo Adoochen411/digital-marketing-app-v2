@@ -8,84 +8,152 @@ export function AdminLogin() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
   const navigate = useNavigate();
 
- 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (loading) return;
+
     setLoading(true);
     setError('');
 
+    const userEmail = email.toLowerCase().trim();
+    const allowedAdmins = ['adoochen64@gmail.com'];
+
     try {
-      const userEmail = email.toLowerCase().trim();
-      const allowedAdmins = ['adoochen64@gmail.com'];
+      // 1. Main Admin ya Sub-Admin account identify karein.
+      const isMainAdmin = allowedAdmins.includes(userEmail);
 
-      // 1. Main Admin Login
-      if (allowedAdmins.includes(userEmail)) {
-        // Clear previous Supabase session
-        const { error: signOutError } = await supabase.auth.signOut();
+      let subAdmin: { id: string; email: string } | null = null;
 
-        if (signOutError) {
-          console.error('Previous session sign-out error:', signOutError);
+      if (!isMainAdmin) {
+        const { data, error: lookupError } = await supabase
+          .from('sub_admins')
+          .select('id, email')
+          .ilike('email', userEmail)
+          .maybeSingle();
+
+        if (lookupError) {
+          throw new Error(
+            `Could not verify Sub-Admin account: ${lookupError.message}`
+          );
         }
 
-        const { data: authData, error: authError } =
-          await supabase.auth.signInWithPassword({
-            email: userEmail,
-            password,
-          });
-
-        if (authError) {
-          throw authError;
+        if (!data) {
+          throw new Error(
+            'Unauthorized access. Email not found in Sub-Admin accounts.'
+          );
         }
 
-        if (
-          !authData.session ||
-          authData.user?.email?.toLowerCase() !== 'adoochen64@gmail.com'
-        ) {
+        subAdmin = data;
+      }
+
+      // 2. Purana session clear karein.
+      const { error: signOutError } = await supabase.auth.signOut();
+
+      if (signOutError) {
+        console.warn('Previous session sign-out warning:', signOutError);
+      }
+
+      // 3. DONO account types Supabase Auth se login karenge.
+      const {
+        data: authData,
+        error: authError,
+      } = await supabase.auth.signInWithPassword({
+        email: userEmail,
+        password,
+      });
+
+      if (authError) {
+        throw new Error(
+          'Invalid email or password, or this account is not configured in Supabase Authentication.'
+        );
+      }
+
+      if (
+        !authData.session ||
+        !authData.user ||
+        authData.user.email?.toLowerCase() !== userEmail
+      ) {
+        await supabase.auth.signOut();
+        throw new Error('Authentication session could not be verified.');
+      }
+
+      // 4. Database profile ko verify karein.
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, role, is_subadmin')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        await supabase.auth.signOut();
+
+        throw new Error(
+          `Could not verify admin profile: ${profileError.message}`
+        );
+      }
+
+      if (!profile || profile.role !== 'admin') {
+        await supabase.auth.signOut();
+
+        throw new Error(
+          'This Supabase account does not have an admin profile.'
+        );
+      }
+
+      // 5. Main Admin verification.
+      if (isMainAdmin) {
+        if (profile.is_subadmin !== false) {
           await supabase.auth.signOut();
-          throw new Error('Main admin authentication failed.');
+
+          throw new Error(
+            'Main Admin profile is not configured correctly. Check profiles.is_subadmin.'
+          );
         }
 
         localStorage.setItem('current_admin_role', 'admin');
         localStorage.removeItem('sub_admin_logged_in');
 
-        navigate('/admin/dashboard');
+        navigate('/admin/dashboard', { replace: true });
         return;
       }
 
-      // 2. Sub-Admin lookup
-      const { data: subAdmin, error: subErr } = await supabase
-        .from('sub_admins')
-        .select('*')
-        .eq('email', userEmail)
-        .maybeSingle();
-
-      if (subErr) {
-        throw subErr;
-      }
-
+      // 6. Sub-Admin verification.
       if (!subAdmin) {
-        setError('Unauthorized access. Email not found in sub-admins.');
-        return;
+        await supabase.auth.signOut();
+        throw new Error('Sub-Admin account could not be verified.');
       }
 
-      // 3. Sub-Admin password check
-      if (!subAdmin.password || subAdmin.password !== password) {
-        setError('Invalid password for sub-admin.');
-        return;
+      if (profile.is_subadmin !== true) {
+        await supabase.auth.signOut();
+
+        throw new Error(
+          'Sub-Admin profile is not configured correctly. Check profiles.is_subadmin.'
+        );
       }
 
-      // 4. Sub-Admin login
+      if (
+        subAdmin.email.toLowerCase() !==
+        authData.user.email?.toLowerCase()
+      ) {
+        await supabase.auth.signOut();
+        throw new Error('Sub-Admin email verification failed.');
+      }
+
       localStorage.setItem('sub_admin_logged_in', userEmail);
       localStorage.setItem('current_admin_role', 'subadmin');
 
-      navigate('/admin/dashboard');
+      navigate('/admin/dashboard', { replace: true });
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : 'Login failed. Please try again.';
+        err instanceof Error
+          ? err.message
+          : 'Login failed. Please try again.';
 
-      console.error('Admin login error:', message);
+      console.error('Admin login error:', err);
       setError(message);
     } finally {
       setLoading(false);
@@ -154,6 +222,5 @@ export function AdminLogin() {
     </div>
   );
 }
-
 
 export default AdminLogin;

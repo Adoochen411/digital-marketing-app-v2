@@ -98,7 +98,10 @@ interface ChatMessage {
   message: string;
   created_at: string;
   is_admin: boolean;
+  is_read: boolean;
+
 }
+
 
 interface AdminNotification {
   id: string;
@@ -163,13 +166,9 @@ export const AdminDashboard: React.FC = () => {
   const [subAdminEditableInviteCode, setSubAdminEditableInviteCode] = useState('');
   const [subAdminEditableTelegram, setSubAdminEditableTelegram] = useState('');
   const [subAdminEditableWhatsapp, setSubAdminEditableWhatsapp] = useState('');
-  const [waConnected, setWaConnected] = useState(false);
-  const [tgConnected, setTgConnected] = useState(false);
-  const [whatsappQrUrl] = useState('https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://web.whatsapp.com');
-  const [telegramQrUrl] = useState('https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://web.telegram.org');
 
-  const [editSubTelegram, setEditSubTelegram] = useState('');
-  const [editSubWhatsapp, setEditSubWhatsapp] = useState('');
+const [editSubTelegram] = useState('');
+  const [editSubWhatsapp] = useState('');
   const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -208,8 +207,8 @@ const [newProdVipLevel, setNewProdVipLevel] = useState('VIP 1');
   const [fundInput, setFundInput] = useState('');
 
   const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [qrPreviewUrl, setQrPreviewUrl] = useState('');
-  const [qrUploading, setQrUploading] = useState(false);
+  const [, setQrPreviewUrl] = useState('');
+const [qrUploading, setQrUploading] = useState(false);
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [editVipLevel, setEditVipLevel] = useState('VIP 0 - Regular');
   const [editWithdrawPass, setEditWithdrawPass] = useState('');
@@ -360,36 +359,143 @@ const [newProdVipLevel, setNewProdVipLevel] = useState('VIP 1');
       }
     }
 
-    const { data: allChats } = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true });
-    if (allChats) {
-      setChatMessages(allChats);
-      const uniqueUserIds = Array.from(new Set(allChats.map((c) => (c.sender_id === 'admin' ? c.receiver_id : c.sender_id))));
-      setChatUsers(uniqueUserIds);
-      if (uniqueUserIds.length > 0 && !activeChatUserId) {
-        setActiveChatUserId(uniqueUserIds[0]);
+const { data: allChats, error: chatsError } = await supabase
+  .from('chat_messages')
+  .select('*')
+  .order('created_at', { ascending: true });
+
+if (chatsError) {
+  console.error('Failed to load chat messages:', chatsError);
+} else if (allChats) {
+  setChatMessages(allChats);
+
+  const uniqueUserIds = Array.from(
+    new Set(
+      allChats
+        .map((c) =>
+          c.sender_id === 'admin' ? c.receiver_id : c.sender_id
+        )
+        .filter((id) => id && id !== 'admin')
+    )
+  );
+
+  setChatUsers(uniqueUserIds);
+
+  // Existing selected customer ko change na karein.
+  // Sirf tab pehla customer select karein jab koi selected na ho.
+  if (uniqueUserIds.length > 0) {
+    setActiveChatUserId((currentId) =>
+      currentId && uniqueUserIds.includes(currentId)
+        ? currentId
+        : uniqueUserIds[0]
+    );
+  }
+}
+
+  };
+
+useEffect(() => {
+  checkAdminRoleAndFetchData();
+
+  // Baqi admin data ka existing sync barqarar rakhein.
+  const syncInterval = setInterval(() => {
+    checkAdminRoleAndFetchData();
+  }, 3000);
+
+  let chatRefreshInProgress = false;
+
+  const refreshAdminChat = async () => {
+    if (chatRefreshInProgress) return;
+    chatRefreshInProgress = true;
+
+    try {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Failed to refresh admin chat:', error);
+        return;
       }
+
+      if (data) {
+        setChatMessages(data);
+
+        const uniqueUserIds = Array.from(
+          new Set(
+            data
+              .map((m) =>
+                m.sender_id === 'admin'
+                  ? m.receiver_id
+                  : m.sender_id
+              )
+              .filter((id) => id && id !== 'admin')
+          )
+        );
+
+        setChatUsers(uniqueUserIds);
+
+        // Current selection ko preserve karein.
+        setActiveChatUserId((currentId) => {
+          if (currentId && uniqueUserIds.includes(currentId)) {
+            return currentId;
+          }
+
+          return uniqueUserIds[0] || '';
+        });
+      }
+    } catch (err) {
+      console.error('Unexpected admin chat refresh error:', err);
+    } finally {
+      chatRefreshInProgress = false;
     }
   };
 
-  useEffect(() => {
-    checkAdminRoleAndFetchData();
+  // Chat ko pehli baar load karein.
+  void refreshAdminChat();
 
-    const syncInterval = setInterval(async () => {
-      checkAdminRoleAndFetchData();
-    }, 3000);
+  const adminChannel = supabase
+    .channel('admin-live-sync-room')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'profiles' },
+      () => {
+        void checkAdminRoleAndFetchData();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'admin_notifications' },
+      () => {
+        void checkAdminRoleAndFetchData();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'system_settings' },
+      () => {
+        void checkAdminRoleAndFetchData();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'chat_messages' },
+      () => {
+        void refreshAdminChat();
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        void refreshAdminChat();
+      }
+    });
 
-    const adminChannel = supabase
-      .channel('admin-live-sync-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => { checkAdminRoleAndFetchData(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_notifications' }, () => { checkAdminRoleAndFetchData(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'system_settings' }, () => { checkAdminRoleAndFetchData(); })
-      .subscribe();
-
-    return () => {
-      clearInterval(syncInterval);
-      supabase.removeChannel(adminChannel);
-    };
-  }, []);
+  return () => {
+    clearInterval(syncInterval);
+    void supabase.removeChannel(adminChannel);
+  };
+}, []);
 
   const handleAdminLogout = async () => {
     localStorage.removeItem('sub_admin_logged_in');
@@ -561,7 +667,7 @@ const handleUploadQr = async () => {
     const filePath = `main/payment-qr-${Date.now()}.${extension}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('payment-qr')
+.from('payment-Qr')
       .upload(filePath, qrFile, {
         cacheControl: '3600',
         upsert: false,
@@ -573,7 +679,7 @@ const handleUploadQr = async () => {
     }
 
     const { data } = supabase.storage
-      .from('payment-qr')
+      .from('payment-Qr')
       .getPublicUrl(filePath);
 
     if (!data?.publicUrl) {
@@ -1915,20 +2021,39 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
   }
 };
 
-  const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
-    if (!q || !q.trim()) return true;
-    const cleanQ = q.toLowerCase().trim().replace('#', '');
+const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
+  const cleanQ = q.trim().toLowerCase().replace(/^#/, '');
 
-    if (/^\d+$/.test(cleanQ)) {
-      return c.custom_id === Number(cleanQ);
-    }
+  if (!cleanQ) return true;
 
-    const nameStr = (c.full_name || c.username || c.name || c.display_name || '').toLowerCase();
-    const emailStr = (c.email || '').toLowerCase();
-    const phoneStr = (c.phone || '').toLowerCase();
+  const customId = String(c.custom_id ?? '').toLowerCase();
+  const userId = String(c.id ?? '').toLowerCase();
 
-    return nameStr.includes(cleanQ) || emailStr.includes(cleanQ) || phoneStr.includes(cleanQ);
-  };
+  const nameStr = String(
+    c.full_name || c.username || c.name || c.display_name || ''
+  ).toLowerCase();
+
+  const username = String(c.username || '').toLowerCase();
+  const emailStr = String(c.email || '').toLowerCase();
+  const phoneStr = String(c.phone || '').toLowerCase();
+
+  // Check invitation-code fields available on the customer profile
+  const inviteCode = String(c.invite_code || '').toLowerCase();
+  // Keep numeric customer-ID search working
+  if (/^\d+$/.test(cleanQ) && customId === cleanQ) {
+    return true;
+  }
+
+  return (
+    userId.includes(cleanQ) ||
+    customId.includes(cleanQ) ||
+    nameStr.includes(cleanQ) ||
+    username.includes(cleanQ) ||
+    emailStr.includes(cleanQ) ||
+    phoneStr.includes(cleanQ) ||
+    inviteCode.includes(cleanQ)
+  );
+};
 
   const isCustomerOfSubAdmin = (c: CustomerProfile, subCode: string) => {
     if (isMainAdmin) return true;
@@ -1985,6 +2110,34 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
     if (!isMainAdmin && !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
     return filterByUniversalQuery(cust, searchQuery);
   });
+
+const handleSelectChatUser = async (userId: string) => {
+  setActiveChatUserId(userId);
+
+  const { error } = await supabase
+    .from('chat_messages')
+    .update({ is_read: true })
+    .eq('sender_id', userId)
+    .eq('receiver_id', 'admin')
+    .eq('is_admin', false)
+    .eq('is_read', false);
+
+  if (error) {
+    console.error('Failed to mark messages as read:', error);
+    showToast('Could not mark messages as read.', 'error');
+    return;
+  }
+
+  setChatMessages((previous) =>
+    previous.map((m) =>
+      m.sender_id === userId &&
+      m.receiver_id === 'admin' &&
+      m.is_admin === false
+        ? { ...m, is_read: true }
+        : m
+    )
+  );
+};
 
   const activeUserChatHistory = chatMessages.filter(
     (m) => m.sender_id === activeChatUserId || m.receiver_id === activeChatUserId
@@ -2055,14 +2208,7 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
               </button>
             )}
 
-            {(isMainAdmin || subAdminPermissions.telegram || subAdminPermissions.whatsapp) && (
-              <button
-                onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('whatsapp_telegram'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'whatsapp_telegram' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-200 hover:bg-blue-800'}`}
-              >
-                <span>📱</span><span>WhatsApp & Telegram</span>
-              </button>
-            )}
+         
 
             <button
               onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('settings'); }}
@@ -3023,13 +3169,34 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
                 {filteredChatUsers.map((uId) => {
                   const custDetails = getCustomerDetailsByUserId(uId);
                   return (
-                    <button
-                      key={uId}
-                      onClick={() => setActiveChatUserId(uId)}
-                      className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${activeChatUserId === uId ? 'bg-blue-900 text-white' : 'bg-white text-slate-800 border'}`}
-                    >
-                      <span className="font-mono">{custDetails.customId} - {custDetails.name}</span>
-                    </button>
+                 
+<button
+  key={uId}
+  onClick={() => handleSelectChatUser(uId)}
+  className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${
+    activeChatUserId === uId
+      ? 'bg-blue-900 text-white'
+      : 'bg-white text-slate-800 border'
+  }`}
+>
+  <span className="font-mono flex-1 min-w-0 truncate">
+    {custDetails.customId} - {custDetails.name}
+  </span>
+
+  {chatMessages.some(
+    (m) =>
+      m.sender_id === uId &&
+      m.receiver_id === 'admin' &&
+      m.is_admin === false &&
+      m.is_read === false
+  ) && (
+    <span
+      className="ml-2 h-2.5 w-2.5 rounded-full bg-green-500 shrink-0"
+      title="Unread message"
+    />
+  )}
+</button>
+
                   );
                 })}
               </div>
@@ -3064,127 +3231,58 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
           </div>
         )}
 
-        {/* TAB 7: WHATSAPP & TELEGRAM */}
-        {!isFullPageTaskSettings && activeTab === 'whatsapp_telegram' && isMainAdmin && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                <h3 className="text-base font-extrabold text-emerald-800 border-b pb-2">🟢 WhatsApp QR</h3>
-                <div className="flex flex-col items-center justify-center my-4 space-y-2">
-                  <img src={whatsappQrUrl} alt="WhatsApp QR" className="w-40 h-40 rounded-xl border p-2" />
-                  <button onClick={() => { setWaConnected(true); showToast('WhatsApp connected!'); }} className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow">
-                    {waConnected ? 'Connected ✓' : 'Connect WhatsApp'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                <h3 className="text-base font-extrabold text-blue-800 border-b pb-2">🔵 Telegram QR</h3>
-                <div className="flex flex-col items-center justify-center my-4 space-y-2">
-                  <img src={telegramQrUrl} alt="Telegram QR" className="w-40 h-40 rounded-xl border p-2" />
-                  <button onClick={() => { setTgConnected(true); showToast('Telegram connected!'); }} className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl shadow">
-                    {tgConnected ? 'Connected ✓' : 'Connect Telegram'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* TAB 8: ADMIN SETTINGS & SUB-ADMIN NOTIFICATIONS */}
         {!isFullPageTaskSettings && activeTab === 'settings' && (
           <div className="space-y-6">
-
+            
             {!isMainAdmin && (
               <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">
-                  🛠️ Sub-Admin Profile Settings
-                </h3>
-
+                <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🛠️ Sub-Admin Profile Settings</h3>
                 <form onSubmit={handleSaveSubAdminSelfProfile} className="space-y-3 text-xs">
-
                   <div>
-                    <label className="font-bold text-slate-600 block mb-1">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={subAdminEditableEmail}
-                      onChange={(e) => setSubAdminEditableEmail(e.target.value)}
-                      className="w-full bg-slate-50 border rounded-xl p-2.5"
-                    />
+                    <label className="font-bold text-slate-600 block mb-1">Email</label>
+                    <input type="email" value={subAdminEditableEmail} onChange={(e) => setSubAdminEditableEmail(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
                   </div>
-
                   <div>
-                    <label className="font-bold text-slate-600 block mb-1">
-                      New Password (Optional)
-                    </label>
-                    <input
-                      type="password"
-                      value={subAdminEditablePassword}
-                      onChange={(e) => setSubAdminEditablePassword(e.target.value)}
-                      placeholder="Enter new password"
-                      className="w-full bg-slate-50 border rounded-xl p-2.5"
-                    />
+                    <label className="font-bold text-slate-600 block mb-1">New Password (Optional)</label>
+                    <input type="password" value={subAdminEditablePassword} onChange={(e) => setSubAdminEditablePassword(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5" />
                   </div>
-
-                  {subAdminPermissions.invitationCode && (
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">
-                        Your Invitation Code
-                      </label>
-                      <input
-                        type="text"
-                        value={subAdminEditableInviteCode}
-                        onChange={(e) => setSubAdminEditableInviteCode(e.target.value.toUpperCase())}
-                        className="w-full bg-slate-50 border rounded-xl p-2.5 font-bold uppercase"
-                      />
-                    </div>
-                  )}
-
-                  {subAdminPermissions.telegram && (
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">
-                        Your Telegram Link
-                      </label>
-                      <input
-                        type="url"
-                        value={subAdminEditableTelegram}
-                        onChange={(e) => setSubAdminEditableTelegram(e.target.value)}
-                        placeholder="https://t.me/your_username"
-                        className="w-full bg-slate-50 border rounded-xl p-2.5"
-                      />
-                    </div>
-                  )}
-
-                  {subAdminPermissions.whatsapp && (
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">
-                        Your WhatsApp Link
-                      </label>
-                      <input
-                        type="url"
-                        value={subAdminEditableWhatsapp}
-                        onChange={(e) => setSubAdminEditableWhatsapp(e.target.value)}
-                        placeholder="https://wa.me/..."
-                        className="w-full bg-slate-50 border rounded-xl p-2.5"
-                      />
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow"
-                  >
-                    Save Changes
-                  </button>
-
+                  <div>
+                    <label className="font-bold text-slate-600 block mb-1">Invitation Code</label>
+                    <input type="text" value={subAdminEditableInviteCode} onChange={(e) => setSubAdminEditableInviteCode(e.target.value)} className="w-full bg-slate-50 border rounded-xl p-2.5 font-bold uppercase" />
+                  </div>
+                  <div>
+  <label className="block text-sm font-medium mb-1">
+    Telegram Support Link
+  </label>
+  <input
+    type="url"
+    value={subAdminEditableTelegram}
+    onChange={(e) => setSubAdminEditableTelegram(e.target.value)}
+    placeholder="https://t.me/yourusername"
+    className="w-full rounded-xl border border-slate-300 p-3"
+  />
+</div>
+<div>
+  <label className="block text-sm font-medium mb-1">
+    WhatsApp Support Link
+  </label>
+  <input
+    type="url"
+    value={subAdminEditableWhatsapp}
+    onChange={(e) => setSubAdminEditableWhatsapp(e.target.value)}
+    placeholder="https://whatsapp.com/..."
+    className="w-full rounded-xl border border-slate-300 p-3"
+  />
+</div>
+                  <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">Save Changes</button>
                 </form>
               </div>
             )}
 
             {isMainAdmin && (
               <div className="space-y-6">
+                
                 {/* NOTIFICATIONS DROPDOWN / ACCORDION UI */}
                 <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-200 space-y-3">
                   <div 
@@ -3226,115 +3324,116 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* GLOBAL SYSTEM SETTINGS & LIVE INVITATION CODE */}
-                  <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
-                    <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">👑 Main System & Global Settings</h3>
-                    <form onSubmit={handleSaveMainSettings} className="space-y-3 text-xs">
-                      <div>
-                        <label className="font-bold text-slate-600 block mb-1">Global Deposit TRC20 Address</label>
-                        <input type="text" value={depositTrc20} onChange={(e) => setDepositTrc20(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-blue-900 font-bold" />
-                      </div>
-                      <div>
-                      
-                      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4 space-y-3">
-                        <div className="flex items-center gap-3">
-                          <div className="h-11 w-11 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 text-xl">
-                            ▦
-                          </div>
-                          <div>
-                            <h4 className="font-extrabold text-indigo-950">
-                              TRC20 Payment QR Code
-                            </h4>
-                            <p className="text-[10px] text-slate-500">
-                              Upload the QR shown on the customer Deposit page.
-                            </p>
-                          </div>
-                        </div>
+                 
 
-                        {(qrPreviewUrl || qrCodeUrl) && (
-                          <div className="flex justify-center rounded-xl border border-slate-200 bg-white p-3">
-                            <img
-                              src={qrPreviewUrl || qrCodeUrl}
-                              alt="TRC20 payment QR preview"
-                              className="h-40 w-40 object-contain"
-                            />
-                          </div>
-                        )}
+{/* GLOBAL SYSTEM SETTINGS & LIVE INVITATION CODE */}
+<div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
+  <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">
+    👑 Main System & Global Settings
+  </h3>
 
-                        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-indigo-300 bg-white p-5 text-center hover:bg-indigo-50 transition">
-                          <span className="text-2xl mb-2">☁️</span>
-                          <span className="text-xs font-extrabold text-indigo-900">
-                            Choose QR Image
-                          </span>
-                          <span className="mt-1 text-[10px] text-slate-500">
-                            PNG, JPG or WebP · Maximum 2 MB
-                          </span>
+  <form onSubmit={handleSaveMainSettings} className="space-y-3 text-xs">
+    <div>
+      <label className="font-bold text-slate-600 block mb-1">
+        Global Deposit TRC20 Address
+      </label>
+      <input
+        type="text"
+        value={depositTrc20}
+        onChange={(e) => setDepositTrc20(e.target.value)}
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-blue-900 font-bold"
+      />
+    </div>
 
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
+    <div>
+      <label className="font-bold text-slate-600 block mb-1">
+        Main Invitation Code (Live Database Sync)
+      </label>
+      <input
+        type="text"
+        value={mainInviteCode}
+        onChange={(e) => setMainInviteCode(e.target.value)}
+        className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-2.5 font-bold uppercase text-emerald-900"
+      />
+      <p className="text-[10px] text-slate-500 mt-1">
+        Users registering with this code will connect to the main system instantly.
+      </p>
+    </div>
 
-                              const allowedTypes = [
-                                'image/png',
-                                'image/jpeg',
-                                'image/webp',
-                              ];
+    {/* TRC20 PAYMENT QR UPLOAD */}
+    <div className="border border-slate-200 rounded-2xl p-4 space-y-3">
+      <h4 className="font-extrabold text-blue-900 text-sm">
+        TRC20 Payment QR Code
+      </h4>
 
-                              if (!allowedTypes.includes(file.type)) {
-                                showToast('Please choose a PNG, JPG, or WebP image.', 'error');
-                                e.currentTarget.value = '';
-                                return;
-                              }
+      <label className="font-bold text-slate-600 block">
+        Select QR Image (PNG, JPG, WebP — max 2 MB)
+      </label>
 
-                              if (file.size > 2 * 1024 * 1024) {
-                                showToast('Image must be 2 MB or smaller.', 'error');
-                                e.currentTarget.value = '';
-                                return;
-                              }
+      <input
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={(e) => setQrFile(e.target.files?.[0] ?? null)}
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5"
+      />
 
-                              setQrFile(file);
+      {qrCodeUrl && (
+        <div className="space-y-2">
+          <p className="font-bold text-slate-600">Current / Uploaded QR Preview</p>
+          <img
+            src={qrCodeUrl}
+            alt="TRC20 Payment QR Code"
+            className="w-44 h-44 object-contain rounded-xl border border-slate-200 bg-white p-2"
+          />
+        </div>
+      )}
 
-                              const previewUrl = URL.createObjectURL(file);
-                              setQrPreviewUrl(previewUrl);
-                            }}
-                          />
-                        </label>
+      <button
+        type="button"
+        onClick={handleUploadQr}
+        disabled={qrUploading || !qrFile}
+        className="w-full py-3 bg-emerald-600 text-white font-black rounded-xl shadow disabled:opacity-50"
+      >
+        {qrUploading ? 'Uploading QR...' : 'Upload TRC20 QR Image'}
+      </button>
 
-                        <button
-                          type="button"
-                          disabled={!qrFile || qrUploading}
-                          onClick={handleUploadQr}
-                          className="w-full rounded-xl bg-indigo-700 py-3 text-xs font-black text-white shadow-lg transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {qrUploading ? 'Uploading QR...' : '↑ Upload QR Image'}
-                        </button>
-                      </div>
+      <p className="text-[10px] text-slate-500">
+        Upload ke baad neeche Save Global System Settings par bhi click karein.
+      </p>
+    </div>
 
-                      <label className="font-bold text-slate-600 block mb-1 mt-3">Main Invitation Code (Live Database Sync)</label>
-                        <input 
-                          type="text" 
-                          value={mainInviteCode} 
-                          onChange={(e) => setMainInviteCode(e.target.value)} 
-                          className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-2.5 font-bold uppercase text-emerald-900" 
-                        />
-                        <p className="text-[10px] text-slate-500 mt-1">Users registering with this code will connect to the main system instantly.</p>
-                      </div>
-                      <div>
-                        <label className="font-bold text-slate-600 block mb-1">Telegram Support Link</label>
-                        <input type="text" value={telegramUrl} onChange={(e) => setTelegramUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                      </div>
-                      <div>
-                        <label className="font-bold text-slate-600 block mb-1">WhatsApp Support Link</label>
-                        <input type="text" value={whatsappUrl} onChange={(e) => setWhatsappUrl(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
-                      </div>
-                      <button type="submit" className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow">Save Global System Settings</button>
-                    </form>
-                  </div>
+    <div>
+      <label className="font-bold text-slate-600 block mb-1">
+        Telegram Support Link
+      </label>
+      <input
+        type="text"
+        value={telegramUrl}
+        onChange={(e) => setTelegramUrl(e.target.value)}
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5"
+      />
+    </div>
 
+    <div>
+      <label className="font-bold text-slate-600 block mb-1">
+        WhatsApp Support Link
+      </label>
+      <input
+        type="text"
+        value={whatsappUrl}
+        onChange={(e) => setWhatsappUrl(e.target.value)}
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5"
+      />
+    </div>
+
+    <button
+      type="submit"
+      className="w-full py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow"
+    >
+      Save Global System Settings
+    </button>
+  </form>
+</div>
                   {/* MAIN ADMIN CREDENTIALS */}
                   <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200 space-y-4">
                     <h3 className="text-base font-extrabold text-blue-900 border-b pb-2">🔑 Main Admin Credentials</h3>
@@ -3393,20 +3492,10 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
                                   setEditSubEmail(sub.email || '');
                                   setEditSubPassword('');
                                   setEditSubInviteCode(sub.invite_code || '');
-                                  setEditSubTelegram(sub.telegram_url || '');
-                                  setEditSubWhatsapp(sub.whatsapp_url || '');
-                                  setEditSubPerms({
-                                    users: sub.permissions?.users ?? true,
-                                    deposits: sub.permissions?.deposits ?? true,
-                                    withdrawals: sub.permissions?.withdrawals ?? true,
-                                    tasks: sub.permissions?.tasks ?? false,
-                                    support: sub.permissions?.support ?? true,
-                                    products: sub.permissions?.products ?? false,
-                                    invitationCode: sub.permissions?.invitationCode ?? true,
-                                    telegram: sub.permissions?.telegram ?? true,
-                                    whatsapp: sub.permissions?.whatsapp ?? true,
-                                  });
-                                }}
+setEditSubPerms({
+  ...defaultSubAdminPermissions,
+  ...(sub.permissions || {}),
+});                                }}
                                 className="px-3 py-1.5 bg-blue-900 text-white font-black text-[10px] rounded-xl shadow hover:bg-blue-800 transition"
                               >
                                 ⚙️ Settings
@@ -3430,6 +3519,7 @@ const handleDeleteCustomer = async (customer: CustomerProfile) => {
 
           </div>
         )}
+
 
         {/* TAB 9: DELETE CUSTOMERS PANEL */}
         {!isFullPageTaskSettings && activeTab === 'delete_users' && isMainAdmin && (

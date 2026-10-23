@@ -145,28 +145,141 @@ const [depositStep, setDepositStep] = useState<1 | 2>(1);
   const ABOUT_TEXT = `ABOUT DIGITALMARKETING
 Digital Marketing is an international legal platform offering genuine earning opportunities through Digital Marketing. We work as a trusted partner with AliExpress, Amazon and Shopify, and manage the finance department to ensure safe, smooth and secure transactions for all our users.`;
 
-  const HOW_IT_WORKS_TEXT = `HOW DIGITALMARKETING WORKS
-01. Recharge your account with $30 (minimum).
-02. Your total balance will be activated up to $10,000.
-03. Start with 25 tasks (complete all to earn).
-04. Get lucky orders (randomly) for extra high commissions.
-05. Place orders on AliExpress, Amazon or Shopify (as per task).
-06. Complete tasks and get commission.
-07. Withdraw your earnings (after completing 25 tasks).
-08. Keep working and upgrade to higher VIP levels for more profit.`;
+  const HOW_IT_WORKS_TEXT = `HOW DIGITAL MARKETING WORKS
+Your Guide to Grabbing Tasks, VIP Levels & Commissions
 
-  const RULES_TEXT = `PLATFORM RULES & REGULATIONS
-01. Start balance is $30.00. Anyone can recharge and start earning immediately.
-02. Complete 25 tasks to get your withdrawal.
-03. If your amount is high and digital marketing is required for withdrawal, you must complete customer verification (KYC).
-04. Without verification, your withdrawal will be blocked and deactivated.
-05. Keep your account active and follow all platform rules.
-06. Use only official platform methods for recharge & withdrawal.
-07. Do not share your account details with anyone.
-08. Any illegal activity will result in permanent ban.
-09. Follow the terms, guidelines and rules strictly.
-10. We are not responsible for any false information or third-party activities. Use the platform wisely and safely.`;
+01. Create Your Account
+Register an account on Digital Marketing and review the platform's guidelines, task requirements, and account policies before getting started.
 
+02. Recharge Your Account
+Add funds to your account according to the platform's minimum recharge requirement of $15. Make sure your payment details are correct before submitting your deposit.
+
+03. Activate Your Grabbing Tasks
+Once your account meets the applicable task requirements, access the Grabbing Tasks section to view and begin your available tasks.
+
+04. Complete 25 Daily Tasks
+The standard task cycle consists of 25 tasks. Follow the instructions for each task and complete the required steps to finish your daily cycle.
+
+05. Understand VIP Levels
+VIP 1, VIP 2, and VIP 3 represent different membership levels. Each level may have different task requirements, account limits, and commission rates.
+
+06. Earn Task Commissions
+Commission rates may range from 1% to 30%, depending on the applicable VIP level and task conditions. Review the displayed rate and terms before starting each task.
+
+07. Understand Lucky Orders
+Lucky Orders may appear as part of the task cycle. These orders can have different funding requirements and commission rates, so always check the order amount before proceeding.
+
+08. Review the Required Order Amount
+Some tasks may require a specified amount of available funds. Check the required amount carefully and confirm that you understand the funding conditions before continuing.
+
+09. Follow Task Instructions
+Complete each task according to the instructions shown on your account. Task status and completion eligibility depend on the platform's applicable rules.
+
+10. Track Your Progress
+Use your dashboard to review completed tasks, pending tasks, account balance, commission records, and your current VIP level.
+
+11. Complete Your Daily Cycle
+After completing all 25 required tasks, your task cycle can be reviewed according to the platform's completion rules and account conditions.
+
+12. Request a Withdrawal
+When your account meets the withdrawal eligibility requirements, submit a withdrawal request with the correct payment details and requested amount.
+
+13. Finance Department Verification
+The Finance Department may review your withdrawal request, transaction history, deposits, and available balance before approving a payment.
+
+14. Additional Verification for Higher Balances
+If your account has an unusually high balance, substantial accumulated funds, or transactions requiring further review, additional verification may be requested. Any verification requirements should be communicated clearly through official support channels.
+
+15. Payment Review and Processing
+Withdrawals are processed after the necessary checks are completed. Processing times may vary depending on payment method, transaction status, and applicable verification requirements.
+
+16. Maintain Account Security
+Keep your login credentials and transaction information secure. Never share your password or transfer money to an individual claiming to be a finance officer.
+
+17. Review All Terms Before Recharging
+Before adding funds or accepting a task, review the platform's commission policy, withdrawal conditions, potential fees, and refund policy. Task completion or VIP membership should not be treated as a guarantee of profit.
+
+Digital Marketing — Your Platform for Exploring Digital Commerce and Grabbing Task-Based Opportunities.`;
+
+const RULES_TEXT = `PLATFORM RULES & REGULATIONS
+
+01. STARTING BALANCE
+The minimum starting balance is $30.00. Users must review the platform's terms and task requirements before recharging their accounts.
+
+02. ACCOUNT REGISTRATION
+Every user must provide accurate, complete, and up-to-date registration information. False identities or misleading information are strictly prohibited.
+
+03. DAILY TASK REQUIREMENT
+The standard task cycle consists of 25 tasks. Users must complete the required tasks according to the platform's applicable rules and eligibility conditions.
+
+04. TASK COMPLETION
+All tasks must be completed according to the instructions displayed on the platform. Users must review task details, amounts, and conditions before proceeding.
+
+05. COMMISSION POLICY
+Commission rates may range from 1% to 30% (with regular rates from 0.50% to 5%), depending on the applicable VIP level and task conditions. Rates are subject to the platform's published commission policy and are not a guarantee of profit.
+
+06. VIP MEMBERSHIP
+VIP 1, VIP 2, and VIP 3 may have different task limits, fund requirements, and commission rates. Users must review the applicable terms before upgrading or participating.
+
+07. LUCKY ORDER POLICY
+Lucky Orders may appear automatically during a task cycle. No one can predict them in advance. They may have different order amounts and commission rates, and users must complete them on time as required.
+
+08. ACCOUNT BALANCE AND FUNDING
+Users must maintain accurate awareness of their available balance and any task-specific funding requirements. No user should proceed with a task without understanding its financial obligations.
+
+09. DEPOSIT VERIFICATION
+Deposits may remain pending until the Finance Department verifies the payment details. Users must submit accurate transaction references and any requested payment evidence.
+
+10. WITHDRAWAL ELIGIBILITY
+Withdrawal eligibility is subject to completion of the required task cycle, account status, available balance, and the published withdrawal policy. Completing 25 tasks does not guarantee immediate payment.
+
+11. FINANCE DEPARTMENT REVIEW
+The Finance Department may review withdrawal requests, transaction records, deposits, and account activity before processing a payment. Users will be informed if additional information is required.
+
+12. CUSTOMER VERIFICATION (KYC) AND FINANCIAL REQUIREMENTS
+Additional identity verification may be required where legally necessary, where unusual account activity is detected, or where a transaction requires further review. If your funds exceed a high range, verification must be completed in compliance with rules and coordinated with the finance department.
+
+13. WITHDRAWAL HOLDS
+A withdrawal may be temporarily placed on hold while a legitimate verification, payment, or security review is pending. The reason for the hold and the steps required to resolve it should be communicated clearly.
+
+14. OFFICIAL PAYMENT METHODS
+Users must use only officially supported deposit and withdrawal methods. Payments made to unauthorized individuals or unofficial accounts may not be recognized by the platform.
+
+15. ACCOUNT SECURITY
+Users are responsible for protecting their passwords, login credentials, and personal information. Never share account credentials, verification codes, or passwords with another person.
+
+16. PROHIBITED ACTIVITIES
+Fraud, impersonation, manipulation of tasks, falsification of payment evidence, unauthorized access, and other unlawful activities are strictly prohibited and may result in account restrictions or suspension.
+
+17. MULTIPLE ACCOUNTS AND MISUSE
+Creating multiple accounts to bypass platform limits, exploit promotions, manipulate commissions, or evade restrictions is prohibited. Any action taken must comply with the platform's published account policy.
+
+18. CUSTOMER SUPPORT
+Questions about deposits, tasks, commissions, verification, or withdrawals should be submitted through official customer support. Users should retain relevant transaction records for reference.
+
+19. PRIVACY AND DATA PROTECTION
+Personal and financial information must be handled securely and used only for legitimate platform operations, verification, security, and other purposes disclosed in the applicable privacy policy.
+
+20. ACCOUNT SUSPENSION AND REVIEW
+Accounts may be restricted or suspended when credible evidence of fraud, security risks, or serious rule violations exists. Reviews should follow the platform's stated procedures and applicable law.
+
+21. ACCURATE INFORMATION
+Users must ensure that all submitted personal, payment, and transaction information is accurate. The platform cannot guarantee successful processing when incorrect or incomplete information is provided.
+
+22. RISKS AND NO GUARANTEED RETURNS
+Task participation, VIP membership, and commission rates do not guarantee earnings or financial returns. Users should understand the risks and avoid committing funds they cannot afford to lose.
+
+23. REFUNDS AND DISPUTES
+Deposit disputes, payment errors, and refund requests will be handled according to the published refund policy and applicable law. Users should contact official support with relevant evidence.
+
+24. POLICY UPDATES
+The platform may update its rules when operational, security, or legal requirements change. Material changes should be communicated through appropriate official channels.
+
+25. ACCEPTANCE OF RULES
+By using the platform, users acknowledge that they are responsible for reading and following the applicable terms, task conditions, payment policies, and security requirements.
+
+DIGITAL MARKETING
+Please use the platform responsibly, protect your account, and review all financial and task conditions before proceeding.`;
   const formatDateWithTime = (dateStr?: string) => {
     const d = dateStr ? new Date(dateStr) : new Date();
     return d.toLocaleString('en-US', {
@@ -1390,213 +1503,143 @@ if (currentTask?.isLucky) {
           </div>
         )}
 
-        {/* HOME TAB */}
+  {/* HOME TAB - COMPACT SINGLE-PAGE FIT */}
         {activeTab === 'home' && (
-          <div className="space-y-4 font-sans text-amber-100">
+          <div className="space-y-2 font-sans text-amber-100">
             
-            <div className="grid grid-cols-4 gap-2 text-center">
+            {/* TOP 4 BUTTONS */}
+            <div className="grid grid-cols-4 gap-1.5 text-center">
               <button
                 onClick={() => setInfoModal({ title: 'About Us', text: ABOUT_TEXT })}
-                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
+                className="p-1.5 bg-[#0b0c10] border border-[#d4af37] rounded-xl shadow flex flex-col items-center justify-center space-y-0.5 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">👥</span>
-                <span className="text-[9px] font-black text-[#f3e5ab]">About Us</span>
+                <span className="text-base">👥</span>
+                <span className="text-[8px] font-black text-[#f3e5ab]">About Us</span>
               </button>
 
               <button
                 onClick={() => setInfoModal({ title: 'Platform Rules', text: RULES_TEXT })}
-                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
+                className="p-1.5 bg-[#0b0c10] border border-[#d4af37] rounded-xl shadow flex flex-col items-center justify-center space-y-0.5 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">📋</span>
-                <span className="text-[9px] font-black text-[#f3e5ab]">Rules</span>
+                <span className="text-base">📋</span>
+                <span className="text-[8px] font-black text-[#f3e5ab]">Rules</span>
               </button>
 
               <button
                 onClick={() => setInfoModal({ title: 'How It Works', text: HOW_IT_WORKS_TEXT })}
-                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
+                className="p-1.5 bg-[#0b0c10] border border-[#d4af37] rounded-xl shadow flex flex-col items-center justify-center space-y-0.5 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">⚙️</span>
-                <span className="text-[9px] font-black text-[#f3e5ab]">How Works</span>
+                <span className="text-base">⚙️</span>
+                <span className="text-[8px] font-black text-[#f3e5ab]">How Works</span>
               </button>
 
               <button
                 onClick={() => setShowCertModal(true)}
-                className="p-2.5 bg-[#0b0c10] border border-[#d4af37] rounded-2xl shadow flex flex-col items-center justify-center space-y-1 hover:border-[#f3e5ab]"
+                className="p-1.5 bg-[#0b0c10] border border-[#d4af37] rounded-xl shadow flex flex-col items-center justify-center space-y-0.5 hover:border-[#f3e5ab]"
               >
-                <span className="text-lg">📜</span>
-                <span className="text-[9px] font-black text-[#f3e5ab]">Certificate</span>
+                <span className="text-base">📜</span>
+                <span className="text-[8px] font-black text-[#f3e5ab]">Certificate</span>
               </button>
             </div>
 
-            <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
-              <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
-                <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
+            {/* ABOUT US FRONT DISPLAY WITH FULL DETAILS */}
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-2xl p-2.5 space-y-1.5 shadow-xl">
+              <div className="flex items-center space-x-1.5 border-b border-[#d4af37]/30 pb-1">
+                <div className="w-6 h-6 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">
                   👥
                 </div>
-                <h3 className="text-base font-black text-[#f3e5ab] tracking-wider">About Us</h3>
+                <h3 className="text-xs font-black text-[#f3e5ab] tracking-wider">About Us</h3>
               </div>
 
-              <p className="text-xs text-gray-300 leading-relaxed">
-                Digital Marketing is an <span className="text-[#f3e5ab] font-bold">international legal</span> platform offering genuine earning opportunities through <span className="text-[#f3e5ab] font-bold">Digital Marketing</span>. We work as a trusted partner with <span className="text-red-400 font-bold">AliExpress</span>, <span className="text-amber-400 font-bold">Amazon</span> and <span className="text-emerald-400 font-bold">Shopify</span>, and manage the finance department to ensure safe, smooth and secure transactions for all our users.
+              <p className="text-[10px] text-gray-300 leading-snug">
+                Welcome to Digital Marketing. Digital Marketing is an online platform focused on digital commerce, marketing innovation, and online business opportunities. It serves as an <span className="text-[#f3e5ab] font-bold">international legal platform offering genuine earning opportunities</span> through Digital Marketing. Partnered with <span className="text-red-400 font-bold">AliExpress</span>, <span className="text-amber-400 font-bold">Amazon</span> and <span className="text-emerald-400 font-bold">Shopify</span>.
               </p>
 
-              <div className="bg-[#18150a] border border-[#d4af37]/50 p-2.5 rounded-2xl flex justify-around items-center">
-                <span className="font-black text-red-500 text-xs">AliExpress</span>
+              <div className="bg-[#18150a] border border-[#d4af37]/50 p-1.5 rounded-xl flex justify-around items-center">
+                <span className="font-black text-red-500 text-[10px]">AliExpress</span>
                 <span className="text-gray-600">|</span>
-                <span className="font-black text-amber-400 text-xs">amazon</span>
+                <span className="font-black text-amber-400 text-[10px]">amazon</span>
                 <span className="text-gray-600">|</span>
-                <span className="font-black text-emerald-400 text-xs">shopify</span>
-              </div>
-
-              <div className="grid grid-cols-5 gap-1 text-center pt-1">
-                <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🛡️</div>
-                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">100% Legal & Trusted</p>
-                </div>
-                <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🔒</div>
-                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Secure Transactions</p>
-                </div>
-                <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🎧</div>
-                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">24/7 Support</p>
-                </div>
-                <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🌐</div>
-                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Global Platform</p>
-                </div>
-                <div className="space-y-1">
-                  <div className="w-7 h-7 mx-auto rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-xs">🤝</div>
-                  <p className="text-[7px] font-bold text-[#f3e5ab] leading-tight">Long Term Partnership</p>
-                </div>
+                <span className="font-black text-emerald-400 text-[10px]">shopify</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-3xl p-4 space-y-3 shadow-2xl">
-                <div className="flex items-center space-x-2 border-b border-[#d4af37]/30 pb-2">
-                  <div className="w-8 h-8 rounded-full bg-[#18150a] border border-[#d4af37] flex items-center justify-center text-base">
-                    👑
+            {/* COMPACT LIVE TRANSACTIONS BOX */}
+            <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-2.5 rounded-2xl shadow-xl space-y-1.5 w-full">
+              <div className="flex justify-between items-center border-b border-[#d4af37]/30 pb-1">
+                <h3 className="text-xs font-extrabold text-[#f3e5ab] tracking-wider flex items-center space-x-1.5">
+                  <span className="text-sm text-[#d4af37]">📈</span>
+                  <span>LIVE TRANSACTIONS</span>
+                </h3>
+                <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-bold rounded-full animate-pulse">
+                  Real-Time
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                {liveFeed.slice(0, 4).map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="p-1.5 bg-[#18150a] border border-[#d4af37]/30 rounded-xl flex items-center justify-between text-[11px] transition duration-300"
+                  >
+                    <div>
+                      <span className="font-bold text-white text-[10px]">{tx.user}</span>
+                      <p className="text-[7px] text-gray-400 leading-none">(Commission Earned)</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-black text-[#50e3c2] text-xs">+${tx.amount} USDT</span>
+                      <p className="text-[7px] text-gray-400 leading-none">{tx.time}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* COMPACT WHY CHOOSE US FOOTER */}
+            <div className="bg-gradient-to-r from-[#181408] via-[#241c0c] to-[#181408] border-2 border-[#d4af37] rounded-2xl p-2 shadow-xl space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5">
+                  <div className="w-6 h-6 rounded-lg bg-[#d4af37] text-black flex items-center justify-center font-bold text-xs shadow">
+                    🛡️
                   </div>
                   <div>
-                    <h3 className="text-sm font-black text-[#f3e5ab] tracking-wider">VIP Levels & Commission</h3>
-                    <p className="text-[8px] text-gray-400">Higher Level = Higher Commission</p>
+                    <h4 className="text-[10px] font-black text-[#f3e5ab]">Why Choose Us?</h4>
                   </div>
                 </div>
 
-                <div className="space-y-2 text-xs">
-                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">👑</span>
-                      <span className="font-bold text-white text-[11px]">VIP 0 (Regular)</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$30.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">0.56% - 0.75% / Order</p>
-                    </div>
-                  </div>
-
-                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="w-5 h-5 rounded-md bg-amber-500 text-black font-black flex items-center justify-center text-[10px]">a</span>
-                      <span className="font-bold text-white text-[11px]">Amazon VIP 1</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$1,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% - 10% / Order</p>
-                    </div>
-                  </div>
-
-                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="w-5 h-5 rounded-md bg-red-600 text-white font-black flex items-center justify-center text-[9px]">Ali</span>
-                      <span className="font-bold text-white text-[11px]">AliExpress VIP 2</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$2,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% - 20% / Order</p>
-                    </div>
-                  </div>
-
-                  <div className="p-2 bg-[#18150a] border border-[#d4af37]/40 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="w-5 h-5 rounded-md bg-emerald-600 text-white font-black flex items-center justify-center text-[10px]">S</span>
-                      <span className="font-bold text-white text-[11px]">Shopify VIP 3</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono text-[#f3e5ab] font-bold text-[11px]">$5,000.00</span>
-                      <p className="text-[8px] text-emerald-400 font-bold">1% - 30% / Order</p>
-                    </div>
-                  </div>
+                <div className="flex items-center space-x-1 text-[8px]">
+                  <span className="px-1.5 py-0.5 bg-black/60 border border-[#d4af37]/40 rounded-lg text-amber-200">🔒 Secure</span>
+                  <span className="px-1.5 py-0.5 bg-black/60 border border-[#d4af37]/40 rounded-lg text-amber-200">👥 Verified</span>
+                  <span className="px-1.5 py-0.5 bg-black/60 border border-[#d4af37]/40 rounded-lg text-amber-200">🎧 Support</span>
                 </div>
               </div>
 
-              <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-3.5 rounded-3xl shadow-xl space-y-2 flex flex-col justify-between">
-                <div className="flex justify-between items-center border-b border-[#d4af37]/20 pb-2">
-                  <h3 className="text-xs font-extrabold text-[#f3e5ab] tracking-wider flex items-center space-x-1.5">
-                    <span className="text-sm text-[#d4af37]">📈</span>
-                    <span>LIVE TRANSACTIONS</span>
-                  </h3>
-                  <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-bold rounded-full animate-pulse">
-                    Real-Time
-                  </span>
-                </div>
-
-                <div className="space-y-1.5 overflow-hidden flex-1">
-                  {liveFeed.map((tx) => (
-                    <div
-                      key={tx.id}
-                      className="p-2 bg-[#18150a] border border-[#d4af37]/30 rounded-xl flex items-center justify-between text-xs transition duration-300"
-                    >
-                      <div>
-                        <span className="font-bold text-white text-[10px]">{tx.user}</span>
-                        <p className="text-[7px] text-gray-400">(Commission)</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-black text-[#50e3c2] text-[11px]">+${tx.amount} USDT</span>
-                        <p className="text-[7px] text-gray-500">{tx.time}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-
-            <div className="bg-gradient-to-r from-[#181408] via-[#241c0c] to-[#181408] border-2 border-[#d4af37] rounded-3xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center space-x-2">
-                <div className="w-9 h-9 rounded-xl bg-[#d4af37] text-black flex items-center justify-center font-bold text-lg shadow">
-                  🛡️
-                </div>
-                <div>
-                  <h4 className="text-xs font-black text-[#f3e5ab]">Why Choose Us?</h4>
-                  <p className="text-[8px] text-gray-300">Real Earning | Genuine Platform | Global Opportunities</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2 text-center text-[9px]">
-                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  🔒 Secure Payments
-                </div>
-                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  👥 Verified Users
-                </div>
-                <div className="px-2 py-1 bg-black/60 border border-[#d4af37]/40 rounded-xl text-amber-200">
-                  🎧 Dedicated Support
-                </div>
-              </div>
-
-              <div className="w-full text-center border-t border-[#d4af37]/30 pt-2">
-                <span className="text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider italic">
+              <div className="text-center border-t border-[#d4af37]/20 pt-1">
+                <span className="text-[9px] font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wider italic">
                   📈 Build Your Future With Us
                 </span>
               </div>
+
+              {/* 3 REAL DIGITAL MARKETING TRUST LOGOS */}
+              <div className="pt-1 border-t border-[#d4af37]/20 grid grid-cols-3 gap-1.5 text-center">
+                <div className="bg-black/70 border border-[#d4af37]/30 rounded-xl p-1 flex items-center justify-center space-x-1">
+                  <span className="text-blue-400 font-black text-[11px]">∞</span>
+                  <span className="text-[8px] font-bold text-gray-200">Meta Ads</span>
+                </div>
+                <div className="bg-black/70 border border-[#d4af37]/30 rounded-xl p-1 flex items-center justify-center space-x-1">
+                  <span className="text-amber-400 font-black text-[10px]">G</span>
+                  <span className="text-[8px] font-bold text-gray-200">Google Partner</span>
+                </div>
+                <div className="bg-black/70 border border-[#d4af37]/30 rounded-xl p-1 flex items-center justify-center space-x-1">
+                  <span className="text-orange-500 font-black text-[10px]">hub</span>
+                  <span className="text-[8px] font-bold text-gray-200">HubSpot</span>
+                </div>
+              </div>
+
             </div>
 
           </div>
         )}
-
         {/* SUPPORT TAB */}
         {activeTab === 'support' && (
           <div className="space-y-4">

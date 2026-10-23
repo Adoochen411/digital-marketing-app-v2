@@ -571,7 +571,62 @@ if (prodError) {
   };
 
 
+useEffect(() => {
+  if (!user?.id) return;
 
+  const channel = supabase
+    .channel(`customer-chat-live-${user.id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'chat_messages',
+      },
+      (payload) => {
+        const newMsg = payload.new as ChatMessage | undefined;
+        const oldMsg = payload.old as Partial<ChatMessage> | undefined;
+
+        // Sirf is customer ki chat update karein.
+        const belongsToCustomer =
+          newMsg?.sender_id === user.id ||
+          newMsg?.receiver_id === user.id ||
+          oldMsg?.sender_id === user.id ||
+          oldMsg?.receiver_id === user.id;
+
+        if (!belongsToCustomer || !newMsg?.id) return;
+
+        setChatMessages((prev) => {
+          // Temporary message ya pehle se loaded message duplicate na ho.
+          const withoutTemp = prev.filter(
+            (msg) =>
+              !(
+                String(msg.id).startsWith('temp-') &&
+                msg.sender_id === newMsg.sender_id &&
+                msg.message === newMsg.message
+              )
+          );
+
+          const exists = withoutTemp.some(
+            (msg) => String(msg.id) === String(newMsg.id)
+          );
+
+          if (exists) return withoutTemp;
+
+          return [...withoutTemp, newMsg].sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() -
+              new Date(b.created_at).getTime()
+          );
+        });
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [user?.id]);
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() || !user) return;

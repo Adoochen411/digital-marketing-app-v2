@@ -42,11 +42,21 @@ export function AdminLogin() {
         password,
       });
 
-      if (authError || !authData.user || !authData.session) {
-        throw new Error(
-          'Invalid email or password. Check that this account exists in Supabase Authentication.'
-        );
-      }
+   if (authError) {
+  console.error('Supabase Auth login failed:', {
+    message: authError.message,
+    status: authError.status,
+    code: authError.code,
+  });
+
+  throw new Error(`Supabase Authentication: ${authError.message}`);
+}
+
+if (!authData.user || !authData.session) {
+  throw new Error(
+    'Supabase login returned no user or session. Please try again.'
+  );
+}
 
       authenticated = true;
 

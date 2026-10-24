@@ -240,12 +240,15 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
   const [customTasksList, setCustomTasksList] = useState<CustomTaskSlot[]>([]);
 
   const [autoSlots, setAutoSlots] = useState([
-    { id: 1, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 2, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 3, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 4, active: false, taskNum: '', amount: '', comm: '' },
-    { id: 5, active: false, taskNum: '', amount: '', comm: '' },
-  ]);
+  { id: 1, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+  { id: 2, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+  { id: 3, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+  { id: 4, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+  { id: 5, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+]);
+
+const [autoSlotsEnabled, setAutoSlotsEnabled] = useState(false);
+const [autoSlotsSaving, setAutoSlotsSaving] = useState(false);
 
   const [chatUsers, setChatUsers] = useState<string[]>([]);  
   const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
@@ -406,6 +409,60 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
       }
     }
   };
+
+  
+useEffect(() => {
+  const loadAutoSlots = async () => {
+    const { data, error } = await supabase
+      .from('auto_lucky_order_settings')
+      .select('global_enabled, slots')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Auto Slots load failed:', error);
+      showToast('Unable to load Auto Slots settings.', 'error');
+      return;
+    }
+
+    if (data) {
+      const defaults = Array.from({ length: 5 }, (_, index) => ({
+        id: index + 1,
+        active: false,
+        taskNum: '',
+        minAmount: '',
+        maxAmount: '',
+        comm: '',
+      }));
+
+      const savedSlots = Array.isArray(data.slots) ? data.slots : [];
+
+      setAutoSlots(
+        defaults.map((slot) => {
+          const saved = savedSlots.find(
+            (item: any) => Number(item.id) === slot.id
+          );
+
+          return saved
+            ? {
+                ...slot,
+                active: Boolean(saved.active),
+                taskNum: String(saved.taskNum ?? ''),
+                minAmount: String(saved.minAmount ?? ''),
+                maxAmount: String(saved.maxAmount ?? ''),
+                comm: String(saved.comm ?? ''),
+              }
+            : slot;
+        })
+      );
+
+      setAutoSlotsEnabled(Boolean(data.global_enabled));
+    }
+  };
+
+  void loadAutoSlots();
+}, []);
+
 
   useEffect(() => {
     checkAdminRoleAndFetchData();
@@ -700,16 +757,121 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
     }
   };
 
-  const handleResetAutoSlots = () => {
-    setAutoSlots([
-      { id: 1, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 2, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 3, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 4, active: false, taskNum: '', amount: '', comm: '' },
-      { id: 5, active: false, taskNum: '', amount: '', comm: '' },
-    ]);
-    showToast('5 Auto Slots boxes reset successfully!');
-  };
+const handleResetAutoSlots = () => {
+  setAutoSlots([
+    { id: 1, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+    { id: 2, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+    { id: 3, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+    { id: 4, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+    { id: 5, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
+  ]);
+
+  setAutoSlotsEnabled(false);
+  showToast('Auto Slots reset locally. Save settings to apply the reset.');
+};
+
+
+const handleSaveAutoSlots = async () => {
+  if (autoSlotsSaving) return;
+
+  for (const slot of autoSlots) {
+    if (!slot.active) continue;
+
+    const taskNum = Number(slot.taskNum);
+    const minAmount = Number(slot.minAmount);
+    const maxAmount = Number(slot.maxAmount);
+    const comm = Number(slot.comm);
+
+    if (
+      !Number.isInteger(taskNum) ||
+      taskNum < 1 ||
+      taskNum > 25 ||
+      slot.taskNum.trim() === ''
+    ) {
+      showToast(`Slot ${slot.id}: Task Number 1 se 25 ke darmiyan hona chahiye.`, 'error');
+      return;
+    }
+
+    if (
+      slot.minAmount.trim() === '' ||
+      slot.maxAmount.trim() === '' ||
+      !Number.isFinite(minAmount) ||
+      !Number.isFinite(maxAmount) ||
+      minAmount <= 0 ||
+      maxAmount < minAmount
+    ) {
+      showToast(`Slot ${slot.id}: Minimum aur Maximum Amount check karein.`, 'error');
+      return;
+    }
+
+    if (
+      slot.comm.trim() === '' ||
+      !Number.isFinite(comm) ||
+      comm < 0 ||
+      comm > 100
+    ) {
+      showToast(`Slot ${slot.id}: Commission 0 se 100 ke darmiyan honi chahiye.`, 'error');
+      return;
+    }
+  }
+
+  const enabledTaskNumbers = autoSlots
+    .filter((slot) => slot.active)
+    .map((slot) => Number(slot.taskNum));
+
+  if (new Set(enabledTaskNumbers).size !== enabledTaskNumbers.length) {
+    showToast('Enabled Auto Slots ke task numbers alag alag rakhein.', 'error');
+    return;
+  }
+
+  setAutoSlotsSaving(true);
+
+  try {
+    const { data: authData, error: authError } =
+      await supabase.auth.getUser();
+
+    if (
+      authError ||
+      authData.user?.email?.toLowerCase() !== 'adoochen64@gmail.com'
+    ) {
+      showToast('Only the main admin can save Auto Slots.', 'error');
+      return;
+    }
+
+    const slotsToSave = autoSlots.map((slot) => ({
+      id: slot.id,
+      active: slot.active,
+      taskNum: slot.taskNum,
+      minAmount: slot.minAmount,
+      maxAmount: slot.maxAmount,
+      comm: slot.comm,
+    }));
+
+    const { error } = await supabase
+      .from('auto_lucky_order_settings')
+      .upsert(
+        {
+          id: 1,
+          global_enabled: autoSlotsEnabled,
+          slots: slotsToSave,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+
+    if (error) throw error;
+
+    showToast('Auto Slots settings saved successfully!');
+  } catch (err: any) {
+    console.error('Auto Slots save failed:', err);
+    showToast(
+      err?.message || 'Unable to save Auto Slots settings.',
+      'error'
+    );
+  } finally {
+    setAutoSlotsSaving(false);
+  }
+};
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -2347,203 +2509,381 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
-                <div className="flex justify-between items-center border-b pb-2">
-                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    🎁 Configure 5 Auto Lucky Order Slots
-                  </h3>
-                  <button
-                    onClick={handleResetAutoSlots}
-                    className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 font-black rounded-lg text-xs transition"
-                  >
-                    🔄 Reset Slots
-                  </button>
-                </div>
+         
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600">Target Task Number (#):</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 5, 10, 15"
-                      value={slotTaskNum}
-                      onChange={(e) => setSlotTaskNum(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
+  {/* LEFT: MANUAL LUCKY ORDER — EXISTING HANDLERS PRESERVED */}
+  <section className="rounded-2xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+    <div className="bg-indigo-50 border-b border-indigo-100 px-5 py-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white text-lg">
+          ⚡
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-indigo-950">
+            Manual Lucky Order
+          </h3>
+          <p className="text-xs text-indigo-700 mt-0.5">
+            Configure an individual customer's order
+          </p>
+        </div>
+      </div>
+      <span className="mt-3 inline-flex rounded-full bg-white border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700">
+        MANUAL CONTROL
+      </span>
+    </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600">Commission Rate (%):</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 10"
-                      value={slotCommPercent}
-                      onChange={(e) => setSlotCommPercent(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
+    <div className="p-5 space-y-4">
+      <div>
+        <label className="mb-1.5 block text-xs font-bold text-slate-700">
+          Target Task Number
+        </label>
+        <input
+          type="number"
+          min="1"
+          max="25"
+          placeholder="e.g. 5"
+          value={slotTaskNum}
+          onChange={(e) => setSlotTaskNum(e.target.value)}
+          className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+        />
+      </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-600">Target Amount Range (USDT Min - Max):</label>
-                  <div className="grid grid-cols-2 gap-3 items-center">
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">$</span>
-                      <input
-                        type="number"
-                        placeholder="Min e.g. 120"
-                        value={slotMinAmount}
-                        onChange={(e) => setSlotMinAmount(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-xl pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">$</span>
-                      <input
-                        type="number"
-                        placeholder="Max e.g. 130"
-                        value={slotMaxAmount}
-                        onChange={(e) => setSlotMaxAmount(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-xl pl-7 pr-3 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1.5 block text-xs font-bold text-slate-700">
+            Minimum Amount (USDT)
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-3 text-sm text-slate-400">$</span>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="120"
+              value={slotMinAmount}
+              onChange={(e) => setSlotMinAmount(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-7 pr-2 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+        </div>
 
-                <button
-                  onClick={handlePublishLuckyOrderSlot}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-200 transition uppercase tracking-wider flex items-center justify-center gap-1.5"
-                >
-                  <span>⚡</span>
-                  <span>Publish & Synchronize Lucky Order Slot</span>
-                </button>
+        <div>
+          <label className="mb-1.5 block text-xs font-bold text-slate-700">
+            Maximum Amount (USDT)
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-3 text-sm text-slate-400">$</span>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="130"
+              value={slotMaxAmount}
+              onChange={(e) => setSlotMaxAmount(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-7 pr-2 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+        </div>
+      </div>
 
-                <div className="space-y-3 pt-3 border-t border-slate-200">
-                  <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">5 Auto Slots (Slide to Activate & Auto-Fetch):</span>
-                  <div className="space-y-2.5">
-                    {autoSlots.map((slot) => (
-                      <div key={slot.id} className="bg-white border border-slate-200 rounded-2xl p-3 space-y-2 text-xs shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="font-black text-blue-900">Slot #{slot.id} (Auto-Fetch)</span>
-                          <div className="flex items-center gap-2">
-                            {slot.active && (
-                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded text-[10px]">
-                                ✓ Active
-                              </span>
-                            )}
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={slot.active}
-                                onChange={(e) => {
-                                  const updated = autoSlots.map(s => s.id === slot.id ? { ...s, active: e.target.checked } : s);
-                                  setAutoSlots(updated);
-                                  showToast(`Auto Slot #${slot.id} status updated!`);
-                                }}
-                                className="sr-only peer"
-                              />
-                              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                            </label>
-                          </div>
-                        </div>
+      <div>
+        <label className="mb-1.5 block text-xs font-bold text-slate-700">
+          Commission Rate (%)
+        </label>
+        <div className="relative">
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            placeholder="10"
+            value={slotCommPercent}
+            onChange={(e) => setSlotCommPercent(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 pr-10 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          />
+          <span className="absolute right-3 top-3 text-sm font-bold text-slate-400">%</span>
+        </div>
+      </div>
 
-                        <div className="grid grid-cols-3 gap-2">
-                          <input
-                            type="number"
-                            placeholder="Task #"
-                            value={slot.taskNum}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setAutoSlots(autoSlots.map(s => s.id === slot.id ? { ...s, taskNum: val } : s));
-                            }}
-                            className="bg-slate-50 border border-slate-300 rounded-lg p-1.5 text-center font-bold text-slate-700"
-                          />
-                          <input
-                            type="number"
-                            placeholder="Amount ($)"
-                            value={slot.amount}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setAutoSlots(autoSlots.map(s => s.id === slot.id ? { ...s, amount: val } : s));
-                            }}
-                            className="bg-slate-50 border border-slate-300 rounded-lg p-1.5 text-center font-bold text-emerald-700"
-                          />
-                          <input
-                            type="number"
-                            placeholder="Comm %"
-                            value={slot.comm}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setAutoSlots(autoSlots.map(s => s.id === slot.id ? { ...s, comm: val } : s));
-                            }}
-                            className="bg-slate-50 border border-slate-300 rounded-lg p-1.5 text-center font-bold text-indigo-700"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+      <button
+        type="button"
+        onClick={handlePublishLuckyOrderSlot}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-extrabold uppercase tracking-wide text-white shadow-sm transition hover:bg-indigo-700"
+      >
+        <span>⚡</span>
+        Publish Manual Lucky Order
+      </button>
+
+      <p className="text-[11px] leading-5 text-slate-500">
+        Manual orders continue to use the existing publish and funding workflow.
+      </p>
+    </div>
+  </section>
+
+  {/* RIGHT: AUTOMATIC SLOTS */}
+  <section className="rounded-2xl border border-emerald-200 bg-white shadow-sm overflow-hidden">
+    <div className="bg-emerald-50 border-b border-emerald-100 px-5 py-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white text-lg">
+          ↻
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-emerald-950">
+            Auto Lucky Order Slots
+          </h3>
+          <p className="text-xs text-emerald-700 mt-0.5">
+            Configure up to five automatic slots
+          </p>
+        </div>
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-3">
+        <span>
+          <span className="block text-xs font-bold text-slate-800">
+            Global Auto Slots
+          </span>
+          <span className="mt-0.5 block text-[11px] text-slate-500">
+            {autoSlotsEnabled ? 'Enabled in settings' : 'Disabled in settings'}
+          </span>
+        </span>
+
+        <input
+          type="checkbox"
+          checked={autoSlotsEnabled}
+          onChange={(e) => setAutoSlotsEnabled(e.target.checked)}
+          className="h-5 w-5 accent-emerald-600"
+          aria-label="Enable Auto Lucky Order Slots"
+        />
+      </label>
+    </div>
+
+    <div className="p-4 space-y-3">
+      {autoSlots.map((slot) => (
+        <div
+          key={slot.id}
+          className={`rounded-xl border p-3 transition ${
+            slot.active
+              ? 'border-emerald-300 bg-emerald-50/50'
+              : 'border-slate-200 bg-slate-50'
+          }`}
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-black text-slate-800">
+                Slot #{slot.id}
+              </span>
+              <span className="ml-2 text-[10px] text-slate-500">
+                {slot.active ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500">
+                {slot.active ? 'ON' : 'OFF'}
+              </span>
+              <input
+                type="checkbox"
+                checked={slot.active}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setAutoSlots((prev) =>
+                    prev.map((s) =>
+                      s.id === slot.id ? { ...s, active: checked } : s
+                    )
+                  );
+                }}
+                className="h-4 w-4 accent-emerald-600"
+                aria-label={`Enable Auto Slot ${slot.id}`}
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-slate-600">
+                Task Number
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="25"
+                placeholder="1–25"
+                value={slot.taskNum}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAutoSlots((prev) =>
+                    prev.map((s) =>
+                      s.id === slot.id ? { ...s, taskNum: val } : s
+                    )
+                  );
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-slate-600">
+                Commission (%)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                placeholder="10"
+                value={slot.comm}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAutoSlots((prev) =>
+                    prev.map((s) =>
+                      s.id === slot.id ? { ...s, comm: val } : s
+                    )
+                  );
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-slate-600">
+                Minimum (USDT)
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="Min amount"
+                value={slot.minAmount}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAutoSlots((prev) =>
+                    prev.map((s) =>
+                      s.id === slot.id ? { ...s, minAmount: val } : s
+                    )
+                  );
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-slate-600">
+                Maximum (USDT)
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="Max amount"
+                value={slot.maxAmount}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAutoSlots((prev) =>
+                    prev.map((s) =>
+                      s.id === slot.id ? { ...s, maxAmount: val } : s
+                    )
+                  );
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row">
+        <button
+          type="button"
+          onClick={handleResetAutoSlots}
+          disabled={autoSlotsSaving}
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 sm:flex-1"
+        >
+          Reset Slots
+        </button>
+
+        <button
+          type="button"
+          onClick={handleSaveAutoSlots}
+          disabled={autoSlotsSaving}
+          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-[2]"
+        >
+          {autoSlotsSaving ? 'Saving Settings...' : 'Save Auto Slots'}
+        </button>
+      </div>
+
+      <p className="text-[11px] leading-5 text-slate-500">
+        Changes to slot settings are saved when you select Save Auto Slots.
+      </p>
+    </div>
+  </section>
+
+  {/* CONFIGURED MANUAL ORDERS — FULL WIDTH BELOW BOTH COLUMNS */}
+  <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h3 className="text-sm font-black text-slate-800">
+          Configured Synchronized Lucky Orders
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Review the existing manual Lucky Order records for this customer.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        disabled={customTasksList.length === 0}
+        onClick={handleClearLuckyOrderConfig}
+        className="rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Clear Completed
+      </button>
+    </div>
+
+    <div className="max-h-[500px] space-y-2 overflow-y-auto p-4">
+      {customTasksList.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-xs text-slate-400">
+          No synchronized Lucky Orders for this user.
+        </p>
+      ) : (
+        customTasksList.map((task) => (
+          <div
+            key={task.id}
+            className="flex w-full flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <div className="text-sm font-bold text-slate-800">
+                Task #{task.task_number}
+                <span className="ml-2 font-mono text-indigo-600">
+                  ${task.min_amount} – ${task.max_amount} USDT
+                </span>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
-                    📋 Configured Synchronized Lucky Orders:
-                  </h4>
-
-                  <button
-                    type="button"
-                    disabled={customTasksList.length === 0}
-                    onClick={handleClearLuckyOrderConfig}
-                    className="shrink-0 px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Clear Completed
-                  </button>
-                </div>
-
-                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                  {customTasksList.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-8 bg-white rounded-xl border border-dashed border-slate-300">
-                      No active synchronized lucky orders for this user.
-                    </p>
-                  ) : (
-                    customTasksList.map((task) => (
-                      <div
-                        key={task.id}
-                        className="p-3.5 bg-white border border-slate-200 rounded-2xl flex items-center justify-between text-xs w-full shadow-sm"
-                      >
-                        <div className="flex-1">
-                          <div className="font-bold text-slate-800 text-sm">
-                            Task #{task.task_number} —{" "}
-                            <span className="text-indigo-600 font-mono">
-                              ${task.min_amount} - ${task.max_amount} USDT
-                            </span>
-                          </div>
-
-                          <div className="text-[11px] text-slate-500 font-medium mt-0.5">
-                            Commission: {task.commission_rate || 10}% | Status:{" "}
-                            {("status" in task && task.status === "completed") ? (
-                              <span className="text-green-600 font-bold">Completed ✓</span>
-                            ) : (
-                              <span className="text-amber-600 font-bold">Pending</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCustomTask(task.id)}
-                          className="ml-3 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 font-bold hover:bg-red-100"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
+              <div className="mt-1 text-[11px] font-medium text-slate-500">
+                Commission: {task.commission_rate || 10}% · Status:{' '}
+                {('status' in task && task.status === 'completed') ? (
+                  <span className="font-bold text-emerald-600">Completed ✓</span>
+                ) : (
+                  <span className="font-bold text-amber-600">Pending</span>
+                )}
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => handleDeleteCustomTask(task.id)}
+              className="self-start rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100 sm:self-auto"
+            >
+              Delete
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  </section>
+
+</div>
+
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <button

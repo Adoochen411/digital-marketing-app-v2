@@ -294,29 +294,107 @@ Please use the platform responsibly, protect your account, and review all financ
     });
   };
 
-  useEffect(() => {
+useEffect(() => {
+  if (!user?.id) return;
+
+  let isMounted = true;
+
   const fetchSupportLinks = async () => {
-    const { data, error } = await supabase
-      .from('system_settings')
-      .select('telegram_url, whatsapp_url')
-      .eq('id', 1)
-      .maybeSingle();
+    try {
+      // Check which sub-admin this customer belongs to
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('sub_admin_id')
+        .eq('id', user.id)
+        .maybeSingle();
 
-    if (error) {
+      if (profileError) {
+        console.error('Customer support profile load failed:', profileError);
+        return;
+      }
+
+      if (!isMounted) return;
+
+      // If customer belongs to a sub-admin, load that sub-admin's links
+      if (profile?.sub_admin_id) {
+        const { data: subAdmin, error: subAdminError } = await supabase
+          .from('sub_admins')
+          .select('telegram_url, whatsapp_url')
+          .eq('id', profile.sub_admin_id)
+          .maybeSingle();
+
+        if (subAdminError) {
+          console.error('Sub-admin support links load failed:', subAdminError);
+          return;
+        }
+
+        if (!isMounted) return;
+
+        if (subAdmin) {
+          setTelegramUrl(
+            subAdmin.telegram_url?.trim() || 'https://t.me'
+          );
+          setWhatsappUrl(
+            subAdmin.whatsapp_url?.trim() || 'https://whatsapp.com'
+          );
+          return;
+        }
+      }
+
+      // Customers without a linked sub-admin use main-admin links
+      const { data: settings, error: settingsError } = await supabase
+        .from('system_settings')
+        .select('telegram_url, whatsapp_url')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (settingsError) {
+        console.error('Global support links load failed:', settingsError);
+        return;
+      }
+
+      if (!isMounted) return;
+
+      if (settings) {
+        setTelegramUrl(
+          settings.telegram_url?.trim() || 'https://t.me'
+        );
+        setWhatsappUrl(
+          settings.whatsapp_url?.trim() || 'https://whatsapp.com'
+        );
+      }
+    } catch (error) {
       console.error('Support links load failed:', error);
-      return;
-    }
-
-    if (data) {
-      setTelegramUrl(data.telegram_url?.trim() || 'https://t.me');
-      setWhatsappUrl(data.whatsapp_url?.trim() || 'https://whatsapp.com');
     }
   };
 
   void fetchSupportLinks();
 
   const channel = supabase
-    .channel('customer-support-links-live')
+    .channel(`customer-support-links-live-${user.id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`,
+      },
+      () => {
+        void fetchSupportLinks();
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sub_admins',
+      },
+      () => {
+        void fetchSupportLinks();
+      }
+    )
     .on(
       'postgres_changes',
       {
@@ -332,9 +410,11 @@ Please use the platform responsibly, protect your account, and review all financ
     .subscribe();
 
   return () => {
+    isMounted = false;
     void supabase.removeChannel(channel);
   };
-}, []);
+}, [user?.id]);
+
 useEffect(() => {
   if (!user?.id) return;
 

@@ -1276,11 +1276,7 @@ const handleManualTaskLockToggle = async (
 
   // Existing customer list ko refresh karne ke liye
 
-  alert(
-    locked
-      ? 'Manual Tasks OFF: setting save ho gayi.'
-      : 'Manual Tasks ON: setting save ho gayi.'
-  );
+ 
 };
 
 const handleResetUserTasks = async (customer: any) => {
@@ -1795,73 +1791,124 @@ const handleResetUserTasks = async (customer: any) => {
       showToast(err.message || 'Error updating profile', 'error');
     }
   };
+const handleUpdateAdminCredentials = async (
+  e: React.FormEvent<HTMLFormElement>
+) => {
+  e.preventDefault();
 
-  const handleSaveMainSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const email = mainAdminEmail.trim();
+  const password = mainAdminPassword;
 
-    if (!isMainAdmin) {
-      showToast('Only Main Admin can change global settings.', 'error');
+  if (!email) {
+    showToast('Please enter the main admin email.', 'error');
+    return;
+  }
+
+  if (!password.trim()) {
+    showToast('Please enter a new password.', 'error');
+    return;
+  }
+
+  if (password.length < 6) {
+    showToast('Password must be at least 6 characters.', 'error');
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.updateUser({
+      email,
+      password,
+    });
+
+    if (error) {
+      showToast(error.message, 'error');
       return;
     }
 
-    try {
-      const cleanAddress = depositTrc20.trim();
-      const cleanMainInvite = mainInviteCode.trim().toUpperCase();
+    setMainAdminPassword('');
 
-      if (!cleanAddress) {
-        showToast('Please enter your TRC20 address.', 'error');
-        return;
-      }
-
-      const { data: savedRows, error: saveError } = await supabase
-        .from('system_settings')
-        .upsert({
-          id: 1,
-          key: 'main',
-          deposit_trc20_address: cleanAddress,
-          main_invite_code: cleanMainInvite,
-          qr_code_url: qrCodeUrl.trim(),
-          telegram_url: telegramUrl.trim(),
-          whatsapp_url: whatsappUrl.trim(),
-        })
-        .select('id, deposit_trc20_address, main_invite_code, qr_code_url')
-        .single();
-
-      if (saveError) throw saveError;
-
-      if (savedRows.deposit_trc20_address !== cleanAddress) {
-        throw new Error('Saved TRC20 address does not match the entered address.');
-      }
-
-      setDepositTrc20(savedRows.deposit_trc20_address);
-      setMainInviteCode(savedRows.main_invite_code ?? '');
-      setQrCodeUrl(savedRows.qr_code_url ?? '');
-      localStorage.setItem('global_trc20', savedRows.deposit_trc20_address);
-      localStorage.setItem('global_invite', savedRows.main_invite_code ?? '');
-
-      showToast('Settings saved and verified in Supabase!');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to save settings.', 'error');
+    if (data.user?.email) {
+      setMainAdminEmail(data.user.email);
     }
-  };
 
-  const handleUpdateAdminCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isMainAdmin) return;
-    try {
-      const updatePayload: { email?: string; password?: string; } = {};
-      if (mainAdminEmail && mainAdminEmail !== currentAdminEmail) updatePayload.email = mainAdminEmail.trim().toLowerCase();
-      if (mainAdminPassword) updatePayload.password = mainAdminPassword;
+    showToast('Credentials update request submitted successfully.', 'success');
+  } catch (error) {
+    console.error('Admin credentials update failed:', error);
+    showToast('Unable to update credentials. Please try again.', 'error');
+  }
+};
+const handleSaveMainSettings = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-      const { error } = await supabase.auth.updateUser(updatePayload);
-      if (error) throw error;
+  if (!isMainAdmin) {
+    showToast('Only Main Admin can change global settings.', 'error');
+    return;
+  }
 
-      showToast('Admin credentials updated successfully!');
-      setMainAdminPassword('');
-    } catch (err: any) {
-      showToast(err.message || 'Error updating credentials', 'error');
+  try {
+    const cleanAddress = depositTrc20.trim();
+    const cleanMainInvite = mainInviteCode.trim().toUpperCase();
+    const cleanTelegram = telegramUrl.trim();
+    const cleanWhatsApp = whatsappUrl.trim();
+
+    if (!cleanAddress) {
+      showToast('Please enter your TRC20 address.', 'error');
+      return;
     }
-  };
+
+    const { data: savedRows, error: saveError } = await supabase
+      .from('system_settings')
+      .upsert({
+        id: 1,
+        key: 'main',
+        deposit_trc20_address: cleanAddress,
+        main_invite_code: cleanMainInvite,
+        qr_code_url: qrCodeUrl.trim(),
+        telegram_url: cleanTelegram,
+        whatsapp_url: cleanWhatsApp,
+      })
+      .select(
+        'id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url'
+      )
+      .single();
+
+    if (saveError) {
+      console.error('Settings save failed:', saveError);
+      throw saveError;
+    }
+
+    if (
+      savedRows.deposit_trc20_address !== cleanAddress ||
+      (savedRows.telegram_url ?? '') !== cleanTelegram ||
+      (savedRows.whatsapp_url ?? '') !== cleanWhatsApp
+    ) {
+      throw new Error(
+        'Saved settings do not match the entered values. Please try again.'
+      );
+    }
+
+    setDepositTrc20(savedRows.deposit_trc20_address);
+    setMainInviteCode(savedRows.main_invite_code ?? '');
+    setQrCodeUrl(savedRows.qr_code_url ?? '');
+    setTelegramUrl(savedRows.telegram_url ?? '');
+    setWhatsappUrl(savedRows.whatsapp_url ?? '');
+
+    localStorage.setItem(
+      'global_trc20',
+      savedRows.deposit_trc20_address
+    );
+    localStorage.setItem(
+      'global_invite',
+      savedRows.main_invite_code ?? ''
+    );
+
+    showToast('Settings saved and verified in Supabase!');
+  } catch (err: any) {
+    console.error('Main settings error:', err);
+    showToast(err.message || 'Failed to save settings.', 'error');
+  }
+};
+
 
   const handleCreateSubAdmin = async (e: React.FormEvent) => {
     e.preventDefault();

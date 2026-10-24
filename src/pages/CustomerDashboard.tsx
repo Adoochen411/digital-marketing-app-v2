@@ -104,7 +104,8 @@ const [depositStep, setDepositStep] = useState<1 | 2>(1);
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
   const [currentTask, setCurrentTask] = useState<ProductTask | null>(null);
   const [showFullPageTask, setShowFullPageTask] = useState<boolean>(false);
-
+  const [telegramUrl, setTelegramUrl] = useState('https://t.me');
+  const [whatsappUrl, setWhatsappUrl] = useState('https://whatsapp.com');
   const [recordsList, _setRecordsList] = useState<ProductTask[]>([]);
   const [liveFeed, setLiveFeed] = useState(INITIAL_7_TRANSACTIONS);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
@@ -293,7 +294,47 @@ Please use the platform responsibly, protect your account, and review all financ
     });
   };
 
-  
+  useEffect(() => {
+  const fetchSupportLinks = async () => {
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('telegram_url, whatsapp_url')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Support links load failed:', error);
+      return;
+    }
+
+    if (data) {
+      setTelegramUrl(data.telegram_url?.trim() || 'https://t.me');
+      setWhatsappUrl(data.whatsapp_url?.trim() || 'https://whatsapp.com');
+    }
+  };
+
+  void fetchSupportLinks();
+
+  const channel = supabase
+    .channel('customer-support-links-live')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'system_settings',
+        filter: 'id=eq.1',
+      },
+      () => {
+        void fetchSupportLinks();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}, []);
 useEffect(() => {
   if (!user?.id) return;
 
@@ -1801,95 +1842,112 @@ if (currentTask?.isLucky) {
 
           </div>
         )}
-        {/* SUPPORT TAB */}
-        {activeTab === 'support' && (
-          <div className="space-y-4">
-            <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-4 rounded-3xl shadow-2xl space-y-4 min-h-[75vh] flex flex-col justify-between">
-              
-              <div className="space-y-3">
-                <div className="text-center space-y-1 border-b border-[#d4af37]/30 pb-3">
-                  <h2 className="text-base font-extrabold text-[#f3e5ab]">Customer Support Center</h2>
-                  <p className="text-[10px] text-gray-400">24/7 Official Support Channels & Live Agent</p>
-                </div>
+     
+{/* SUPPORT TAB */}
+{activeTab === 'support' && (
+  <div className="space-y-4">
+    <div className="bg-[#0b0c10] border-2 border-[#d4af37] p-4 rounded-3xl shadow-2xl space-y-4 min-h-[75vh] flex flex-col justify-between">
 
-                <div className="grid grid-cols-2 gap-3">
-                  <a
-                    href="https://t.me"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-3 px-3 bg-[#18150a] border border-sky-400/50 text-sky-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-sky-950/30"
-                  >
-                    <span>✈️</span>
-                    <span>Telegram</span>
-                  </a>
+      <div className="space-y-3">
+        <div className="text-center space-y-1 border-b border-[#d4af37]/30 pb-3">
+          <h2 className="text-base font-extrabold text-[#f3e5ab]">
+            Customer Support Center
+          </h2>
+          <p className="text-[10px] text-gray-400">
+            24/7 Official Support Channels & Live Agent
+          </p>
+        </div>
 
-                  <a
-                    href="https://whatsapp.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-3 px-3 bg-[#18150a] border border-emerald-400/50 text-emerald-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-emerald-950/30"
-                  >
-                    <span>💬</span>
-                    <span>WhatsApp</span>
-                  </a>
-                </div>
-              </div>
+        {/* ADMIN SAVED SUPPORT LINKS */}
+        <div className="grid grid-cols-2 gap-3">
+          <a
+            href={telegramUrl || 'https://t.me'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="py-3 px-3 bg-[#18150a] border border-sky-400/50 text-sky-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-sky-950/30"
+          >
+            <span>✈️</span>
+            <span>Telegram</span>
+          </a>
 
-              <div className="bg-[#18150a] border-2 border-[#d4af37]/60 rounded-2xl p-4 space-y-3 flex-1 flex flex-col justify-between shadow-inner">
-                <div className="flex justify-between items-center border-b border-[#d4af37]/30 pb-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                    <span className="text-xs font-black text-[#f3e5ab]">Live Assistant Portal</span>
-                  </div>
-                  <span className="text-[10px] text-emerald-400 font-mono font-bold">● Online</span>
-                </div>
+          <a
+            href={whatsappUrl || 'https://whatsapp.com'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="py-3 px-3 bg-[#18150a] border border-emerald-400/50 text-emerald-300 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 hover:bg-emerald-950/30"
+          >
+            <span>💬</span>
+            <span>WhatsApp</span>
+          </a>
+        </div>
+      </div>
 
-                <div className="flex-1 min-h-[320px] max-h-[450px] overflow-y-auto space-y-2.5 pr-1 text-xs">
-                  {chatMessages.length === 0 ? (
-                    <div className="text-center text-gray-500 text-xs py-16">No messages yet. Send a message to support!</div>
-                  ) : (
-                    chatMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`flex flex-col ${!msg.is_admin ? 'items-end' : 'items-start'}`}
-                      >
-                        <div
-                          className={`max-w-[85%] p-3 rounded-2xl shadow ${
-                            !msg.is_admin
-                              ? 'bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-semibold rounded-br-none'
-                              : 'bg-black text-gray-200 border border-[#d4af37]/50 rounded-bl-none'
-                          }`}
-                        >
-                          <p className="leading-snug text-xs">{msg.message}</p>
-                          <span className="text-[8px] opacity-75 block text-right mt-1 font-mono">
-                            {formatDateWithTime(msg.created_at)}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form onSubmit={handleSendMessage} className="flex gap-2 pt-2 border-t border-[#d4af37]/30">
-                  <input
-                    type="text"
-                    placeholder="Type your message..."
-                    value={inputMessage}
-                    onChange={(e) => setInputMessage(e.target.value)}
-                    className="flex-1 bg-black border border-[#d4af37]/60 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
-                  />
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-
-            </div>
+      <div className="bg-[#18150a] border-2 border-[#d4af37]/60 rounded-2xl p-4 space-y-3 flex-1 flex flex-col justify-between shadow-inner">
+        <div className="flex justify-between items-center border-b border-[#d4af37]/30 pb-2">
+          <div className="flex items-center space-x-2">
+            <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
+            <span className="text-xs font-black text-[#f3e5ab]">
+              Live Assistant Portal
+            </span>
           </div>
-        )}
+          <span className="text-[10px] text-emerald-400 font-mono font-bold">
+            ● Online
+          </span>
+        </div>
+
+        <div className="flex-1 min-h-[320px] max-h-[450px] overflow-y-auto space-y-2.5 pr-1 text-xs">
+          {chatMessages.length === 0 ? (
+            <div className="text-center text-gray-500 text-xs py-16">
+              No messages yet. Send a message to support!
+            </div>
+          ) : (
+            chatMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex flex-col ${
+                  !msg.is_admin ? 'items-end' : 'items-start'
+                }`}
+              >
+                <div
+                  className={`max-w-[85%] p-3 rounded-2xl shadow ${
+                    !msg.is_admin
+                      ? 'bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-semibold rounded-br-none'
+                      : 'bg-black text-gray-200 border border-[#d4af37]/50 rounded-bl-none'
+                  }`}
+                >
+                  <p className="leading-snug text-xs">{msg.message}</p>
+                  <span className="text-[8px] opacity-75 block text-right mt-1 font-mono">
+                    {formatDateWithTime(msg.created_at)}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <form
+          onSubmit={handleSendMessage}
+          className="flex gap-2 pt-2 border-t border-[#d4af37]/30"
+        >
+          <input
+            type="text"
+            placeholder="Type your message..."
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            className="flex-1 bg-black border border-[#d4af37]/60 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
+          />
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider"
+          >
+            Send
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+)}
 
         {/* GRABBING TAB */}
         {activeTab === 'grabbing' && (

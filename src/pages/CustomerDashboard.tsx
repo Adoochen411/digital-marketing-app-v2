@@ -1307,50 +1307,77 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
     return;
   }
 
-if (currentTask?.isLucky) {
-  if (!user || !currentTask.customTaskId) {
-    showToast('Lucky Order ID missing. Please refresh and try again.', 'error');
-    return;
-  }
+  // Find the Lucky Order that this deposit should help fund.
+  // The customer can deposit any positive amount.
+  let linkedLuckyOrderId: string | null = null;
 
-  const { data: luckyOrder, error: luckyOrderError } = await supabase
-    .from('custom_tasks')
-    .select('id, user_id, is_lucky_order, locked_price, task_amount, funding_status')
-    .eq('id', currentTask.customTaskId)
-    .eq('user_id', user.id)
-    .eq('is_lucky_order', true)
-    .maybeSingle();
+  try {
+    if (currentTask?.isLucky && currentTask.customTaskId) {
+      const { data: luckyOrder, error: luckyOrderError } =
+        await supabase
+          .from('custom_tasks')
+          .select('id, user_id, is_lucky_order, funding_status, status')
+          .eq('id', currentTask.customTaskId)
+          .eq('user_id', user.id)
+          .eq('is_lucky_order', true)
+          .eq('status', 'pending')
+          .maybeSingle();
 
-  if (luckyOrderError || !luckyOrder) {
-    showToast('Could not verify Lucky Order. Please try again.', 'error');
-    return;
-  }
+      if (luckyOrderError) {
+        throw luckyOrderError;
+      }
 
-  if (luckyOrder.funding_status === 'funded') {
-    showToast('This Lucky Order is already funded.', 'error');
-    return;
-  }
+      if (!luckyOrder) {
+        showToast(
+          'Could not find the pending Lucky Order. Please refresh and try again.',
+          'error'
+        );
+        return;
+      }
 
-  const requiredAmount = Number(
-    luckyOrder.locked_price ?? luckyOrder.task_amount
-  );
+      if (luckyOrder.funding_status !== 'funded') {
+        linkedLuckyOrderId = luckyOrder.id;
+      }
+    } else {
+      // Profile's normal Deposit button:
+      // find the customer's latest pending, unfunded Lucky Order.
+      const { data: pendingOrders, error: pendingOrdersError } =
+        await supabase
+          .from('custom_tasks')
+          .select('id, funding_status')
+          .eq('user_id', user.id)
+          .eq('is_lucky_order', true)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-  if (
-    !Number.isFinite(requiredAmount) ||
-    requiredAmount <= 0 ||
-    Math.abs(amt - requiredAmount) > 0.009
-  ) {
+      if (pendingOrdersError) {
+        throw pendingOrdersError;
+      }
+
+      const pendingOrder = pendingOrders?.find(
+        (order) => order.funding_status !== 'funded'
+      );
+
+      if (pendingOrder) {
+        linkedLuckyOrderId = pendingOrder.id;
+      }
+    }
+  } catch (err: any) {
+    console.error('Lucky Order lookup failed:', err);
     showToast(
-      `Amount must match the Lucky Order amount: $${requiredAmount.toFixed(2)}`,
+      err?.message || 'Could not check pending Lucky Order.',
       'error'
     );
     return;
   }
-}
 
-  // TXID/reference OR receipt: at least one is required
+  // TXID/reference OR receipt: at least one is required.
   if (!reference && !receiptFile) {
-    showToast('Please enter a TXID or upload a payment screenshot.', 'error');
+    showToast(
+      'Please enter a TXID or upload a payment screenshot.',
+      'error'
+    );
     return;
   }
 
@@ -1370,7 +1397,7 @@ if (currentTask?.isLucky) {
 
   let receiptPath: string | null = null;
 
-  // Upload screenshot only when customer selected one
+  // Upload screenshot only when the customer selected one.
   if (receiptFile) {
     const extension = receiptFile.name.split('.').pop()?.toLowerCase();
 
@@ -1401,18 +1428,17 @@ if (currentTask?.isLucky) {
       : `Bank: ${bankName} - Account: ${accountNumber}`;
 
   const { error } = await supabase.from('deposits').insert({
-  user_id: user.id,
- custom_task_id: isLuckyOrderDeposit
-  ? currentTask?.customTaskId ?? null
-  : null,
-  amount: amt,
-  trc20_address: addressOrBankInfo,
-  status: 'pending',
-  payment_method: paymentMethod,
-  txid: paymentMethod === 'trc20' ? reference || null : null,
-  payment_reference: reference || null,
-  receipt_path: receiptPath,
-});
+    user_id: user.id,
+    custom_task_id: linkedLuckyOrderId,
+    amount: amt,
+    trc20_address: addressOrBankInfo,
+    status: 'pending',
+    payment_method: paymentMethod,
+    txid: paymentMethod === 'trc20' ? reference || null : null,
+    payment_reference: reference || null,
+    receipt_path: receiptPath,
+  });
+
   if (error) {
     console.error('Deposit request failed:', error);
     showToast(`Deposit Error: ${error.message}`, 'error');
@@ -1437,6 +1463,7 @@ if (currentTask?.isLucky) {
     setDepositHistory(depData);
   }
 };
+
   // UPDATED WITHDRAW SUBMIT WITH BALANCE DEDUCTION & ADMIN LOCK / FROZEN CHECK
  const handleWithdrawSubmit = async (e: React.FormEvent) => {
   e.preventDefault();

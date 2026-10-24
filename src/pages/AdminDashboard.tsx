@@ -103,7 +103,17 @@ interface ChatMessage {
   is_admin: boolean;
   is_read: boolean;
 }
-
+interface SubAdminCredentialRequest {
+  id: string;
+  sub_admin_id: string;
+  sub_admin_email?: string;
+  request_type: 'email' | 'password';
+  requested_email: string | null;
+  status: 'pending' | 'verified' | 'completed' | 'rejected' | 'expired';
+  expires_at: string | null;
+  verified_at: string | null;
+  created_at: string;
+}
 interface AdminNotification {
   id: string;
   sub_admin_email: string;
@@ -170,6 +180,23 @@ export const AdminDashboard: React.FC = () => {
 
   const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [credentialRequests, setCredentialRequests] =
+  useState<SubAdminCredentialRequest[]>([]);
+
+const [credentialRequestsLoading, setCredentialRequestsLoading] =
+  useState(false);
+
+const [credentialRequestMessage, setCredentialRequestMessage] =
+  useState('');
+
+const [generatedVerificationCodes, setGeneratedVerificationCodes] =
+  useState<Record<string, string>>({});
+
+const [verificationCodeInputs, setVerificationCodeInputs] =
+  useState<Record<string, string>>({});
+
+
+
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   
   const [newSubEmail, setNewSubEmail] = useState('');
@@ -303,7 +330,112 @@ const [autoSlotsSaving, setAutoSlotsSaving] = useState(false);
       }
     }
   };
+const handleGenerateCredentialCode = async (requestId: string) => {
+  setCredentialRequestMessage('');
 
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'sub-admin-credential-requests',
+      {
+        body: {
+          action: 'generate_verification_code',
+          request_id: requestId,
+        },
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error(data?.message || 'Code generate nahi hua.');
+    }
+
+    setGeneratedVerificationCodes((prev) => ({
+      ...prev,
+      [requestId]: data.verification_code,
+    }));
+
+    setCredentialRequestMessage(
+      `Verification code generated. Request: ${requestId}`
+    );
+  } catch (error) {
+    setCredentialRequestMessage(
+      error instanceof Error ? error.message : 'Code generate nahi hua.'
+    );
+  }
+};
+
+const handleReviewCredentialRequest = async (
+  requestId: string,
+  decision: 'approve' | 'reject'
+) => {
+  setCredentialRequestMessage('');
+
+  const verificationCode = (
+    verificationCodeInputs[requestId] || ''
+  ).trim();
+
+  if (decision === 'approve' && !/^\d{6}$/.test(verificationCode)) {
+    setCredentialRequestMessage(
+      'Approve karne se pehle 6-digit verification code enter karein.'
+    );
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'sub-admin-credential-requests',
+      {
+        body: {
+          action: 'review_request',
+          request_id: requestId,
+          decision,
+          ...(decision === 'approve'
+            ? { verification_code: verificationCode }
+            : {}),
+        },
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error(data?.message || 'Request review nahi hui.');
+    }
+
+    setCredentialRequestMessage(data.message || 'Request reviewed.');
+
+    setGeneratedVerificationCodes((prev) => {
+      const next = { ...prev };
+      delete next[requestId];
+      return next;
+    });
+
+    setVerificationCodeInputs((prev) => {
+      const next = { ...prev };
+      delete next[requestId];
+      return next;
+    });
+
+    const { data: refreshed, error: refreshError } =
+      await supabase.functions.invoke(
+        'sub-admin-credential-requests',
+        {
+          body: { action: 'list_requests' },
+        }
+      );
+
+    if (!refreshError && refreshed?.success) {
+      setCredentialRequests(
+        Array.isArray(refreshed.requests) ? refreshed.requests : []
+      );
+    }
+  } catch (error) {
+    setCredentialRequestMessage(
+      error instanceof Error ? error.message : 'Request review nahi hui.'
+    );
+  }
+};
   const fetchAdminData = async () => {
     const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
     if (profiles) {
@@ -338,6 +470,79 @@ const [autoSlotsSaving, setAutoSlotsSaving] = useState(false);
 
     const { data: notifList } = await supabase.from('admin_notifications').select('*').order('created_at', { ascending: false });
     if (notifList) setNotifications(notifList);
+if (isMainAdmin) {
+  setCredentialRequestsLoading(true);
+
+  try {
+    const { data: requestData, error: requestError } =
+      await supabase.functions.invoke(
+        'sub-admin-credential-requests',
+        {
+          body: { action: 'list_requests' },
+        }
+      );
+
+    if (requestError) {
+      console.error(
+        'Credential requests load failed:',
+        requestError
+      );
+    } else if (requestData?.success) {
+      setCredentialRequests(
+        Array.isArray(requestData.requests)
+          ? requestData.requests
+          : []
+      );
+    } else {
+      console.error(
+        'Credential requests error:',
+        requestData?.message
+      );
+    }
+  } catch (error) {
+    console.error(
+      'Credential requests error:',
+      error
+    );
+  } finally {
+    setCredentialRequestsLoading(false);
+  }
+}
+if (isMainAdmin) {
+  setCredentialRequestsLoading(true);
+
+  try {
+    const { data: requestData, error: requestError } =
+      await supabase.functions.invoke(
+        'sub-admin-credential-requests',
+        {
+          body: {
+            action: 'list_requests',
+          },
+        }
+      );
+
+    if (requestError) {
+      console.error(
+        'Failed to load credential requests:',
+        requestError
+      );
+    } else if (requestData?.success !== false) {
+      setCredentialRequests(
+        Array.isArray(requestData?.requests)
+          ? requestData.requests
+          : []
+      );
+    }
+  } catch (requestErr) {
+    console.error(
+      'Credential request loading failed:',
+      requestErr
+    );
+  } finally {
+    setCredentialRequestsLoading(false);
+  }
+}
 
     const {
       data: settingsData,
@@ -1871,88 +2076,174 @@ const handleResetUserTasks = async (customer: any) => {
     }
   };
 
-  const handleSaveSubAdminSelfProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleSaveSubAdminSelfProfile = async (
+  e: React.FormEvent
+) => {
+  e.preventDefault();
 
-    if (isMainAdmin || !subAdminDbId) {
-      showToast('Invalid Sub-Admin session.', 'error');
+  if (isMainAdmin || !subAdminDbId) {
+    showToast('Invalid Sub-Admin session.', 'error');
+    return;
+  }
+
+  try {
+    const oldEmail = currentAdminEmail.trim().toLowerCase();
+    const newEmail = subAdminEditableEmail.trim().toLowerCase();
+    const newInvite = subAdminEditableInviteCode.trim().toUpperCase();
+    const newTelegram = subAdminEditableTelegram.trim();
+    const newWhatsapp = subAdminEditableWhatsapp.trim();
+    const newPassword = subAdminEditablePassword;
+
+    if (!newEmail) {
+      showToast('Email is required.', 'error');
       return;
     }
 
-    try {
-      const oldEmail = currentAdminEmail;
-      const newEmail = subAdminEditableEmail.trim().toLowerCase();
-      const newInvite = subAdminEditableInviteCode.trim().toUpperCase();
-      const newTelegram = subAdminEditableTelegram.trim();
-      const newWhatsapp = subAdminEditableWhatsapp.trim();
+    const emailChanged = newEmail !== oldEmail;
+    const passwordChanged = newPassword.length > 0;
 
-      if (!newEmail) {
-        showToast('Email is required.', 'error');
-        return;
+    if (
+      emailChanged &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)
+    ) {
+      showToast('Please enter a valid email address.', 'error');
+      return;
+    }
+
+    if (passwordChanged && newPassword.length < 8) {
+      showToast('Password must be at least 8 characters.', 'error');
+      return;
+    }
+
+    if (emailChanged || passwordChanged) {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      if (!sessionData.session) {
+        throw new Error('Please sign in again before submitting a request.');
       }
 
-      const updatePayload: Record<string, string> = {
-        email: newEmail,
-      };
+      if (emailChanged) {
+        const { data, error } = await supabase.functions.invoke(
+          'sub-admin-credential-requests',
+          {
+            body: {
+              action: 'submit_request',
+              request_type: 'email',
+              requested_email: newEmail,
+            },
+          }
+        );
 
-      if (subAdminPermissions.invitationCode) {
-        updatePayload.invite_code = newInvite;
+        if (error) throw error;
+
+        if (data?.success === false) {
+          throw new Error(data?.error || 'Email request failed.');
+        }
       }
 
-      if (subAdminPermissions.telegram) {
-        updatePayload.telegram_url = newTelegram;
-      }
+      if (passwordChanged) {
+        const { data, error } = await supabase.functions.invoke(
+          'sub-admin-credential-requests',
+          {
+            body: {
+              action: 'submit_request',
+              request_type: 'password',
+            },
+          }
+        );
 
-      if (subAdminPermissions.whatsapp) {
-        updatePayload.whatsapp_url = newWhatsapp;
-      }
+        if (error) throw error;
 
+        if (data?.success === false) {
+          throw new Error(data?.error || 'Password request failed.');
+        }
+      }
+    }
+
+    const settingsPayload: Record<string, string> = {};
+
+    if (subAdminPermissions.invitationCode) {
+      settingsPayload.invite_code = newInvite;
+    }
+
+    if (subAdminPermissions.telegram) {
+      settingsPayload.telegram_url = newTelegram;
+    }
+
+    if (subAdminPermissions.whatsapp) {
+      settingsPayload.whatsapp_url = newWhatsapp;
+    }
+
+    if (Object.keys(settingsPayload).length > 0) {
       const { error } = await supabase
         .from('sub_admins')
-        .update(updatePayload)
+        .update(settingsPayload)
         .eq('id', subAdminDbId)
         .eq('email', oldEmail);
 
       if (error) throw error;
-
-      const changesList: string[] = [];
-
-      if (oldEmail !== newEmail) {
-        changesList.push('Email updated');
-        localStorage.setItem('sub_admin_logged_in', newEmail);
-        setCurrentAdminEmail(newEmail);
-      }
-
-      if (subAdminPermissions.invitationCode) {
-        setSubAdminInviteCode(newInvite);
-        setSubAdminEditableInviteCode(newInvite);
-        if (newInvite) {
-          changesList.push('Invitation code updated');
-        }
-      }
-
-      if (subAdminPermissions.telegram) {
-        changesList.push('Telegram link updated');
-      }
-
-      if (subAdminPermissions.whatsapp) {
-        changesList.push('WhatsApp link updated');
-      }
-
-      if (changesList.length > 0) {
-        await supabase
-          .from('admin_notifications')
-          .insert({
-            sub_admin_email: newEmail,
-            message: `Sub-Admin (${oldEmail}): ${changesList.join(', ')}`,
-          });
-      }
-
-      showToast('Sub-Admin profile updated successfully!');
-    } catch (err: any) {
-      showToast(err.message || 'Error updating profile', 'error');
     }
-  };
+
+    const changesList: string[] = [];
+
+    if (emailChanged) {
+      changesList.push('Email change request submitted');
+    }
+
+    if (passwordChanged) {
+      changesList.push('Password change request submitted');
+    }
+
+    if (subAdminPermissions.invitationCode) {
+      setSubAdminInviteCode(newInvite);
+      setSubAdminEditableInviteCode(newInvite);
+
+      if (newInvite) changesList.push('Invitation code updated');
+    }
+
+    if (subAdminPermissions.telegram) {
+      changesList.push('Telegram link updated');
+    }
+
+    if (subAdminPermissions.whatsapp) {
+      changesList.push('WhatsApp link updated');
+    }
+
+    if (changesList.length > 0) {
+      const { error: notificationError } = await supabase
+        .from('admin_notifications')
+        .insert({
+          sub_admin_email: oldEmail,
+          message: `Sub-Admin (${oldEmail}): ${changesList.join(', ')}`,
+        });
+
+      if (notificationError) {
+        console.error(
+          'Could not create profile notification:',
+          notificationError
+        );
+      }
+    }
+
+    setSubAdminEditablePassword('');
+
+    showToast(
+      emailChanged || passwordChanged
+        ? 'Credential change request submitted. Await Main Admin review.'
+        : 'Sub-Admin profile updated successfully!'
+    );
+  } catch (err: any) {
+    console.error('Sub-Admin profile update failed:', err);
+    showToast(
+      err?.message || 'Error updating Sub-Admin profile.',
+      'error'
+    );
+  }
+};
+
 const handleUpdateAdminCredentials = async (
   e: React.FormEvent<HTMLFormElement>
 ) => {
@@ -4166,6 +4457,7 @@ if (batchManagerSelectedBatch === 'all') {
                       <h3 className="text-base font-extrabold text-blue-900">
                         Sub-Admin Activity Notifications (Real-Time Log)
                       </h3>
+                   
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-mono font-bold">
@@ -4176,6 +4468,217 @@ if (batchManagerSelectedBatch === 'all') {
                       </span>
                     </div>
                   </div>
+
+{/* SUB-ADMIN CREDENTIAL CHANGE REQUESTS */}
+{isMainAdmin && (
+  <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h3 className="text-lg font-bold text-slate-900">
+          Sub-Admin Credential Requests
+        </h3>
+        <p className="text-sm text-slate-500">
+          Email aur password change requests review karein.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={async () => {
+          setCredentialRequestsLoading(true);
+          setCredentialRequestMessage('');
+
+          try {
+            const { data, error } =
+              await supabase.functions.invoke(
+                'sub-admin-credential-requests',
+                { body: { action: 'list_requests' } }
+              );
+
+            if (error) throw error;
+
+            if (!data?.success) {
+              throw new Error(
+                data?.message || 'Requests load nahi huin.'
+              );
+            }
+
+            setCredentialRequests(
+              Array.isArray(data.requests) ? data.requests : []
+            );
+          } catch (error) {
+            setCredentialRequestMessage(
+              error instanceof Error
+                ? error.message
+                : 'Requests load nahi huin.'
+            );
+          } finally {
+            setCredentialRequestsLoading(false);
+          }
+        }}
+        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+      >
+        {credentialRequestsLoading ? 'Loading...' : 'Refresh Requests'}
+      </button>
+    </div>
+
+    {credentialRequestMessage && (
+      <div className="mb-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">
+        {credentialRequestMessage}
+      </div>
+    )}
+
+    {credentialRequestsLoading && credentialRequests.length === 0 ? (
+      <p className="text-sm text-slate-500">
+        Requests load ho rahi hain...
+      </p>
+    ) : credentialRequests.length === 0 ? (
+      <p className="text-sm text-slate-500">
+        Abhi koi credential request nahi hai.
+      </p>
+    ) : (
+      <div className="space-y-4">
+        {credentialRequests.map((request) => (
+          <div
+            key={request.id}
+            className="rounded-xl border border-slate-200 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-900">
+                  {request.sub_admin_email || 'Unknown Sub-Admin'}
+                </p>
+
+                <p className="mt-1 text-sm text-slate-600">
+                  Type: {request.request_type === 'email'
+                    ? 'Email Change'
+                    : 'Password Change'}
+                </p>
+
+                {request.request_type === 'email' &&
+                  request.requested_email && (
+                    <p className="mt-1 break-all text-sm text-slate-600">
+                      New email: {request.requested_email}
+                    </p>
+                  )}
+
+                <p className="mt-1 break-all text-xs text-slate-400">
+                  Request ID: {request.id}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Created: {new Date(request.created_at).toLocaleString()}
+                </p>
+              </div>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase text-slate-700">
+                {request.status}
+              </span>
+            </div>
+
+            {request.status === 'pending' && (
+              <div className="mt-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleGenerateCredentialCode(request.id)
+                  }
+                  className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600"
+                >
+                  Generate Verification Code
+                </button>
+
+                {generatedVerificationCodes[request.id] && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-sm font-semibold text-slate-800">
+                      Verification code — show only to the authorized reviewer
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <span className="font-mono text-2xl font-bold tracking-widest text-slate-900">
+                        {generatedVerificationCodes[request.id]}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigator.clipboard.writeText(
+                            generatedVerificationCodes[request.id]
+                          )
+                        }
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+                      >
+                        Copy Code
+                      </button>
+                    </div>
+
+                    <p className="mt-2 text-xs text-slate-600">
+                      Code 15 minutes mein expire ho jayega.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Enter 6-digit verification code to approve
+                  </label>
+
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={verificationCodeInputs[request.id] || ''}
+                    onChange={(event) =>
+                      setVerificationCodeInputs((prev) => ({
+                        ...prev,
+                        [request.id]: event.target.value
+                          .replace(/\D/g, '')
+                          .slice(0, 6),
+                      }))
+                    }
+                    placeholder="000000"
+                    className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 font-mono tracking-widest outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleReviewCredentialRequest(request.id, 'approve')
+                    }
+                    className="rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700"
+                  >
+                    Verify & Approve
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Kya aap is credential request ko reject karna chahte hain?'
+                        )
+                      ) {
+                        void handleReviewCredentialRequest(
+                          request.id,
+                          'reject'
+                        );
+                      }
+                    }}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"
+                  >
+                    Reject Request
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
 
                   {showNotificationsDropdown && (
                     <div className="max-h-60 overflow-y-auto space-y-2.5 pt-2">

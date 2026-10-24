@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-
 interface CustomerProfile {
   id: string;
   custom_id: number;
@@ -28,6 +27,7 @@ interface CustomerProfile {
   withdraw_message?: string;
   is_frozen?: boolean;
   auto_task_lock?: boolean;
+  manual_task_lock?: boolean;
   withdraw_locked?: boolean;
 }
 
@@ -1259,6 +1259,74 @@ const saveBatchManagerEdit = async () => {
     }
   };
 
+const handleManualTaskLockToggle = async (
+  customer: any,
+  locked: boolean
+) => {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ manual_task_lock: locked })
+    .eq('id', customer.id);
+
+  if (error) {
+    console.error('Manual task lock update failed:', error);
+    alert('Manual Tasks setting save nahi hui. Please try again.');
+    return;
+  }
+
+  // Existing customer list ko refresh karne ke liye
+
+  alert(
+    locked
+      ? 'Manual Tasks OFF: setting save ho gayi.'
+      : 'Manual Tasks ON: setting save ho gayi.'
+  );
+};
+
+const handleResetUserTasks = async (customer: any) => {
+  const confirmed = window.confirm(
+    `Customer #${customer.custom_id} ke completed task count ko 0 karna hai?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ completed_tasks: 0 })
+      .eq('id', customer.id);
+
+    if (error) throw error;
+
+    // Users table mein task count update karein
+    setCustomers((prev) =>
+      prev.map((item) =>
+        item.id === customer.id
+          ? { ...item, completed_tasks: 0 }
+          : item
+      )
+    );
+
+    // Selected user ke profile/modal mein bhi update karein
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? { ...prev, completed_tasks: 0 }
+        : prev
+    );
+
+    showToast('Completed task count 0 ho gaya hai.');
+  } catch (err: unknown) {
+    console.error('Reset tasks failed:', err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Tasks reset nahi huay. Please try again.',
+      'error'
+    );
+  }
+};
+
   const handleAutoTaskLockToggle = async (
     user: CustomerProfile,
     shouldLock: boolean
@@ -2447,166 +2515,207 @@ const saveBatchManagerEdit = async () => {
           </div>
         ) : null}
 
-        {/* TAB 1: USERS */}
-        {!isFullPageTaskSettings && activeTab === 'users' && (
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-            <div className="flex justify-between items-center border-b pb-4">
-              <div>
-                <h2 className="text-lg font-black text-blue-900">Users</h2>
-                <p className="text-xs text-slate-500 font-medium">
-                  Assigned Customers:{' '}
-                  <span className="font-bold text-blue-700">
-                    {filteredCustomers.length}
+      
+{/* TAB 1: USERS */}
+{!isFullPageTaskSettings && activeTab === 'users' && (
+  <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+    <div className="flex justify-between items-center border-b pb-4">
+      <div>
+        <h2 className="text-lg font-black text-blue-900">Users</h2>
+        <p className="text-xs text-slate-500 font-medium">
+          Assigned Customers:{' '}
+          <span className="font-bold text-blue-700">
+            {filteredCustomers.length}
+          </span>
+        </p>
+      </div>
+
+      <div className="w-80">
+        <input
+          type="text"
+          placeholder="Search by ID, Name, Phone..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+        />
+      </div>
+    </div>
+
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr className="bg-[#1e3a8a] text-white font-bold">
+            <th className="p-3">Users</th>
+            <th className="p-3">Invite Code</th>
+            <th className="p-3">Gmail / VIP Status</th>
+            <th className="p-3">Tasks</th>
+            <th className="p-3">Bal</th>
+            <th className="p-3">Auto Tasks</th>
+            <th className="p-3">Manual Tasks</th>
+            <th className="p-3">Status</th>
+            <th className="p-3 text-right">Actions &amp; Settings</th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-200 font-medium">
+          {filteredCustomers.map((c) => (
+            <tr key={c.id} className="hover:bg-slate-50 transition">
+              <td className="p-3 whitespace-nowrap">
+                <div className="text-sm font-mono font-black text-blue-900">
+                  #{c.custom_id}
+                </div>
+                <div className="text-xs font-bold text-slate-700 mt-0.5">
+                  👤 {c.full_name || c.username || c.name || 'No Name'}
+                </div>
+              </td>
+
+              <td className="p-3 whitespace-nowrap">
+                <div className="inline-flex items-center whitespace-nowrap font-mono text-[11px] font-bold">
+                  {renderSimpleInvitationCodes(c)}
+                </div>
+              </td>
+
+              <td className="p-3">
+                <div className="text-slate-700 font-semibold">
+                  {c.email || 'customer@appuser.local'}
+                </div>
+                <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
+                  {c.vip_level || 'VIP 0 - Regular'}
+                </span>
+              </td>
+
+              <td className="p-3 font-mono font-bold text-blue-900 text-sm">
+                {c.completed_tasks || 0} / 25
+              </td>
+
+              <td className="p-3 font-mono whitespace-nowrap">
+                <div className="font-black text-emerald-600 text-sm">
+                  ${Number(c.balance || 0).toFixed(2)}
+                </div>
+
+                <div className="flex items-center gap-1.5 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserForModal(c);
+                      setModalType('add_funds');
+                      setFundInput('');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
+                  >
+                    <span>+</span> Add Funds
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserForModal(c);
+                      setModalType('cut_funds');
+                      setFundInput('');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-bold text-rose-700 transition hover:bg-rose-600 hover:text-white"
+                  >
+                    <span>−</span> Deduct
+                  </button>
+                </div>
+              </td>
+
+              {/* EXISTING AUTO TASKS TOGGLE — UNCHANGED */}
+              <td className="p-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(c.auto_task_lock)}
+                    onChange={(e) =>
+                      handleAutoTaskLockToggle(c, e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </td>
+
+              {/* NEW MANUAL TASKS TOGGLE */}
+              <td className="p-3">
+                <div className="flex flex-col items-start gap-1">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(c.manual_task_lock)}
+                      onChange={(e) =>
+                        handleManualTaskLockToggle(c, e.target.checked)
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                  </label>
+
+                  <span
+                    className={`text-[10px] font-bold ${
+                      c.manual_task_lock
+                        ? 'text-red-600'
+                        : 'text-emerald-600'
+                    }`}
+                  >
+                    {c.manual_task_lock ? 'TASKS OFF' : 'TASKS ON'}
                   </span>
-                </p>
-              </div>
+                </div>
+              </td>
 
-              <div className="w-80">
-                <input
-                  type="text"
-                  placeholder="Search by ID, Name, Phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-                />
-              </div>
-            </div>
+              <td className="p-3">
+                <select
+                  value={c.is_frozen ? 'frozen' : 'active'}
+                  onChange={(e) =>
+                    handleStatusChange(c, e.target.value === 'frozen')
+                  }
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border focus:outline-none ${
+                    c.is_frozen
+                      ? 'bg-red-100 border-red-300 text-red-700'
+                      : 'bg-emerald-100 border-emerald-300 text-emerald-700'
+                  }`}
+                >
+                  <option value="active">Active</option>
+                  <option value="frozen">Disabled / Frozen</option>
+                </select>
+              </td>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[#1e3a8a] text-white font-bold">
-                    <th className="p-3">Users</th>
-                    <th className="p-3">Invite Code</th>
-                    <th className="p-3">Gmail / VIP Status</th>
-                    <th className="p-3">Tasks</th>
-                    <th className="p-3">Bal</th>
-                    <th className="p-3">Task Lock</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Actions &amp; Settings</th>
-                  </tr>
-                </thead>
+              <td className="p-3 text-right">
+                <div className="inline-flex flex-wrap justify-end gap-1.5">
+                  {/* RESET TASKS */}
+                  <button
+                    type="button"
+                    onClick={() => handleResetUserTasks(c)}
+                    title="Reset completed task count to zero"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600"
+                  >
+                 <span aria-hidden="true">↻</span>
+                    Reset Tasks
+                  </button>
 
-                <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredCustomers.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="text-sm font-mono font-black text-blue-900">
-                          #{c.custom_id}
-                        </div>
-                        <div className="text-xs font-bold text-slate-700 mt-0.5">
-                          👤 {c.full_name || c.username || c.name || 'No Name'}
-                        </div>
-                      </td>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFullPageTaskSettings(c)}
+                    className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
+                  >
+                    Settings
+                  </button>
 
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="inline-flex items-center whitespace-nowrap font-mono text-[11px] font-bold">
-                          {renderSimpleInvitationCodes(c)}
-                        </div>
-                      </td>
-
-                      <td className="p-3">
-                        <div className="text-slate-700 font-semibold">
-                          {c.email || 'customer@appuser.local'}
-                        </div>
-                        <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
-                          {c.vip_level || 'VIP 0 - Regular'}
-                        </span>
-                      </td>
-
-                      <td className="p-3 font-mono font-bold text-blue-900 text-sm">
-                        {c.completed_tasks} / 25
-                      </td>
-
-                      <td className="p-3 font-mono whitespace-nowrap">
-                        <div className="font-black text-emerald-600 text-sm">
-                          ${Number(c.balance || 0).toFixed(2)}
-                        </div>
-
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedUserForModal(c);
-                              setModalType('add_funds');
-                              setFundInput('');
-                            }}
-                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
-                          >
-                            <span>+</span> Add Funds
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedUserForModal(c);
-                              setModalType('cut_funds');
-                              setFundInput('');
-                            }}
-                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-bold text-rose-700 transition hover:bg-rose-600 hover:text-white"
-                          >
-                            <span>−</span> Deduct
-                          </button>
-                        </div>
-                      </td>
-
-                      <td className="p-3">
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(c.auto_task_lock)}
-                            onChange={(e) =>
-                              handleAutoTaskLockToggle(c, e.target.checked)
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                        </label>
-                      </td>
-
-                      <td className="p-3">
-                        <select
-                          value={c.is_frozen ? 'frozen' : 'active'}
-                          onChange={(e) =>
-                            handleStatusChange(c, e.target.value === 'frozen')
-                          }
-                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border focus:outline-none ${
-                            c.is_frozen
-                              ? 'bg-red-100 border-red-300 text-red-700'
-                              : 'bg-emerald-100 border-emerald-300 text-emerald-700'
-                          }`}
-                        >
-                          <option value="active">Active</option>
-                          <option value="frozen">Disabled / Frozen</option>
-                        </select>
-                      </td>
-
-                      <td className="p-3 text-right">
-                        <div className="inline-flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenFullPageTaskSettings(c)}
-                            className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
-                          >
-                            Settings
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleOpenUserProfileModal(c)}
-                            className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
-                          >
-                            Profile
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUserProfileModal(c)}
+                    className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
+                  >
+                    Profile
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
 
         {/* TAB 2: DEPOSIT RECORDS */}
         {!isFullPageTaskSettings && activeTab === 'deposits' && (

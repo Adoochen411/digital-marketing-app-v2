@@ -1,4 +1,3 @@
-```ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 async function hashVerificationCode(code: string): Promise<string> {
@@ -34,10 +33,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (req.method !== "POST") {
-    return respond(
-      { success: false, message: "Method not allowed" },
-      405,
-    );
+    return respond({ success: false, message: "Method not allowed" }, 405);
   }
 
   try {
@@ -55,10 +51,7 @@ Deno.serve(async (req: Request) => {
     const authorization = req.headers.get("Authorization");
 
     if (!authorization) {
-      return respond(
-        { success: false, message: "Login required" },
-        401,
-      );
+      return respond({ success: false, message: "Login required" }, 401);
     }
 
     const userClient = createClient(url, anonKey, {
@@ -77,10 +70,7 @@ Deno.serve(async (req: Request) => {
     const caller = authData.user;
 
     if (authError || !caller) {
-      return respond(
-        { success: false, message: "Invalid login session" },
-        401,
-      );
+      return respond({ success: false, message: "Invalid login session" }, 401);
     }
 
     const db = createClient(url, serviceKey, {
@@ -99,24 +89,25 @@ Deno.serve(async (req: Request) => {
     if (actorError) throw actorError;
 
     if (!actor || actor.role !== "admin") {
-      return respond(
-        { success: false, message: "Admin access required" },
-        403,
-      );
+      return respond({ success: false, message: "Admin access required" }, 403);
     }
 
     const isMainAdmin =
       actor.is_subadmin === false &&
-      (caller.email ?? "").toLowerCase() ===
-        MAIN_ADMIN_EMAIL.toLowerCase();
+      (caller.email ?? "").toLowerCase() === MAIN_ADMIN_EMAIL.toLowerCase();
 
     const isSubAdmin = actor.is_subadmin === true;
-
+console.log("Credential request admin check:", {
+  callerId: caller.id,
+  callerEmail: caller.email ?? null,
+  actorEmail: actor.email ?? null,
+  actorRole: actor.role,
+  actorIsSubadmin: actor.is_subadmin,
+  isMainAdmin,
+  isSubAdmin,
+});
     if (!isMainAdmin && !isSubAdmin) {
-      return respond(
-        { success: false, message: "Unauthorized account" },
-        403,
-      );
+      return respond({ success: false, message: "Unauthorized account" }, 403);
     }
 
     const body = await req.json();
@@ -143,10 +134,7 @@ Deno.serve(async (req: Request) => {
           ? body.requested_email.trim().toLowerCase()
           : "";
 
-      if (
-        requestType !== "email" &&
-        requestType !== "password"
-      ) {
+      if (requestType !== "email" && requestType !== "password") {
         return respond(
           { success: false, message: "Invalid request type" },
           400,
@@ -180,10 +168,7 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      if (
-        requestType === "email" &&
-        requestedEmail === currentEmail
-      ) {
+      if (requestType === "email" && requestedEmail === currentEmail) {
         return respond(
           {
             success: false,
@@ -206,8 +191,7 @@ Deno.serve(async (req: Request) => {
         return respond(
           {
             success: false,
-            message:
-              "You already have a pending or approved request",
+            message: "You already have a pending or approved request",
           },
           409,
         );
@@ -218,14 +202,11 @@ Deno.serve(async (req: Request) => {
         .insert({
           sub_admin_id: subAdmin.id,
           request_type: requestType,
-          requested_email:
-            requestType === "email" ? requestedEmail : null,
+          requested_email: requestType === "email" ? requestedEmail : null,
           status: "pending",
           verification_code_hash: null,
           verified_at: null,
-          expires_at: new Date(
-            Date.now() + 24 * 60 * 60 * 1000,
-          ).toISOString(),
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         })
         .select(
           "id, request_type, requested_email, status, created_at, expires_at",
@@ -234,20 +215,23 @@ Deno.serve(async (req: Request) => {
 
       if (insertError) throw insertError;
 
+      const notificationMessage =
+        "Credential change request: " +
+        String(requestType) +
+        " from " +
+        String(caller.email ?? subAdmin.email) +
+        ". Request ID: " +
+        String(request.id);
+
       const { error: notificationError } = await db
         .from("admin_notifications")
         .insert({
           sub_admin_email: caller.email ?? subAdmin.email,
-          message:
-            `Credential change request: ${requestType} from ` +
-            `${caller.email ?? subAdmin.email}. Request ID: ${request.id}`,
+          message: notificationMessage,
         });
 
       if (notificationError) {
-        console.error(
-          "Notification insert failed:",
-          notificationError.message,
-        );
+        console.error("Notification insert failed:", notificationError.message);
       }
 
       return respond({
@@ -319,16 +303,11 @@ Deno.serve(async (req: Request) => {
           .eq("id", requestId)
           .eq("status", "pending");
 
-        return respond(
-          { success: false, message: "Request has expired" },
-          410,
-        );
+        return respond({ success: false, message: "Request has expired" }, 410);
       }
 
       // Generate a cryptographically random six-digit code.
-      const random = crypto.getRandomValues(
-        new Uint32Array(1),
-      )[0];
+      const random = crypto.getRandomValues(new Uint32Array(1))[0];
 
       const code = String(random % 1_000_000).padStart(6, "0");
       const codeHash = await hashVerificationCode(code);
@@ -339,9 +318,7 @@ Deno.serve(async (req: Request) => {
         .from("sub_admin_credential_requests")
         .update({
           verification_code_hash: codeHash,
-          expires_at: new Date(
-            Date.now() + 15 * 60 * 1000,
-          ).toISOString(),
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         })
         .eq("id", requestId)
         .eq("status", "pending")
@@ -436,10 +413,7 @@ Deno.serve(async (req: Request) => {
           .eq("id", request.id)
           .eq("status", "pending");
 
-        return respond(
-          { success: false, message: "Request has expired" },
-          410,
-        );
+        return respond({ success: false, message: "Request has expired" }, 410);
       }
 
       if (decision === "approve") {
@@ -452,8 +426,7 @@ Deno.serve(async (req: Request) => {
           return respond(
             {
               success: false,
-              message:
-                "Enter the six-digit verification code before approval",
+              message: "Enter the six-digit verification code before approval",
             },
             400,
           );
@@ -470,8 +443,7 @@ Deno.serve(async (req: Request) => {
           );
         }
 
-        const suppliedHash =
-          await hashVerificationCode(verificationCode);
+        const suppliedHash = await hashVerificationCode(verificationCode);
 
         if (suppliedHash !== request.verification_code_hash) {
           return respond(
@@ -484,24 +456,18 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const newStatus =
-        decision === "approve" ? "verified" : "rejected";
+      const newStatus = decision === "approve" ? "verified" : "rejected";
 
       const { data: updated, error: updateError } = await db
         .from("sub_admin_credential_requests")
         .update({
           status: newStatus,
-          verified_at:
-            decision === "approve"
-              ? new Date().toISOString()
-              : null,
+          verified_at: decision === "approve" ? new Date().toISOString() : null,
           verification_code_hash: null,
         })
         .eq("id", request.id)
         .eq("status", "pending")
-        .select(
-          "id, request_type, requested_email, status, sub_admin_id",
-        )
+        .select("id, request_type, requested_email, status, sub_admin_id")
         .maybeSingle();
 
       if (updateError) throw updateError;
@@ -525,17 +491,16 @@ Deno.serve(async (req: Request) => {
       const { error: notificationError } = await db
         .from("admin_notifications")
         .insert({
-          sub_admin_email: subAdmin?.email ?? null,
+          sub_admin_email: subAdmin?.email ?? "",
           message:
-            `Main Admin ${decision === "approve" ? "approved" : "rejected"} ` +
-            `${request.request_type} change request ${request.id}.`,
+            "Credential change request " +
+            String(decision) +
+            ". Request ID: " +
+            String(request.id),
         });
 
       if (notificationError) {
-        console.error(
-          "Review notification failed:",
-          notificationError.message,
-        );
+        console.error("Notification insert failed:", notificationError.message);
       }
 
       return respond({
@@ -556,8 +521,7 @@ Deno.serve(async (req: Request) => {
         return respond(
           {
             success: false,
-            message:
-              "Only Sub-Admins can change their own password",
+            message: "Only Sub-Admins can change their own password",
           },
           403,
         );
@@ -572,10 +536,7 @@ Deno.serve(async (req: Request) => {
           requestId,
         )
       ) {
-        return respond(
-          { success: false, message: "Invalid request ID" },
-          400,
-        );
+        return respond({ success: false, message: "Invalid request ID" }, 400);
       }
 
       if (
@@ -646,10 +607,12 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      const { error: passwordError } =
-        await db.auth.admin.updateUserById(caller.id, {
+      const { error: passwordError } = await db.auth.admin.updateUserById(
+        caller.id,
+        {
           password: newPassword,
-        });
+        },
+      );
 
       if (passwordError) throw passwordError;
 
@@ -690,19 +653,14 @@ Deno.serve(async (req: Request) => {
           requestId,
         )
       ) {
-        return respond(
-          { success: false, message: "Invalid request ID" },
-          400,
-        );
+        return respond({ success: false, message: "Invalid request ID" }, 400);
       }
 
       const confirmedEmail = caller.email.trim().toLowerCase();
 
       const { data: request, error: requestError } = await db
         .from("sub_admin_credential_requests")
-        .select(
-          "id, sub_admin_id, requested_email, status, expires_at",
-        )
+        .select("id, sub_admin_id, requested_email, status, expires_at")
         .eq("id", requestId)
         .eq("request_type", "email")
         .eq("status", "verified")
@@ -718,8 +676,7 @@ Deno.serve(async (req: Request) => {
         return respond(
           {
             success: false,
-            message:
-              "Confirmed email does not match the approved request",
+            message: "Confirmed email does not match the approved request",
           },
           403,
         );
@@ -742,12 +699,11 @@ Deno.serve(async (req: Request) => {
       }
 
       // Confirm the request belongs to the same Sub-Admin record.
-      const { data: originalSubAdmin, error: originalError } =
-        await db
-          .from("sub_admins")
-          .select("id")
-          .eq("id", request.sub_admin_id)
-          .maybeSingle();
+      const { data: originalSubAdmin, error: originalError } = await db
+        .from("sub_admins")
+        .select("id")
+        .eq("id", request.sub_admin_id)
+        .maybeSingle();
 
       if (originalError) throw originalError;
 
@@ -787,8 +743,126 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Sub-Admin checks their own credential request status.
+    if (action === "get_my_requests") {
+      if (!isSubAdmin || !caller.email) {
+        return respond(
+          { success: false, message: "Sub-Admin access required" },
+          403,
+        );
+      }
+
+      const { data: subAdmin, error: subError } = await db
+        .from("sub_admins")
+        .select("id")
+        .ilike("email", caller.email)
+        .maybeSingle();
+
+      if (subError) throw subError;
+
+      if (!subAdmin) {
+        return respond(
+          { success: false, message: "Sub-Admin record not found" },
+          404,
+        );
+      }
+
+      const { data: request, error: requestError } = await db
+        .from("sub_admin_credential_requests")
+        .select("id, request_type, status, expires_at")
+        .eq("sub_admin_id", subAdmin.id)
+        .eq("request_type", "password")
+        .in("status", ["pending", "verified"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (requestError) throw requestError;
+
+      if (
+        request?.expires_at &&
+        new Date(request.expires_at).getTime() <= Date.now()
+      ) {
+        await db
+          .from("sub_admin_credential_requests")
+          .update({
+            status: "expired",
+            verification_code_hash: null,
+          })
+          .eq("id", request.id)
+          .in("status", ["pending", "verified"]);
+
+        return respond({ success: true, request: null });
+      }
+
+      return respond({ success: true, request: request ?? null });
+    }
+
     // --------------------------------------------------
     // 6. Main Admin lists credential change requests.
     // --------------------------------------------------
+
     if (action === "list_requests") {
-      if (!isMainAdmin)
+      if (!isMainAdmin) {
+        return respond(
+          {
+            success: false,
+            message: "Main Admin access required",
+          },
+          403,
+        );
+      }
+
+      const { data: requests, error: listError } = await db
+        .from("sub_admin_credential_requests")
+        .select(
+          "id, sub_admin_id, request_type, requested_email, status, expires_at, verified_at, created_at",
+        )
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (listError) throw listError;
+
+      const enrichedRequests = await Promise.all(
+        (requests ?? []).map(async (item) => {
+          const { data: subAdmin, error: subAdminError } = await db
+            .from("sub_admins")
+            .select("email")
+            .eq("id", item.sub_admin_id)
+            .maybeSingle();
+
+          if (subAdminError) throw subAdminError;
+
+          return {
+            ...item,
+            sub_admin_email: subAdmin?.email ?? "Unknown Sub-Admin",
+          };
+        }),
+      );
+
+      return respond({
+        success: true,
+        requests: enrichedRequests,
+      });
+    }
+
+    return respond(
+      {
+        success: false,
+        message: "Unknown action",
+      },
+      400,
+    );
+  } catch (error) {
+    console.error("Credential request function error:", error);
+
+    return respond(
+      {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Internal server error",
+      },
+      500,
+    );
+  }
+});

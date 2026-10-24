@@ -474,76 +474,31 @@ if (isMainAdmin) {
   setCredentialRequestsLoading(true);
 
   try {
-    const { data: requestData, error: requestError } =
-      await supabase.functions.invoke(
-        'sub-admin-credential-requests',
-        {
-          body: { action: 'list_requests' },
-        }
-      );
+    const { data, error } = await supabase.functions.invoke(
+      'sub-admin-credential-requests',
+      {
+        body: { action: 'list_requests' },
+      }
+    );
 
-    if (requestError) {
-      console.error(
-        'Credential requests load failed:',
-        requestError
-      );
-    } else if (requestData?.success) {
+    if (error) throw error;
+
+    if (data?.success) {
       setCredentialRequests(
-        Array.isArray(requestData.requests)
-          ? requestData.requests
-          : []
+        Array.isArray(data.requests) ? data.requests : []
       );
     } else {
       console.error(
         'Credential requests error:',
-        requestData?.message
+        data?.message
       );
     }
   } catch (error) {
-    console.error(
-      'Credential requests error:',
-      error
-    );
+    console.error('Credential requests load failed:', error);
   } finally {
     setCredentialRequestsLoading(false);
   }
 }
-if (isMainAdmin) {
-  setCredentialRequestsLoading(true);
-
-  try {
-    const { data: requestData, error: requestError } =
-      await supabase.functions.invoke(
-        'sub-admin-credential-requests',
-        {
-          body: {
-            action: 'list_requests',
-          },
-        }
-      );
-
-    if (requestError) {
-      console.error(
-        'Failed to load credential requests:',
-        requestError
-      );
-    } else if (requestData?.success !== false) {
-      setCredentialRequests(
-        Array.isArray(requestData?.requests)
-          ? requestData.requests
-          : []
-      );
-    }
-  } catch (requestErr) {
-    console.error(
-      'Credential request loading failed:',
-      requestErr
-    );
-  } finally {
-    setCredentialRequestsLoading(false);
-  }
-}
-
     const {
       data: settingsData,
       error: settingsError,

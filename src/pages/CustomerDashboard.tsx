@@ -671,7 +671,27 @@ const handleGrabTask = async () => {
       showToast('Your account is frozen by admin. Please contact customer support.', 'error');
       return;
     }
+// MANUAL TASK LOCK: Admin ON kare to task start nahi hoga
+if (!user) {
+  showToast('Please sign in first.', 'error');
+  return;
+}
 
+const { data: taskLockProfile, error: taskLockError } = await supabase
+  .from('profiles')
+  .select('manual_task_lock')
+  .eq('id', user.id)
+  .single();
+
+if (taskLockError || !taskLockProfile) {
+  showToast('Please refresh the page and try again.', 'error');
+  return;
+}
+
+if (taskLockProfile.manual_task_lock === true) {
+  showToast('Please refresh the page and try again.', 'error');
+  return;
+}
     if ((isAutoTaskLocked || (balance < 30 && completedTasks === 0))) {
       showToast('Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.', 'error');
       setShowDepositModal(true);
@@ -693,10 +713,7 @@ const handleGrabTask = async () => {
       return;
     }
 
-    if (!user) {
-      showToast('Please sign in first.', 'error');
-      return;
-    }
+  
 
     setIsGrabbing(true);
     const nextTaskNum = completedTasks + 1;
@@ -920,11 +937,27 @@ const selectedOfficialProd =
   };
 
 const handleConfirmTask = async () => {
-  if (!user || !currentTask) return;
-  if (isGrabbing) return;
+if (!user || !currentTask) return;
+if (isGrabbing) return;
 
-  setIsGrabbing(true);
+// MANUAL TASK LOCK: Existing task bhi confirm nahi ho sakega
+const { data: taskLockProfile, error: taskLockError } = await supabase
+  .from('profiles')
+  .select('manual_task_lock')
+  .eq('id', user.id)
+  .single();
 
+if (taskLockError || !taskLockProfile) {
+  showToast('Please refresh the page and try again.', 'error');
+  return;
+}
+
+if (taskLockProfile.manual_task_lock === true) {
+  showToast('Please refresh the page and try again.', 'error');
+  return;
+}
+
+setIsGrabbing(true);
   try {
     // LUCKY ORDER: completion, commission aur balance ek RPC transaction mein
     if (currentTask.isLucky) {

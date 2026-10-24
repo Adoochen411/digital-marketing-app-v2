@@ -438,25 +438,24 @@ const applyProfileSettings = (profile: any) => {
   useEffect(() => {
     if (!user) return;
 
-    const fetchUserProfileAndData = async () => {
-const { data: prodData, error: prodError } = await supabase
-  .from('products')
-  .select('*')
-  .eq('is_active', true);
+const fetchUserProfileAndData = async () => {
+  const { data: prodData, error: prodError } = await supabase
+    .from('products')
+    .select('*')
+    .eq('is_active', true)
+    .order('rotation_batch', { ascending: true, nullsFirst: false });
 
-if (prodError) {
-  console.error('Products loading failed:', prodError);
-} else if (prodData) {
-  setDbProducts(prodData);
-}      if (prodData && prodData.length > 0) {
-        setDbProducts(prodData);
-      }
+  if (prodError) {
+    console.error('Products loading failed:', prodError);
+  } else if (prodData) {
+    setDbProducts(prodData);
+  }
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
+  const { data } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
 
       if (data) {
         setBalance(Number(data.balance) || 0.00);
@@ -725,10 +724,52 @@ setTimeout(async () => {
     let grabbedProduct: ProductTask;
     let displayNegativeAmt = 0;
 
-    const activePool =
-      dbProducts.length > 0
-        ? dbProducts
-        : INTERNAL_PRODUCT_INVENTORY;
+ 
+const activePool =
+  dbProducts.length > 0
+    ? dbProducts
+    : INTERNAL_PRODUCT_INVENTORY;
+
+// Customer ki saved batch progress read karein
+const { data: batchProfile, error: batchReadError } = await supabase
+  .from('profiles')
+  .select('batch_number, batch_product_position')
+  .eq('id', user.id)
+  .single();
+
+if (batchReadError || !batchProfile) {
+  showToast('Could not load batch progress. Please try again.', 'error');
+  setIsGrabbing(false);
+  return;
+}
+
+const currentBatchNumber = Math.min(
+  6,
+  Math.max(1, Number(batchProfile.batch_number) || 1)
+);
+let assignedBatchProducts = dbProducts.filter(
+    (product: any) =>
+      Number(product.rotation_batch) === currentBatchNumber &&
+      product.is_active !== false
+  );
+
+  if (assignedBatchProducts.length === 0) {
+    assignedBatchProducts = dbProducts.filter(
+      (product: any) =>
+        Number(product.rotation_batch) >= 1 &&
+        Number(product.rotation_batch) <= 6 &&
+        product.is_active !== false
+    );
+  }
+
+  if (assignedBatchProducts.length === 0) {
+    showToast(
+      `Batch ${currentBatchNumber} mein koi active product assigned nahi hai. Admin se products assign karwayein.`,
+      'error'
+    );
+    setIsGrabbing(false);
+    return;
+  }
 
     if (customTaskData) {
       // Sirf admin ki database mein saved Lucky Order use hoga.
@@ -800,12 +841,15 @@ setTimeout(async () => {
         return;
       }
 
-      const uniquePoolIndex =
-        (completedTasks +
-          Math.floor(completedTasks / activePool.length) * 7) %
-        activePool.length;
+   
+const batchPosition = Number(batchProfile.batch_product_position) || 0;
 
-      const selectedOfficialProd = activePool[uniquePoolIndex];
+const uniquePoolIndex =
+  batchPosition % assignedBatchProducts.length;
+
+const selectedOfficialProd =
+  assignedBatchProducts[uniquePoolIndex];
+
       const itemPrice = Number(selectedOfficialProd.price);
 
       const vipLevel = String(activeVipLevel);
@@ -951,6 +995,33 @@ if (
 
     const nextCompletedTasks = completedTasks + 1;
 
+    // Current batch progress profile se read karein
+    const { data: batchProfile, error: batchReadError } = await supabase
+      .from('profiles')
+      .select('batch_number, batch_product_position')
+      .eq('id', user.id)
+      .single();
+
+    if (batchReadError || !batchProfile) {
+      showToast('Could not load batch progress. Please try again.', 'error');
+      return;
+    }
+
+    const currentBatchNumber = Number(batchProfile.batch_number) || 1;
+    const currentBatchPosition = Number(batchProfile.batch_product_position) || 0;
+
+    // Har successfully completed normal task par position +1
+    const nextBatchPosition = currentBatchPosition + 1;
+
+    // Har batch mein 25 products ke baad next batch; Batch 6 ke baad Batch 1
+    const nextBatchNumber =
+      nextBatchPosition >= 25
+        ? (currentBatchNumber >= 6 ? 1 : currentBatchNumber + 1)
+        : currentBatchNumber;
+
+    const savedBatchPosition =
+      nextBatchPosition >= 25 ? 0 : nextBatchPosition;
+
     const newTotalProfits = Number(
       (Number(todayCommission) + earnedCommission).toFixed(2)
     );
@@ -965,6 +1036,8 @@ if (
         balance: newBalance,
         total_profits: newTotalProfits,
         completed_tasks: nextCompletedTasks,
+        batch_number: nextBatchNumber,
+       batch_product_position: savedBatchPosition,
         running_tasks: 0,
         pending_task: null,
       })

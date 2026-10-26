@@ -1790,6 +1790,110 @@ const handleSaveAllUserSettings = async () => {
     }
   };
 
+const handleEditCustomTask = async (task: any) => {
+  const taskNumberInput = window.prompt(
+    'Enter task number:',
+    String(task.task_number ?? '')
+  );
+
+  if (taskNumberInput === null) return;
+
+  const minAmountInput = window.prompt(
+    'Enter minimum amount (USDT):',
+    String(task.min_amount ?? '')
+  );
+
+  if (minAmountInput === null) return;
+
+  const maxAmountInput = window.prompt(
+    'Enter maximum amount (USDT):',
+    String(task.max_amount ?? '')
+  );
+
+  if (maxAmountInput === null) return;
+
+  const commissionInput = window.prompt(
+    'Enter commission percentage:',
+    String(task.commission_rate ?? 10)
+  );
+
+  if (commissionInput === null) return;
+
+  const taskNumber = Number(taskNumberInput);
+  const minAmount = Number(minAmountInput);
+  const maxAmount = Number(maxAmountInput);
+  const rate = Number(commissionInput);
+
+  if (
+    !Number.isInteger(taskNumber) ||
+    taskNumber < 1 ||
+    taskNumber > 25 ||
+    !Number.isFinite(minAmount) ||
+    !Number.isFinite(maxAmount) ||
+    minAmount <= 0 ||
+    maxAmount < minAmount ||
+    !Number.isFinite(rate) ||
+    rate < 0 ||
+    rate > 100
+  ) {
+    showToast('Please enter valid task number, amounts, and commission.', 'error');
+    return;
+  }
+
+  const centsMin = Math.ceil(minAmount * 100);
+  const centsMax = Math.floor(maxAmount * 100);
+
+  if (centsMax < centsMin) {
+    showToast('The amount range must allow at least one valid cent value.', 'error');
+    return;
+  }
+
+  const randomCents =
+    Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
+
+  const taskAmount = Number((randomCents / 100).toFixed(2));
+  const commission = Number((taskAmount * rate / 100).toFixed(2));
+
+  try {
+    const { error } = await supabase
+      .from('custom_tasks')
+      .update({
+        task_number: taskNumber,
+        min_amount: minAmount,
+        max_amount: maxAmount,
+        commission_rate: rate,
+        task_amount: taskAmount,
+        commission,
+        locked_price: taskAmount,
+        locked_commission: commission,
+      })
+      .eq('id', task.id)
+      .eq('user_id', selectedUserForModal?.id)
+      .eq('is_lucky_order', true);
+
+    if (error) throw error;
+
+    const userId = selectedUserForModal?.id;
+    if (userId) {
+      const { data, error: refreshError } = await supabase
+        .from('custom_tasks')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_lucky_order', true)
+        .order('task_number', { ascending: true });
+
+      if (refreshError) throw refreshError;
+
+      setCustomTasksList(data ?? []);
+      await fetchUserCustomTasks(userId);
+    }
+
+    showToast('Lucky Order updated successfully.');
+  } catch (err: any) {
+    showToast(err?.message || 'Could not update Lucky Order.', 'error');
+  }
+};
+
   const handleDeleteCustomTask = async (taskId: string) => {
     if (!window.confirm('Are you sure you want to delete this custom task?')) {
       return;
@@ -4108,63 +4212,74 @@ const filteredWithdrawals = withdrawals.filter((w) => {
       </section>
     </div>
 
-    {/* CONFIGURED MANUAL ORDERS */}
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
-        <div>
-          <h3 className="text-xs font-black text-slate-900">
-            Configured Manual Lucky Orders
-          </h3>
-          <p className="text-[10px] text-slate-500">
-            Existing manual orders for this customer
-          </p>
-        </div>
+{/* CONFIGURED MANUAL ORDERS */}
+<section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+    <div>
+      <h3 className="text-xs font-black text-slate-900">
+        Configured Lucky Orders
+      </h3>
+      <p className="text-[10px] text-slate-500">
+        Manage configured manual orders for this customer
+      </p>
+    </div>
 
-        <button
-          type="button"
-          disabled={customTasksList.length === 0}
-          onClick={handleClearLuckyOrderConfig}
-          className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+    <button
+      type="button"
+      disabled={customTasksList.length === 0}
+      onClick={handleClearLuckyOrderConfig}
+      className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      Clear Completed
+    </button>
+  </div>
+
+  <div className="max-h-56 space-y-1.5 overflow-y-auto p-2">
+    {customTasksList.length === 0 ? (
+      <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-center text-[10px] text-slate-400">
+        No configured Lucky Orders for this user.
+      </p>
+    ) : (
+      customTasksList.map((task) => (
+        <div
+          key={task.id}
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
         >
-          Clear Completed
-        </button>
-      </div>
-
-      <div className="max-h-36 space-y-1.5 overflow-y-auto p-2">
-        {customTasksList.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-center text-[10px] text-slate-400">
-            No synchronized Lucky Orders for this user.
-          </p>
-        ) : (
-          customTasksList.map((task) => (
-            <div
-              key={task.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-800">
-                  Task #{task.task_number}
-                  <span className="ml-2 font-mono text-indigo-600">
-                    ${task.min_amount} – ${task.max_amount} USDT
-                  </span>
-                </div>
-                <div className="mt-1 text-[10px] text-slate-500">
-                  Commission: {task.commission_rate ?? 10}% · Configured
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleDeleteCustomTask(task.id)}
-                className="rounded-lg bg-rose-50 px-3 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100"
-              >
-                Delete
-              </button>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-slate-800">
+              Task #{task.task_number}
+              <span className="ml-2 font-mono text-indigo-600">
+                ${task.min_amount} – ${task.max_amount} USDT
+              </span>
             </div>
-          ))
-        )}
-      </div>
-    </section>
+
+            <div className="mt-1 text-[10px] text-slate-500">
+              Commission: {task.commission_rate ?? 10}% · Configured
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleEditCustomTask(task)}
+              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
+            >
+              Edit
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDeleteCustomTask(task.id)}
+              className="rounded-lg bg-rose-50 px-3 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+</section>
 
     {/* PAGE ACTIONS */}
     <div className="flex flex-col justify-end gap-2 border-t border-slate-200 pt-3 sm:flex-row">

@@ -27,35 +27,7 @@ interface ChatMessage {
   is_admin: boolean;
 }
 
-const STRICT_UNIQUE_INVENTORY = [
-  { name: "Rolex Daytona Platinum Edition", store: "Amazon" as const, price: 185, imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=600&q=80" },
-  { name: "Patek Philippe Nautilus Gold", store: "Shopify" as const, price: 210, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80" },
-  { name: "Audemars Piguet Royal Oak Chrono", store: "AliExpress" as const, price: 190, imageUrl: "https://images.unsplash.com/photo-1547996160-01ff60023531?w=600&q=80" },
-  { name: "Leica M11 Digital Camera", store: "Amazon" as const, price: 150, imageUrl: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80" },
-  { name: "Apple Vision Pro 1TB Gold", store: "Amazon" as const, price: 220, imageUrl: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=600&q=80" },
-  { name: "Chanel Classic Flap Black Bag", store: "AliExpress" as const, price: 130, imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=600&q=80" },
-  { name: "Cartier Santos Gold Watch", store: "Shopify" as const, price: 175, imageUrl: "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=600&q=80" },
-  { name: "Louis Vuitton Leather Travel Trunk", store: "Amazon" as const, price: 160, imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&q=80" },
-  { name: "Prada Saffiano Leather Handbag", store: "Shopify" as const, price: 115, imageUrl: "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=600&q=80" },
-  { name: "Hermes Birkin 30 Togo Leather", store: "Amazon" as const, price: 240, imageUrl: "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=600&q=80" },
-  { name: "Gucci Marmont Velvet Shoulder Bag", store: "AliExpress" as const, price: 95, imageUrl: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80" },
-  { name: "Bvlgari Serpenti Tubogas Watch", store: "Shopify" as const, price: 200, imageUrl: "https://images.unsplash.com/photo-1533139502658-0198f920d8e8?w=600&q=80" }
-];
 
-const INTERNAL_PRODUCT_INVENTORY = Array.from({ length: 125 }, (_, index) => {
-  const base = STRICT_UNIQUE_INVENTORY[index % STRICT_UNIQUE_INVENTORY.length];
-  const variationNumber = Math.floor(index / STRICT_UNIQUE_INVENTORY.length) + 1;
-  const nameModifier = variationNumber > 1 ? ` (Model ${variationNumber})` : '';
-
-  return {
-    id: index + 1,
-    name: `${base.name}${nameModifier}`,
-    store: base.store,
-    price: base.price,
-    rating: 5,
-    imageUrl: base.imageUrl
-  };
-});
 
 const INITIAL_7_TRANSACTIONS = [
   { id: 1, user: 'usr_7857***', amount: 500, time: '10 sec ago' },
@@ -560,17 +532,20 @@ const applyProfileSettings = (profile: any) => {
     if (!user) return;
 
 const fetchUserProfileAndData = async () => {
-  const { data: prodData, error: prodError } = await supabase
-    .from('products')
-    .select('*')
-    .eq('is_active', true)
-    .order('rotation_batch', { ascending: true, nullsFirst: false });
+  
+const { data: prodData, error: prodError } = await supabase
+  .from('products')
+  .select('*')
+  .eq('is_active', true)
+  .order('rotation_batch', { ascending: true, nullsFirst: false })
+  .order('id', { ascending: true });
 
-  if (prodError) {
-    console.error('Products loading failed:', prodError);
-  } else if (prodData) {
-    setDbProducts(prodData);
-  }
+if (prodError) {
+  console.error('Products loading failed:', prodError);
+} else if (prodData) {
+  setDbProducts(prodData);
+}
+
 
   const { data } = await supabase
     .from('profiles')
@@ -788,129 +763,253 @@ useEffect(() => {
   };
 
 const handleGrabTask = async () => {
-    if (isAccountFrozen) {
-      showToast('Your account is frozen by admin. Please contact customer support.', 'error');
-      return;
-    }
-// MANUAL TASK LOCK: Admin ON kare to task start nahi hoga
-if (!user) {
-  showToast('Please sign in first.', 'error');
-  return;
-}
-
-const { data: taskLockProfile, error: taskLockError } = await supabase
-  .from('profiles')
-  .select('manual_task_lock')
-  .eq('id', user.id)
-  .single();
-
-if (taskLockError || !taskLockProfile) {
-  showToast('Please refresh the page and try again.', 'error');
-  return;
-}
-
-if (taskLockProfile.manual_task_lock === true) {
-  showToast('Please refresh the page and try again.', 'error');
-  return;
-}
-    if ((isAutoTaskLocked || (balance < 30 && completedTasks === 0))) {
-      showToast('Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.', 'error');
-      setShowDepositModal(true);
-      return;
-    }
-
-    if (completedTasks >= 25) {
-      showToast(
-        'Daily task limit (25/25) completed! Please contact customer service.',
-        'error'
-      );
-      return;
-    }
-
-    if (isGrabbing) return;
-
-    if (currentTask && runningTasksVal < 0) {
-      setShowFullPageTask(true);
-      return;
-    }
-
-  
-
-    setIsGrabbing(true);
-    const nextTaskNum = completedTasks + 1;
-
-    // SIRF WAHI LUCKY ORDER UTHAYEGA JO ADMIN NE DATABASE MEIN IS TASK NUMBER KE LIYE ACTIVE KIYA HOGA
-    const { data: customTaskData, error: customTaskError } = await supabase
-      .from('custom_tasks')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('task_number', nextTaskNum)
-      .eq('status', 'pending')
-      .eq('is_lucky_order', true)
-      .maybeSingle();
-
-    if (customTaskError) {
-      console.error('Lucky Order lookup failed:', customTaskError);
-      showToast('Could not load your task. Please try again.', 'error');
-      setIsGrabbing(false);
-      return;
-    }
-
-  
-setTimeout(async () => {
-  try {
-    let grabbedProduct: ProductTask;
-    let displayNegativeAmt = 0;
-
- 
-const activePool =
-  dbProducts.length > 0
-    ? dbProducts
-    : INTERNAL_PRODUCT_INVENTORY;
-
-// Customer ki saved batch progress read karein
-const { data: batchProfile, error: batchReadError } = await supabase
-  .from('profiles')
-  .select('batch_number, batch_product_position')
-  .eq('id', user.id)
-  .single();
-
-if (batchReadError || !batchProfile) {
-  showToast('Could not load batch progress. Please try again.', 'error');
-  setIsGrabbing(false);
-  return;
-}
-
-const currentBatchNumber = Math.min(
-  6,
-  Math.max(1, Number(batchProfile.batch_number) || 1)
-);
-let assignedBatchProducts = dbProducts.filter(
-    (product: any) =>
-      Number(product.rotation_batch) === currentBatchNumber &&
-      product.is_active !== false
-  );
-
-  if (assignedBatchProducts.length === 0) {
-    assignedBatchProducts = dbProducts.filter(
-      (product: any) =>
-        Number(product.rotation_batch) >= 1 &&
-        Number(product.rotation_batch) <= 6 &&
-        product.is_active !== false
-    );
-  }
-
-  if (assignedBatchProducts.length === 0) {
+  if (isAccountFrozen) {
     showToast(
-      `Batch ${currentBatchNumber} mein koi active product assigned nahi hai. Admin se products assign karwayein.`,
+      'Your account is frozen by admin. Please contact customer support.',
       'error'
     );
-    setIsGrabbing(false);
     return;
   }
 
+  if (!user) {
+    showToast('Please sign in first.', 'error');
+    return;
+  }
+
+  // Admin manual task lock
+  const { data: taskLockProfile, error: taskLockError } = await supabase
+    .from('profiles')
+    .select('manual_task_lock')
+    .eq('id', user.id)
+    .single();
+
+  if (taskLockError || !taskLockProfile) {
+    showToast('Please refresh the page and try again.', 'error');
+    return;
+  }
+
+  if (taskLockProfile.manual_task_lock === true) {
+    showToast('Please refresh the page and try again.', 'error');
+    return;
+  }
+
+  if (isAutoTaskLocked || (balance < 30 && completedTasks === 0)) {
+    showToast(
+      'Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.',
+      'error'
+    );
+    setShowDepositModal(true);
+    return;
+  }
+
+  if (completedTasks >= 25) {
+    showToast(
+      'Daily task limit (25/25) completed! Please contact customer service.',
+      'error'
+    );
+    return;
+  }
+
+  if (isGrabbing) return;
+
+  if (currentTask && runningTasksVal < 0) {
+    setShowFullPageTask(true);
+    return;
+  }
+
+  setIsGrabbing(true);
+
+  const nextTaskNum = completedTasks + 1;
+
+  try {
+    // 1. Read customer Auto Lucky Order settings
+    const {
+      data: customerAutoSettings,
+      error: customerSettingsError,
+    } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('enabled, slots')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (customerSettingsError) {
+      console.error('Customer Auto Lucky settings:', customerSettingsError);
+      showToast('Could not load Auto Lucky Order settings.', 'error');
+      return;
+    }
+
+    // 2. Read global Auto Lucky Order settings
+   
+const customerSlots = Array.isArray(customerAutoSettings?.slots)
+  ? customerAutoSettings.slots
+  : [];
+
+const autoLuckyEnabled = customerAutoSettings?.enabled === true;
+
+const autoSlot = autoLuckyEnabled
+  ? customerSlots.find(
+      (slot: any) =>
+        slot?.active === true &&
+        Number(slot?.taskNum) === nextTaskNum
+    )
+  : null;
+
+
+    let customTaskData: any = null;
+
+    // 3. AUTO slot trigger: find or create this customer's Auto order
+    if (autoSlot) {
+      const {
+        data: existingAutoOrder,
+        error: autoOrderError,
+      } = await supabase
+        .from('custom_tasks')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('task_number', nextTaskNum)
+        .eq('status', 'pending')
+        .eq('is_lucky_order', true)
+        .eq('order_source', 'auto')
+        .maybeSingle();
+
+      if (autoOrderError) {
+        console.error('Auto Lucky Order lookup:', autoOrderError);
+        showToast('Could not load Auto Lucky Order.', 'error');
+        return;
+      }
+
+      if (existingAutoOrder) {
+        customTaskData = existingAutoOrder;
+      } else {
+        const minAmount = Number(autoSlot.minAmount);
+        const maxAmount = Number(autoSlot.maxAmount);
+        const commissionRate = Number(autoSlot.comm);
+
+        if (
+          !Number.isFinite(minAmount) ||
+          !Number.isFinite(maxAmount) ||
+          minAmount <= 0 ||
+          maxAmount < minAmount ||
+          !Number.isFinite(commissionRate) ||
+          commissionRate < 0 ||
+          commissionRate > 100
+        ) {
+          showToast('Auto Lucky Order settings are invalid.', 'error');
+          return;
+        }
+
+        const orderAmount = Number(
+          (minAmount + Math.random() * (maxAmount - minAmount)).toFixed(2)
+        );
+
+        const orderCommission = Number(
+          (orderAmount * commissionRate / 100).toFixed(2)
+        );
+
+        const {
+          data: newAutoOrder,
+          error: createAutoError,
+        } = await supabase
+          .from('custom_tasks')
+          .insert({
+            user_id: user.id,
+            task_number: nextTaskNum,
+            task_amount: orderAmount,
+            min_amount: minAmount,
+            max_amount: maxAmount,
+            commission_rate: commissionRate,
+            commission: orderCommission,
+            locked_price: orderAmount,
+            locked_commission: orderCommission,
+            vip_level: activeVipLevel,
+            status: 'pending',
+            is_active: true,
+            is_lucky_order: true,
+            funding_status: 'pending',
+            order_source: 'auto',
+          })
+          .select('*')
+          .single();
+
+        if (createAutoError || !newAutoOrder) {
+          console.error('Auto Lucky Order creation:', createAutoError);
+          showToast(
+            createAutoError?.message ||
+              'Auto Lucky Order could not be created.',
+            'error'
+          );
+          return;
+        }
+
+        customTaskData = newAutoOrder;
+      }
+    } else {
+      // 4. No Auto slot: only look for a Manual Lucky Order
+      const {
+        data: manualTaskData,
+        error: manualTaskError,
+      } = await supabase
+        .from('custom_tasks')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('task_number', nextTaskNum)
+        .eq('status', 'pending')
+        .eq('is_lucky_order', true)
+        .eq('order_source', 'manual')
+        .maybeSingle();
+
+      if (manualTaskError) {
+        console.error('Manual Lucky Order lookup:', manualTaskError);
+        showToast('Could not load your task. Please try again.', 'error');
+        return;
+      }
+
+      customTaskData = manualTaskData;
+    }
+
+
+    let grabbedProduct: ProductTask;
+    let displayNegativeAmt = 0;
+
+  
+
+    // 5. Read customer's saved batch progress
+    const {
+      data: batchProfile,
+      error: batchReadError,
+    } = await supabase
+      .from('profiles')
+      .select('batch_number, batch_product_position')
+      .eq('id', user.id)
+      .single();
+
+    if (batchReadError || !batchProfile) {
+      showToast('Could not load batch progress. Please try again.', 'error');
+      return;
+    }
+
+    const currentBatchNumber = Math.min(
+      6,
+      Math.max(1, Number(batchProfile.batch_number) || 1)
+    );
+
+    let assignedBatchProducts = dbProducts.filter(
+      (product: any) =>
+        Number(product.rotation_batch) === currentBatchNumber &&
+        product.is_active !== false
+    );
+
+    if (assignedBatchProducts.length === 0) {
+      assignedBatchProducts = dbProducts.filter(
+        (product: any) =>
+          Number(product.rotation_batch) >= 1 &&
+          Number(product.rotation_batch) <= 6 &&
+          product.is_active !== false
+      );
+    }
+
+    // 6. Lucky Order task
     if (customTaskData) {
-      // Sirf admin ki database mein saved Lucky Order use hoga.
       const targetLuckyAmount = Number(
         customTaskData.locked_price ?? customTaskData.task_amount
       );
@@ -932,29 +1031,70 @@ let assignedBatchProducts = dbProducts.filter(
         return;
       }
 
+      // Do not silently grab an order that is already funded/completed
+      if (
+        customTaskData.status !== 'pending' ||
+        customTaskData.funding_status === 'funded'
+      ) {
+        showToast(
+          'This Lucky Order is not available to grab. Please refresh and try again.',
+          'error'
+        );
+        return;
+      }
+
       displayNegativeAmt = -Math.abs(targetLuckyAmount);
 
-      const luckyProdIndex =
-        (nextTaskNum - 1) % activePool.length;
+  
+      // Lucky Order product sirf Lucky Products gallery se select karein.
+      const {
+        data: luckyGalleryProducts,
+        error: luckyGalleryError,
+      } = await supabase
+        .from('lucky_order_products')
+        .select(
+          'id, name, store, price, image_url, rating, is_active, in_lucky_gallery'
+        )
+        .eq('in_lucky_gallery', true)
+        .eq('is_active', true)
+        .order('id', { ascending: true });
 
-      const selectedLuckyProd = activePool[luckyProdIndex];
+      if (luckyGalleryError) {
+        console.error('Lucky gallery product lookup failed:', luckyGalleryError);
+        showToast(
+          'Could not load Lucky Products. Please try again.',
+          'error'
+        );
+        return;
+      }
+
+      if (!luckyGalleryProducts || luckyGalleryProducts.length === 0) {
+        showToast(
+          'No active products are available in the Lucky Products gallery.',
+          'error'
+        );
+        return;
+      }
+
+      const luckyProdIndex =
+        (nextTaskNum - 1) % luckyGalleryProducts.length;
+
+      const selectedLuckyProd = luckyGalleryProducts[luckyProdIndex];
+
 
       grabbedProduct = {
         id: nextTaskNum,
-       customTaskId: customTaskData.id,
+        customTaskId: customTaskData.id,
         name: selectedLuckyProd.name,
         store: selectedLuckyProd.store || 'Amazon',
         price: Number(selectedLuckyProd.price) || 0,
         luckyAmount: targetLuckyAmount,
         commission: taskComm,
-        rating: 5,
-        imageUrl:
-          selectedLuckyProd.image_url ||
-          selectedLuckyProd.imageUrl,
+        rating: Number(selectedLuckyProd.rating) || 5,      
+        imageUrl: selectedLuckyProd.image_url,
         isLucky: true,
-      };
+        };
 
-      // Save the admin-configured Lucky Order to the customer profile.
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
@@ -963,13 +1103,19 @@ let assignedBatchProducts = dbProducts.filter(
         })
         .eq('id', user.id);
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       setRunningTasksVal(displayNegativeAmt);
     } else {
-      // Normal task: no automatic Lucky Order is created here.
+      // 7. Normal product task
+      if (assignedBatchProducts.length === 0) {
+        showToast(
+          `Batch ${currentBatchNumber} mein koi active product assigned nahi hai. Admin se products assign karwayein.`,
+          'error'
+        );
+        return;
+      }
+
       if (balance <= 0) {
         showToast(
           'Insufficient balance! Please make a deposit request.',
@@ -979,16 +1125,21 @@ let assignedBatchProducts = dbProducts.filter(
         return;
       }
 
-   
-const batchPosition = Number(batchProfile.batch_product_position) || 0;
+      const batchPosition =
+        Number(batchProfile.batch_product_position) || 0;
 
-const uniquePoolIndex =
-  batchPosition % assignedBatchProducts.length;
+      const uniquePoolIndex =
+        batchPosition % assignedBatchProducts.length;
 
-const selectedOfficialProd =
-  assignedBatchProducts[uniquePoolIndex];
+      const selectedOfficialProd =
+        assignedBatchProducts[uniquePoolIndex];
 
       const itemPrice = Number(selectedOfficialProd.price);
+
+      if (!Number.isFinite(itemPrice) || itemPrice < 0) {
+        showToast('Product price is invalid. Please contact support.', 'error');
+        return;
+      }
 
       const vipLevel = String(activeVipLevel);
 
@@ -1035,27 +1186,23 @@ const selectedOfficialProd =
         })
         .eq('id', user.id);
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       setRunningTasksVal(0);
     }
 
     setCurrentTask(grabbedProduct);
     setShowFullPageTask(true);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Task loading failed:', error);
     showToast(
-      'Could not load task. Please try again.',
+      error?.message || 'Could not load task. Please try again.',
       'error'
     );
   } finally {
     setIsGrabbing(false);
   }
-}, 1000);
-
-  };
+};
 
 const handleConfirmTask = async () => {
 if (!user || !currentTask) return;
@@ -1164,17 +1311,33 @@ if (
     const currentBatchNumber = Number(batchProfile.batch_number) || 1;
     const currentBatchPosition = Number(batchProfile.batch_product_position) || 0;
 
-    // Har successfully completed normal task par position +1
-    const nextBatchPosition = currentBatchPosition + 1;
+    // ROUND-ROBIN ROTATION:
+    // Har completed normal task ke baad agla batch select hoga.
+    // Batch 1 product 1 -> Batch 2 product 1 -> ... -> Batch 6 product 1
+    // Batch 6 ke baad Batch 1 product 2 shuru hoga.
 
-    // Har batch mein 25 products ke baad next batch; Batch 6 ke baad Batch 1
+    const safeBatchNumber =
+      Number.isInteger(currentBatchNumber) &&
+      currentBatchNumber >= 1 &&
+      currentBatchNumber <= 6
+        ? currentBatchNumber
+        : 1;
+
+    const safeBatchPosition =
+      Number.isInteger(currentBatchPosition) &&
+      currentBatchPosition >= 0 &&
+      currentBatchPosition < 25
+        ? currentBatchPosition
+        : 0;
+
     const nextBatchNumber =
-      nextBatchPosition >= 25
-        ? (currentBatchNumber >= 6 ? 1 : currentBatchNumber + 1)
-        : currentBatchNumber;
+      safeBatchNumber >= 6 ? 1 : safeBatchNumber + 1;
 
     const savedBatchPosition =
-      nextBatchPosition >= 25 ? 0 : nextBatchPosition;
+      safeBatchNumber >= 6
+        ? (safeBatchPosition + 1) % 25
+        : safeBatchPosition;
+
 
     const newTotalProfits = Number(
       (Number(todayCommission) + earnedCommission).toFixed(2)
@@ -2175,11 +2338,13 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 {currentTask?.isLucky && (
   <div className="bg-[#171717] border border-red-500/40 rounded-2xl p-3 space-y-3">
     <div className="flex items-center gap-3">
-      <img
-        src={currentTask.imageUrl}
-        alt={currentTask.name}
-        className="w-12 h-12 rounded-xl object-cover border border-red-500/50"
-      />
+    <img
+  src={currentTask.imageUrl}
+  alt={currentTask.name}
+  loading="eager"
+  decoding="async"
+  className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-xl object-contain bg-white p-1 border border-red-500/50"
+/>
 
       <div className="flex-1 min-w-0">
         <p className="text-xs font-bold text-white line-clamp-1">
@@ -2812,14 +2977,18 @@ readOnly={isLuckyOrderDeposit}
 
           <div className="space-y-3 my-auto max-w-md mx-auto w-full">
             <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-2xl p-3 flex gap-3 shadow-[0_0_20px_rgba(212,175,55,0.15)] relative overflow-hidden">
-              <div className="w-1/2 aspect-square rounded-xl bg-black border border-[#332a15] overflow-hidden flex items-center justify-center">
-                <img 
-                  src={currentTask.imageUrl} 
-                  alt={currentTask.name} 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              
+           
+<div className="w-1/2 aspect-square rounded-xl bg-white border border-[#332a15] overflow-hidden flex items-center justify-center shrink-0 p-3">
+  <img
+    src={currentTask.imageUrl}
+    alt={currentTask.name}
+    loading="eager"
+    decoding="async"
+    fetchPriority="high"
+    className="w-full h-full object-contain"
+  />
+</div>
+
               <div className="w-1/2 flex flex-col justify-between py-1">
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">

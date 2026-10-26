@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -40,7 +41,10 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
-    if (isLogin && userCaptchaInput.trim() !== captchaCode) {
+    if (
+      isLogin &&
+      userCaptchaInput.trim() !== captchaCode
+    ) {
       setError('Invalid Verification Code (Captcha).');
       generateCaptcha();
       setUserCaptchaInput('');
@@ -77,15 +81,21 @@ export const AuthPage: React.FC = () => {
       }
 
       // CHECK USERNAME
-      const { data: usernameMatch, error: usernameCheckError } =
-        await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('username', cleanUsername)
-          .limit(1);
+      const {
+        data: usernameMatch,
+        error: usernameCheckError,
+      } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('username', cleanUsername)
+        .limit(1);
 
       if (usernameCheckError) {
-        console.error('Username check error:', usernameCheckError);
+        console.error(
+          'Username check error:',
+          usernameCheckError
+        );
+
         throw new Error(
           'Could not verify username availability. Please try again.'
         );
@@ -100,39 +110,82 @@ export const AuthPage: React.FC = () => {
       // VALIDATE MAIN ADMIN OR SUB-ADMIN INVITATION CODE
       let matchedSubAdminId: string | null = null;
 
-      const { data: mainSetting, error: settingError } =
-        await supabase
-          .from('system_settings')
-          .select('main_invite_code')
-          .eq('id', 1)
-          .maybeSingle();
+      const normalizedCode = userEnteredCode
+        .trim()
+        .toUpperCase();
+
+      // Check Main Admin invitation code first.
+      const {
+        data: mainSetting,
+        error: settingError,
+      } = await supabase
+        .from('system_settings')
+        .select('main_invite_code')
+        .eq('id', 1)
+        .maybeSingle();
 
       if (settingError) {
-        console.error('Main invitation lookup error:', settingError);
+        console.error(
+          'Main invitation lookup error:',
+          settingError
+        );
+
         throw new Error(
-          'Could not verify the invitation code. Please try again.'
+          `Main invitation lookup failed: ${settingError.message}`
         );
       }
 
-      const { data: subAdminMatch, error: subAdminError } =
-        await supabase
-          .from('sub_admins')
-          .select('id, invite_code')
-          .ilike('invite_code', userEnteredCode)
-          .maybeSingle();
-
-      if (subAdminError) {
-        console.error('Sub-admin invitation lookup error:', subAdminError);
-        throw new Error(
-          'Could not verify the invitation code. Please try again.'
-        );
-      }
+      const mainCode = String(
+        mainSetting?.main_invite_code ?? ''
+      )
+        .trim()
+        .toUpperCase();
 
       const isValidMain =
-        !!mainSetting?.main_invite_code &&
-        mainSetting.main_invite_code.toUpperCase() === userEnteredCode;
+        !!mainCode && mainCode === normalizedCode;
 
-      const isValidSub = !!subAdminMatch;
+      let isValidSub = false;
+
+      // Only check Sub-Admin invitation if Main Admin code did not match.
+      if (!isValidMain) {
+        const {
+          data: subAdminMatch,
+          error: subAdminError,
+        } = await supabase.rpc(
+          'lookup_sub_admin_invitation',
+          {
+            p_invite_code: normalizedCode,
+          }
+        );
+
+        if (subAdminError) {
+          console.error(
+            'Sub-admin invitation lookup error:',
+            subAdminError
+          );
+
+          throw new Error(
+            `Sub-Admin invitation lookup failed: ${subAdminError.message}`
+          );
+        }
+
+        if (
+          subAdminMatch &&
+          subAdminMatch.length > 1
+        ) {
+          throw new Error(
+            'This invitation code is duplicated. Please contact the administrator.'
+          );
+        }
+
+        const matchedSubAdmin = subAdminMatch?.[0];
+
+        isValidSub = !!matchedSubAdmin;
+
+        if (matchedSubAdmin) {
+          matchedSubAdminId = matchedSubAdmin.id;
+        }
+      }
 
       if (!isValidMain && !isValidSub) {
         throw new Error(
@@ -140,21 +193,23 @@ export const AuthPage: React.FC = () => {
         );
       }
 
-      if (isValidSub && subAdminMatch) {
-        matchedSubAdminId = subAdminMatch.id;
-      }
-
       // CHECK EMAIL IF PROVIDED
       if (cleanEmail) {
-        const { data: emailMatch, error: emailCheckError } =
-          await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('email', cleanEmail)
-            .limit(1);
+        const {
+          data: emailMatch,
+          error: emailCheckError,
+        } = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('email', cleanEmail)
+          .limit(1);
 
         if (emailCheckError) {
-          console.error('Email check error:', emailCheckError);
+          console.error(
+            'Email check error:',
+            emailCheckError
+          );
+
           throw new Error(
             'Could not verify email availability. Please try again.'
           );
@@ -174,33 +229,41 @@ export const AuthPage: React.FC = () => {
 
       // GENERATE CUSTOMER INVITATION CODE
       const uniqueOwnDashboardCode =
-        'M' + Math.floor(10000 + Math.random() * 90000);
+        'M' +
+        Math.floor(10000 + Math.random() * 90000);
 
       // CREATE AUTH ACCOUNT
-      const { data: authData, error: authErr } =
-        await supabase.auth.signUp({
-          email: userEmail,
-          password,
-          options: {
-            data: {
-              full_name: cleanUsername,
-              username: cleanUsername,
-              invite_code: uniqueOwnDashboardCode,
-              invitation_code: uniqueOwnDashboardCode,
-              user_invite_code: uniqueOwnDashboardCode,
-              referred_by_code: userEnteredCode,
-              sub_admin_id: matchedSubAdminId,
-            },
+      const {
+        data: authData,
+        error: authErr,
+      } = await supabase.auth.signUp({
+        email: userEmail,
+        password,
+        options: {
+          data: {
+            full_name: cleanUsername,
+            username: cleanUsername,
+            invite_code: uniqueOwnDashboardCode,
+            invitation_code: uniqueOwnDashboardCode,
+            user_invite_code: uniqueOwnDashboardCode,
+            referred_by_code: normalizedCode,
+            sub_admin_id: matchedSubAdminId,
           },
-        });
+        },
+      });
 
       if (authErr) {
         console.error('Signup error:', authErr);
 
+        const authErrorMessage =
+          authErr.message.toLowerCase();
+
         if (
-          authErr.message.toLowerCase().includes('already registered') ||
-          authErr.message.toLowerCase().includes('already been registered') ||
-          authErr.message.toLowerCase().includes('already exists')
+          authErrorMessage.includes('already registered') ||
+          authErrorMessage.includes(
+            'already been registered'
+          ) ||
+          authErrorMessage.includes('already exists')
         ) {
           throw new Error(
             'This email/account may already exist. Please log in instead of registering again.'
@@ -270,19 +333,30 @@ export const AuthPage: React.FC = () => {
             E COMMERCE
           </p>
 
-          {/* DEDICATED CSS DIGITAL MARKETING LOGO BADGE */}
+          {/* DIGITAL MARKETING LOGO */}
           <div className="pt-2">
             <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden border-2 border-cyan-400/50 p-0.5 bg-gradient-to-tr from-cyan-500 via-blue-600 to-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.4)]">
               <div className="w-full h-full bg-slate-950 rounded-[14px] flex flex-col items-center justify-center p-1 text-center relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/20 to-transparent pointer-events-none" />
-                
-                <svg className="w-7 h-7 text-cyan-400 mb-0.5 filter drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+
+                <svg
+                  className="w-7 h-7 text-cyan-400 mb-0.5 filter drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                  />
                 </svg>
 
                 <span className="text-[9px] font-black text-white tracking-wider uppercase">
                   Digital
                 </span>
+
                 <span className="text-[8px] font-bold text-cyan-400 tracking-widest uppercase">
                   Marketing
                 </span>
@@ -303,11 +377,15 @@ export const AuthPage: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-3"
+        >
           <div>
             <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
               USERNAME / EMAIL
             </label>
+
             <input
               type="text"
               autoComplete="username"
@@ -324,6 +402,7 @@ export const AuthPage: React.FC = () => {
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
                 EMAIL ADDRESS (OPTIONAL)
               </label>
+
               <input
                 type="email"
                 autoComplete="email"
@@ -339,9 +418,14 @@ export const AuthPage: React.FC = () => {
             <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
               PASSWORD
             </label>
+
             <input
               type="password"
-              autoComplete={isLogin ? 'current-password' : 'new-password'}
+              autoComplete={
+                isLogin
+                  ? 'current-password'
+                  : 'new-password'
+              }
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -355,11 +439,14 @@ export const AuthPage: React.FC = () => {
               <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
                 INVITATION CODE
               </label>
+
               <input
                 type="text"
                 placeholder="Enter Invitation Code"
                 value={invitationCode}
-                onChange={(e) => setInvitationCode(e.target.value)}
+                onChange={(e) =>
+                  setInvitationCode(e.target.value)
+                }
                 required
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono uppercase"
               />
@@ -372,6 +459,7 @@ export const AuthPage: React.FC = () => {
                 <label className="block text-[10px] font-bold text-slate-300 uppercase">
                   SECURITY CAPTCHA CODE
                 </label>
+
                 <button
                   type="button"
                   onClick={generateCaptcha}
@@ -392,7 +480,9 @@ export const AuthPage: React.FC = () => {
                 type="text"
                 placeholder="Enter numbers shown above"
                 value={userCaptchaInput}
-                onChange={(e) => setUserCaptchaInput(e.target.value)}
+                onChange={(e) =>
+                  setUserCaptchaInput(e.target.value)
+                }
                 required
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono text-center tracking-wider"
               />

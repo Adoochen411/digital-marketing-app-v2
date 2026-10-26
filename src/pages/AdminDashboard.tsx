@@ -27,6 +27,7 @@ interface CustomerProfile {
   withdraw_message?: string;
   is_frozen?: boolean;
   auto_task_lock?: boolean;
+  auto_lucky_order_enabled?: boolean;
   manual_task_lock?: boolean;
   withdraw_locked?: boolean;
 }
@@ -49,6 +50,8 @@ interface DepositRecord {
   custom_task_id?: string | null;
   created_at: string;
   trc20_address: string;
+  payment_method?: string | null;
+  txid?: string | null;
 }
 
 interface WithdrawRecord {
@@ -145,6 +148,7 @@ const defaultSubAdminPermissions: SubAdminPermissions = {
   whatsapp: true,
 };
 
+
 export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'users' | 'deposits' | 'withdrawals' | 'tasks' | 'products' | 'support' | 'whatsapp_telegram' | 'settings' | 'delete_users'
@@ -168,8 +172,16 @@ export const AdminDashboard: React.FC = () => {
   const [mainAdminPassword, setMainAdminPassword] = useState('');
   const [depositTrc20, setDepositTrc20] = useState(() => localStorage.getItem('global_trc20') || 'TYA83kNx9XmR2pQz1L7W4sV6B0c9e5F8dH');
   const [mainInviteCode, setMainInviteCode] = useState(() => localStorage.getItem('global_invite') || 'MAIN2026');
+  const [reportCustomerId, setReportCustomerId] = useState<string>('');
+
+  const [reportStartDate, setReportStartDate] = useState('');
+const [reportEndDate, setReportEndDate] = useState('');
+const [reportCategory, setReportCategory] = useState('all');
+const [reportTasks, setReportTasks] = useState<any[]>([]);
+const [reportLoading, setReportLoading] = useState(false);
+const [reportError, setReportError] = useState('');
   
-  const [telegramUrl, setTelegramUrl] = useState('https://t.me');
+const [telegramUrl, setTelegramUrl] = useState('https://t.me');
   const [whatsappUrl, setWhatsappUrl] = useState('https://whatsapp.com');
   
   const [subAdminEditableEmail, setSubAdminEditableEmail] = useState('');
@@ -233,6 +245,71 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawRecord[]>([]);
   const [productsList, setProductsList] = useState<ProductItem[]>([]);
+ 
+ 
+ 
+type LuckyOrderProduct = {
+  id: number;
+  name: string;
+  store: string;
+  price: number;
+  image_url: string | null;
+  rating: number;
+  marketing_level: string;
+  commission_label: string;
+  is_active: boolean;
+  created_at?: string;
+in_lucky_gallery?: boolean;
+};
+
+const [luckyOrderProducts, setLuckyOrderProducts] =
+  useState<LuckyOrderProduct[]>([]);
+
+const fetchLuckyOrderProducts = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('lucky_order_products')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to load Lucky Order products:', error);
+      showToast(`Lucky Order products load failed: ${error.message}`, 'error');
+      return;
+    }
+
+    setLuckyOrderProducts(data || []);
+  } catch (err: any) {
+    console.error('Lucky Order products fetch error:', err);
+    showToast(
+      err?.message || 'Unable to load Lucky Order products.',
+      'error'
+    );
+  }
+};
+const [luckyProductsGalleryOpen, setLuckyProductsGalleryOpen] =
+  useState(false);
+const [luckyOrderOpen, setLuckyOrderOpen] = useState(false);
+const [luckyOrderLoading] = useState(false);
+const [luckyOrderSaving, setLuckyOrderSaving] = useState(false);
+const [luckyOrderEditingId, setLuckyOrderEditingId] =
+  useState<number | null>(null);
+
+const [luckyOrderName, setLuckyOrderName] = useState('');
+const [luckyOrderStore, setLuckyOrderStore] = useState('Amazon');
+const [luckyOrderPrice, setLuckyOrderPrice] = useState('');
+const [luckyOrderImageUrl, setLuckyOrderImageUrl] = useState('');
+const [luckyOrderImageFile, setLuckyOrderImageFile] =
+  useState<File | null>(null);
+const [luckyOrderRating, setLuckyOrderRating] = useState('5');
+const [luckyOrderMarketingLevel, setLuckyOrderMarketingLevel] =
+  useState('Regular');
+
+const [luckyOrderSearch, setLuckyOrderSearch] = useState('');
+
+ 
+ 
+ 
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const [newProdName, setNewProdName] = useState('');
@@ -266,7 +343,7 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
   const [slotCommPercent, setSlotCommPercent] = useState('');
   const [customTasksList, setCustomTasksList] = useState<CustomTaskSlot[]>([]);
 
-  const [autoSlots, setAutoSlots] = useState([
+const [autoSlots, setAutoSlots] = useState([
   { id: 1, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
   { id: 2, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
   { id: 3, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
@@ -274,62 +351,72 @@ const [batchManagerSaving, setBatchManagerSaving] = useState(false);
   { id: 5, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
 ]);
 
-const [autoSlotsEnabled, setAutoSlotsEnabled] = useState(false);
+const [, setAutoSlotsEnabled] = useState(false);
 const [autoSlotsSaving, setAutoSlotsSaving] = useState(false);
 
-  const [chatUsers, setChatUsers] = useState<string[]>([]);  
-  const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [replyMessage, setReplyMessage] = useState('');
+const [chatUsers, setChatUsers] = useState<string[]>([]);
+const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
+const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+const [replyMessage, setReplyMessage] = useState('');
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3500);
   };
 
-  const checkAdminRoleAndFetchData = async () => {
-    const subAdminEmail = localStorage.getItem('sub_admin_logged_in');
-    const role = localStorage.getItem('current_admin_role');
+const checkAdminRoleAndFetchData = async () => {
+  const subAdminEmail = localStorage.getItem('sub_admin_logged_in');
+  const role = localStorage.getItem('current_admin_role');
 
-    if (!role && !subAdminEmail) {
-      window.location.href = '/admin/login';
-      return;
+  if (!role && !subAdminEmail) {
+    window.location.href = '/admin/login';
+    return;
+  }
+
+  if (role === 'admin') {
+    setIsMainAdmin(true);
+    await fetchAdminData();
+  } else {
+    setIsMainAdmin(false);
+    setCurrentAdminEmail(subAdminEmail || 'subadmin@platform.com');
+    setSubAdminEditableEmail(subAdminEmail || '');
+
+    const { data: subData, error: subError } = await supabase
+      .from('sub_admins')
+      .select('*')
+      .eq('email', subAdminEmail)
+      .maybeSingle();
+
+    if (subError) {
+      console.error('Failed to load sub-admin:', subError);
     }
 
-    if (role === 'admin') {
-      setIsMainAdmin(true);
-      fetchAdminData();
-    } else {
-      setIsMainAdmin(false);
-      setCurrentAdminEmail(subAdminEmail || 'subadmin@platform.com');
-      setSubAdminEditableEmail(subAdminEmail || '');
-      
-      const { data: subData } = await supabase
-        .from('sub_admins')
-        .select('*')
-        .eq('email', subAdminEmail)
-        .maybeSingle();
+    if (subData) {
+      setSubAdminDbId(subData.id);
 
-      if (subData) {
-        setSubAdminDbId(subData.id);
-        const cleanCode = (subData.invite_code || '').toString().trim().toUpperCase();
-        setSubAdminInviteCode(cleanCode);
-        setSubAdminEditableInviteCode(cleanCode);
-        if (subData.permissions) {
-          setSubAdminPermissions({
-            ...defaultSubAdminPermissions,
-            ...subData.permissions,
-          });
-        }
-        if (subData.telegram_url) setTelegramUrl(subData.telegram_url);
-        if (subData.whatsapp_url) setWhatsappUrl(subData.whatsapp_url);
-        
-        fetchAdminData();
-      } else {
-        fetchAdminData();
+      const cleanCode = (subData.invite_code || '')
+        .toString()
+        .trim()
+        .toUpperCase();
+
+      setSubAdminInviteCode(cleanCode);
+      setSubAdminEditableInviteCode(cleanCode);
+
+      if (subData.permissions) {
+        setSubAdminPermissions({
+          ...defaultSubAdminPermissions,
+          ...subData.permissions,
+        });
       }
+
+      if (subData.telegram_url) setTelegramUrl(subData.telegram_url);
+      if (subData.whatsapp_url) setWhatsappUrl(subData.whatsapp_url);
     }
-  };
+
+    await fetchAdminData();
+  }
+};
+
 const handleGenerateCredentialCode = async (requestId: string) => {
   setCredentialRequestMessage('');
 
@@ -436,139 +523,249 @@ const handleReviewCredentialRequest = async (
     );
   }
 };
-  const fetchAdminData = async () => {
-    const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
-    if (profiles) {
-      const mappedProfiles = profiles.map((p, idx) => ({
-        ...p,
-        custom_id: idx + 1,
-        auto_task_lock: p.auto_task_lock ?? true,
-      }));
-      setCustomers(mappedProfiles);
-    }
 
-    const { data: depList } = await supabase.from('deposits').select('*').order('created_at', { ascending: false });
-    if (depList) setDeposits(depList);
+const fetchAdminData = async () => {
+  // 1. Customer profiles load karein.
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: true });
 
-    const { data: witList } = await supabase.from('withdrawals').select('*').order('created_at', { ascending: false });
-    if (witList) setWithdrawals(witList);
+  if (profilesError) {
+    console.error('Failed to load profiles:', profilesError);
+  } else if (profiles) {
+    const mappedProfiles = profiles.map((p, idx) => ({
+      ...p,
+      custom_id: idx + 1,
+      auto_task_lock: p.auto_task_lock ?? true,
+    }));
 
-    const { data: prodList } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-    if (prodList) setProductsList(prodList);
+    // 2. Sirf saved customer-specific Auto Lucky settings read karein.
+    // Global template ko yahan copy/upsert nahi karna.
+    const {
+      data: luckySettings,
+      error: luckySettingsError,
+    } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id, enabled');
 
-    if (isMainAdmin) {
-      const { data: subList, error: subListError } = await supabase
-        .from('sub_admins')
-        .select('id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at');
+    if (luckySettingsError) {
+      console.error(
+        'Auto Lucky Order settings load failed:',
+        luckySettingsError
+      );
 
-      if (subListError) {
-        console.error('Failed to load Sub-Admins:', subListError.message);
-      } else if (subList) {
-        setSubAdmins(subList);
-      }
-    }
+      setCustomers((prev) =>
+        mappedProfiles.map((profile) => {
+          const existing = prev.find(
+            (item) => item.id === profile.id
+          );
 
-    const { data: notifList } = await supabase.from('admin_notifications').select('*').order('created_at', { ascending: false });
-    if (notifList) setNotifications(notifList);
-if (isMainAdmin) {
-  setCredentialRequestsLoading(true);
-
-  try {
-    const { data, error } = await supabase.functions.invoke(
-      'sub-admin-credential-requests',
-      {
-        body: { action: 'list_requests' },
-      }
-    );
-
-    if (error) throw error;
-
-    if (data?.success) {
-      setCredentialRequests(
-        Array.isArray(data.requests) ? data.requests : []
+          return {
+            ...profile,
+            auto_lucky_order_enabled:
+              existing?.auto_lucky_order_enabled ?? false,
+          };
+        })
       );
     } else {
-      console.error(
-        'Credential requests error:',
-        data?.message
+      const settingsMap = new Map<string, boolean>(
+        (luckySettings ?? []).map((setting) => [
+          setting.user_id,
+          setting.enabled === true,
+        ])
+      );
+
+      setCustomers((prev) =>
+        mappedProfiles.map((profile) => {
+          const existing = prev.find(
+            (item) => item.id === profile.id
+          );
+
+          return {
+            ...profile,
+            auto_lucky_order_enabled: settingsMap.has(profile.id)
+              ? settingsMap.get(profile.id)!
+              : existing?.auto_lucky_order_enabled ?? false,
+          };
+        })
       );
     }
-  } catch (error) {
-    console.error('Credential requests load failed:', error);
-  } finally {
-    setCredentialRequestsLoading(false);
   }
-}
-    const {
-      data: settingsData,
-      error: settingsError,
-    } = await supabase
-      .from('system_settings')
-      .select('id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url')
-      .eq('id', 1)
-      .maybeSingle();
 
-    if (settingsError) {
-      console.error('Failed to load system settings:', settingsError);
-    } else if (settingsData) {
-      setDepositTrc20(settingsData.deposit_trc20_address ?? '');
-      setMainInviteCode(settingsData.main_invite_code ?? '');
-      setQrCodeUrl(settingsData.qr_code_url ?? '');
-      if (settingsData.deposit_trc20_address) {
-        localStorage.setItem('global_trc20', settingsData.deposit_trc20_address);
-      } else {
-        localStorage.removeItem('global_trc20');
-      }
+  // 3. Deposits.
+  const { data: depList, error: depositsError } = await supabase
+    .from('deposits')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-      if (settingsData.main_invite_code) {
-        localStorage.setItem('global_invite', settingsData.main_invite_code);
-      } else {
-        localStorage.removeItem('global_invite');
-      }
-      if (settingsData.telegram_url !== null) {
-        setTelegramUrl((current) =>
-          current === '' ? (settingsData.telegram_url ?? '') : current
-        );
-      }
+  if (depositsError) {
+    console.error('Failed to load deposits:', depositsError);
+  } else if (depList) {
+    setDeposits(depList);
+  }
 
-      if (settingsData.whatsapp_url !== null) {
-        setWhatsappUrl((current) =>
-          current === '' ? (settingsData.whatsapp_url ?? '') : current
-        );
-      }
-    }
+  // 4. Withdrawals.
+  const { data: witList, error: withdrawalsError } = await supabase
+    .from('withdrawals')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-    const { data: allChats, error: chatsError } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .order('created_at', { ascending: true });
+  if (withdrawalsError) {
+    console.error('Failed to load withdrawals:', withdrawalsError);
+  } else if (witList) {
+    setWithdrawals(witList);
+  }
 
-    if (chatsError) {
-      console.error('Failed to load chat messages:', chatsError);
-    } else if (allChats) {
-      setChatMessages(allChats);
+  // 5. Products.
+  const { data: prodList, error: productsError } = await supabase
+    .from('products')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-      const uniqueUserIds = Array.from(
-        new Set(
-          allChats
-            .map((c) =>
-              c.sender_id === 'admin' ? c.receiver_id : c.sender_id
-            )
-            .filter((id) => id && id !== 'admin')
-        )
+  if (productsError) {
+    console.error('Failed to load products:', productsError);
+  } else if (prodList) {
+    setProductsList(prodList);
+  }
+
+  // 6. Sub-admins.
+  if (isMainAdmin) {
+    const { data: subList, error: subListError } = await supabase
+      .from('sub_admins')
+      .select(
+        'id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at'
       );
 
-      setChatUsers(uniqueUserIds);
-
-      if (uniqueUserIds.length > 0) {
-        setActiveChatUserId((currentId) =>
-          currentId && uniqueUserIds.includes(currentId)
-            ? currentId
-            : uniqueUserIds[0]
-        );
-      }
+    if (subListError) {
+      console.error('Failed to load Sub-Admins:', subListError.message);
+    } else if (subList) {
+      setSubAdmins(subList);
     }
-  };
+  }
+
+  // 7. Admin notifications.
+  const { data: notifList, error: notifError } = await supabase
+    .from('admin_notifications')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (notifError) {
+    console.error('Failed to load admin notifications:', notifError);
+  } else if (notifList) {
+    setNotifications(notifList);
+  }
+
+  // 8. Credential requests.
+  if (isMainAdmin) {
+    setCredentialRequestsLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'sub-admin-credential-requests',
+        {
+          body: { action: 'list_requests' },
+        }
+      );
+
+      if (error) throw error;
+
+      if (data?.success) {
+        setCredentialRequests(
+          Array.isArray(data.requests) ? data.requests : []
+        );
+      } else {
+        console.error('Credential requests error:', data?.message);
+      }
+    } catch (error) {
+      console.error('Credential requests load failed:', error);
+    } finally {
+      setCredentialRequestsLoading(false);
+    }
+  }
+
+  // 9. System settings.
+  const {
+    data: settingsData,
+    error: settingsError,
+  } = await supabase
+    .from('system_settings')
+    .select(
+      'id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url'
+    )
+    .eq('id', 1)
+    .maybeSingle();
+
+  if (settingsError) {
+    console.error('Failed to load system settings:', settingsError);
+  } else if (settingsData) {
+    setDepositTrc20(settingsData.deposit_trc20_address ?? '');
+    setMainInviteCode(settingsData.main_invite_code ?? '');
+    setQrCodeUrl(settingsData.qr_code_url ?? '');
+
+    if (settingsData.deposit_trc20_address) {
+      localStorage.setItem(
+        'global_trc20',
+        settingsData.deposit_trc20_address
+      );
+    } else {
+      localStorage.removeItem('global_trc20');
+    }
+
+    if (settingsData.main_invite_code) {
+      localStorage.setItem(
+        'global_invite',
+        settingsData.main_invite_code
+      );
+    } else {
+      localStorage.removeItem('global_invite');
+    }
+
+    if (settingsData.telegram_url !== null) {
+      setTelegramUrl((current) =>
+        current === '' ? (settingsData.telegram_url ?? '') : current
+      );
+    }
+
+    if (settingsData.whatsapp_url !== null) {
+      setWhatsappUrl((current) =>
+        current === '' ? (settingsData.whatsapp_url ?? '') : current
+      );
+    }
+  }
+
+  // 10. Chat messages.
+  const { data: allChats, error: chatsError } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (chatsError) {
+    console.error('Failed to load chat messages:', chatsError);
+  } else if (allChats) {
+    setChatMessages(allChats);
+
+    const uniqueUserIds = Array.from(
+      new Set(
+        allChats
+          .map((c) =>
+            c.sender_id === 'admin' ? c.receiver_id : c.sender_id
+          )
+          .filter((id) => id && id !== 'admin')
+      )
+    );
+
+    setChatUsers(uniqueUserIds);
+
+    if (uniqueUserIds.length > 0) {
+      setActiveChatUserId((currentId) =>
+        currentId && uniqueUserIds.includes(currentId)
+          ? currentId
+          : uniqueUserIds[0]
+      );
+    }
+  }
+};
 
   
 useEffect(() => {
@@ -586,7 +783,8 @@ useEffect(() => {
     }
 
     if (data) {
-      const defaults = Array.from({ length: 5 }, (_, index) => ({
+      // Ab 5 ki jagah 7 slots initialize honge
+      const defaults = Array.from({ length: 7 }, (_, index) => ({
         id: index + 1,
         active: false,
         taskNum: '',
@@ -595,34 +793,34 @@ useEffect(() => {
         comm: '',
       }));
 
-      const savedSlots = Array.isArray(data.slots) ? data.slots : [];
+      const savedSlots = Array.isArray(data.slots)
+        ? data.slots
+        : [];
 
-      setAutoSlots(
-        defaults.map((slot) => {
-          const saved = savedSlots.find(
-            (item: any) => Number(item.id) === slot.id
-          );
+      const loadedSlots = defaults.map((slot) => {
+        const saved = savedSlots.find(
+          (item: any) => Number(item.id) === slot.id
+        );
 
-          return saved
-            ? {
-                ...slot,
-                active: Boolean(saved.active),
-                taskNum: String(saved.taskNum ?? ''),
-                minAmount: String(saved.minAmount ?? ''),
-                maxAmount: String(saved.maxAmount ?? ''),
-                comm: String(saved.comm ?? ''),
-              }
-            : slot;
-        })
-      );
+        return saved
+          ? {
+              ...slot,
+              active: Boolean(saved.active),
+              taskNum: String(saved.taskNum ?? ''),
+              minAmount: String(saved.minAmount ?? ''),
+              maxAmount: String(saved.maxAmount ?? ''),
+              comm: String(saved.comm ?? ''),
+            }
+          : slot;
+      });
 
+      setAutoSlots(loadedSlots);
       setAutoSlotsEnabled(Boolean(data.global_enabled));
     }
   };
 
   void loadAutoSlots();
 }, []);
-
 
   useEffect(() => {
     checkAdminRoleAndFetchData();
@@ -934,6 +1132,13 @@ const handleResetAutoSlots = () => {
 const handleSaveAutoSlots = async () => {
   if (autoSlotsSaving) return;
 
+  // Selected customer zaroori hai
+  if (!selectedUserForModal?.id) {
+    showToast('Pehle customer select karein.', 'error');
+    return;
+  }
+
+  // Active slots ki validation
   for (const slot of autoSlots) {
     if (!slot.active) continue;
 
@@ -948,7 +1153,10 @@ const handleSaveAutoSlots = async () => {
       taskNum > 25 ||
       slot.taskNum.trim() === ''
     ) {
-      showToast(`Slot ${slot.id}: Task Number 1 se 25 ke darmiyan hona chahiye.`, 'error');
+      showToast(
+        `Slot ${slot.id}: Task Number 1 se 25 ke darmiyan hona chahiye.`,
+        'error'
+      );
       return;
     }
 
@@ -960,7 +1168,10 @@ const handleSaveAutoSlots = async () => {
       minAmount <= 0 ||
       maxAmount < minAmount
     ) {
-      showToast(`Slot ${slot.id}: Minimum aur Maximum Amount check karein.`, 'error');
+      showToast(
+        `Slot ${slot.id}: Minimum aur Maximum Amount check karein.`,
+        'error'
+      );
       return;
     }
 
@@ -970,23 +1181,31 @@ const handleSaveAutoSlots = async () => {
       comm < 0 ||
       comm > 100
     ) {
-      showToast(`Slot ${slot.id}: Commission 0 se 100 ke darmiyan honi chahiye.`, 'error');
+      showToast(
+        `Slot ${slot.id}: Commission 0 se 100 ke darmiyan honi chahiye.`,
+        'error'
+      );
       return;
     }
   }
 
+  // Har enabled slot ka task number unique hona chahiye
   const enabledTaskNumbers = autoSlots
     .filter((slot) => slot.active)
     .map((slot) => Number(slot.taskNum));
 
   if (new Set(enabledTaskNumbers).size !== enabledTaskNumbers.length) {
-    showToast('Enabled Auto Slots ke task numbers alag alag rakhein.', 'error');
+    showToast(
+      'Enabled Auto Slots ke task numbers alag alag rakhein.',
+      'error'
+    );
     return;
   }
 
   setAutoSlotsSaving(true);
 
   try {
+    // Sirf main admin ko save karne ki permission hai
     const { data: authData, error: authError } =
       await supabase.auth.getUser();
 
@@ -1000,32 +1219,70 @@ const handleSaveAutoSlots = async () => {
 
     const slotsToSave = autoSlots.map((slot) => ({
       id: slot.id,
-      active: slot.active,
+      active: Boolean(slot.active),
       taskNum: slot.taskNum,
       minAmount: slot.minAmount,
       maxAmount: slot.maxAmount,
       comm: slot.comm,
     }));
 
-    const { error } = await supabase
-      .from('auto_lucky_order_settings')
-      .upsert(
-        {
-          id: 1,
-          global_enabled: autoSlotsEnabled,
+    const customerId = selectedUserForModal.id;
+
+    // Pehle check karein ke customer ki settings row maujood hai
+    const { data: existingSettings, error: readError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id')
+      .eq('user_id', customerId)
+      .maybeSingle();
+
+    if (readError) throw readError;
+
+    if (existingSettings) {
+      // Sirf slots update honge; enabled toggle bilkul change nahi hoga
+      const { error: updateError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .update({
           slots: slotsToSave,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
+        })
+        .eq('user_id', customerId);
+
+      if (updateError) throw updateError;
+    } else {
+      // Missing row ke liye default ON setting ke saath initialize karein.
+      // Agar row pehle se nahi thi, tabhi enabled true set hoga.
+      const { error: insertError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .insert({
+          user_id: customerId,
+          enabled: true,
+          slots: slotsToSave,
+        });
+
+      if (insertError) throw insertError;
+
+      setCustomers((prev) =>
+        prev.map((customer) =>
+          customer.id === customerId
+            ? { ...customer, auto_lucky_order_enabled: true }
+            : customer
+        )
       );
 
-    if (error) throw error;
+      setSelectedUserForModal((prev) =>
+        prev && prev.id === customerId
+          ? { ...prev, auto_lucky_order_enabled: true }
+          : prev
+      );
+    }
 
-    showToast('Auto Slots settings saved successfully!');
-  } catch (err: any) {
-    console.error('Auto Slots save failed:', err);
+    showToast('Selected customer ke Auto Lucky Slots save ho gaye.');
+  } catch (err: unknown) {
+    console.error('Customer Auto Slots save failed:', err);
+
     showToast(
-      err?.message || 'Unable to save Auto Slots settings.',
+      err instanceof Error
+        ? err.message
+        : 'Unable to save customer Auto Slots.',
       'error'
     );
   } finally {
@@ -1408,102 +1665,105 @@ const saveBatchManagerEdit = async () => {
     setModalType('user_profile_all');
   };
 
-  const handleSaveAllUserSettings = async () => {
-    if (!selectedUserForModal) return;
+const handleSaveAllUserSettings = async () => {
+  if (!selectedUserForModal) return;
 
-    const userId = selectedUserForModal.id;
-    const newLoginPassword = editLoginPass.trim();
-    const newWithdrawPassword = editWithdrawPass.trim();
+  const userId = selectedUserForModal.id;
+  const newLoginPassword = editLoginPass.trim();
+  const newWithdrawPassword = editWithdrawPass.trim();
 
-    if (newLoginPassword && newLoginPassword.length < 6) {
-      showToast('Login password must be at least 6 characters.', 'error');
-      return;
-    }
+  if (newLoginPassword && newLoginPassword.length < 6) {
+    showToast('Login password must be at least 6 characters.', 'error');
+    return;
+  }
 
-    const payload: Record<string, any> = {
-      vip_level: editVipLevel,
-      withdraw_locked: disableWithdraw,
-      withdraw_message: withdrawNotificationMsg.trim(),
-      trc20_address: editTrc20.trim(),
-      bank_name: editBankName.trim(),
-      bank_account_number: editBankAccount.trim(),
-    };
-
-    if (newWithdrawPassword) {
-      payload.withdraw_password = newWithdrawPassword;
-    }
-
-    try {
-      const { data: savedUser, error: saveError } = await supabase
-        .from('profiles')
-        .update(payload)
-        .eq('id', userId)
-        .select('*')
-        .maybeSingle();
-
-      if (saveError) throw saveError;
-
-      if (!savedUser) {
-        throw new Error(
-          'Profile settings were not saved. Check admin database permissions.'
-        );
-      }
-
-      if (newLoginPassword) {
-        const { data, error } = await supabase.functions.invoke(
-          'admin-update-user-password',
-          {
-            body: {
-              target_user_id: userId,
-              new_password: newLoginPassword,
-            },
-          }
-        );
-
-        if (error) {
-          throw new Error(
-            'Profile settings saved, but login password failed to update: ' +
-            error.message
-          );
-        }
-
-        if (!data?.success) {
-          throw new Error(
-            data?.message || 'The login password was not updated.'
-          );
-        }
-      }
-
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === userId
-            ? { ...customer, ...savedUser }
-            : customer
-        )
-      );
-
-      setSelectedUserForModal((prev) =>
-        prev && prev.id === userId
-          ? { ...prev, ...savedUser }
-          : prev
-      );
-
-      setEditLoginPass('');
-      setEditWithdrawPass('');
-      setModalType(null);
-
-      showToast(
-        newLoginPassword
-          ? 'Profile settings and login password updated successfully.'
-          : 'Profile settings saved successfully.'
-      );
-    } catch (err: any) {
-      showToast(
-        err?.message || 'Could not save user settings.',
-        'error'
-      );
-    }
+  const payload: Record<string, any> = {
+    vip_level: editVipLevel,
+    withdraw_locked: disableWithdraw,
+    withdraw_message: withdrawNotificationMsg.trim(),
+    withdraw_status: disableWithdraw ? 'disabled' : 'enabled',
+    trc20_address: editTrc20.trim(),
+    bank_name: editBankName.trim(),
+    account_number: editBankAccount.trim(),
+    erc20_address: editErc20.trim(),
   };
+
+  if (newWithdrawPassword) {
+    payload.withdraw_password = newWithdrawPassword;
+  }
+
+  try {
+    const { data: savedUser, error: saveError } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .select('*')
+      .maybeSingle();
+
+    if (saveError) throw saveError;
+
+    if (!savedUser) {
+      throw new Error(
+        'Profile settings were not saved. Check admin database permissions.'
+      );
+    }
+
+    if (newLoginPassword) {
+      const { data, error } = await supabase.functions.invoke(
+        'admin-update-user-password',
+        {
+          body: {
+            target_user_id: userId,
+            new_password: newLoginPassword,
+          },
+        }
+      );
+
+      if (error) {
+        throw new Error(
+          'Profile saved, but login password update failed: ' +
+          error.message
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(
+          data?.message || 'The login password was not updated.'
+        );
+      }
+    }
+
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === userId
+          ? { ...customer, ...savedUser }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === userId
+        ? { ...prev, ...savedUser }
+        : prev
+    );
+
+    setEditLoginPass('');
+    setEditWithdrawPass('');
+    setModalType(null);
+
+    showToast(
+      newLoginPassword
+        ? 'Profile settings and login password updated successfully.'
+        : 'Profile settings saved successfully.'
+    );
+  } catch (err: any) {
+    showToast(
+      err?.message || 'Could not save user settings.',
+      'error'
+    );
+  }
+};
+
 
   const handleOpenFullPageTaskSettings = async (user: CustomerProfile) => {
     setSelectedUserForModal(user);
@@ -1581,6 +1841,242 @@ const saveBatchManagerEdit = async () => {
     }
   };
 
+  
+const handleLoadCustomerReport = async (customerId: string) => {
+  setReportCustomerId(customerId);
+  setReportError('');
+  setReportLoading(true);
+  setReportTasks([]);
+
+  try {
+    const { data, error } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', customerId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    setReportTasks(data ?? []);
+  } catch (err: unknown) {
+    console.error('Customer report loading failed:', err);
+
+    setReportError(
+      err instanceof Error
+        ? err.message
+        : 'Customer task history could not be loaded.'
+    );
+  } finally {
+    setReportLoading(false);
+  }
+};
+
+const handleDownloadCustomerReport = () => {
+  if (!reportCustomer) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
+
+  const escapeHtml = (value: unknown): string =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const depositRows = filteredReportDeposits
+    .map(
+      (d: any) => `
+        <tr>
+          <td>Deposit / Funds</td>
+          <td>${escapeHtml(reportDate(d.created_at))}</td>
+          <td>${escapeHtml(reportMoney(d.amount))}</td>
+          <td>${escapeHtml(d.status ?? d.type ?? 'Recorded')}</td>
+        </tr>`
+    )
+    .join('');
+
+  const withdrawalRows = filteredReportWithdrawals
+    .map(
+      (w: any) => `
+        <tr>
+          <td>Withdrawal</td>
+          <td>${escapeHtml(reportDate(w.created_at))}</td>
+          <td>${escapeHtml(reportMoney(w.amount))}</td>
+          <td>${escapeHtml(w.status ?? 'Recorded')}</td>
+        </tr>`
+    )
+    .join('');
+
+  const taskRows = filteredReportTasks
+    .map(
+      (t: any) => `
+        <tr>
+          <td>${t.is_lucky_order ? 'Lucky Order' : 'Task'}</td>
+          <td>${escapeHtml(reportDate(t.created_at))}</td>
+          <td>${escapeHtml(
+            reportMoney(t.task_amount ?? t.locked_price ?? t.amount ?? 0)
+          )}</td>
+          <td>${escapeHtml(
+            t.funding_status ?? t.status ?? (t.is_active ? 'Active' : 'Recorded')
+          )}</td>
+        </tr>`
+    )
+    .join('');
+
+  const rows =
+    depositRows +
+    withdrawalRows +
+    taskRows;
+
+  const printWindow = window.open('', '_blank');
+
+  if (!printWindow) {
+    showToast(
+      'Report window blocked. Please allow pop-ups and try again.',
+      'error'
+    );
+    return;
+  }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Customer Records &amp; Reports</title>
+        <meta charset="UTF-8" />
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 24px;
+            color: #222;
+          }
+          h1 { margin-bottom: 8px; }
+          .summary { margin-bottom: 22px; line-height: 1.8; }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 18px;
+          }
+          th, td {
+            border: 1px solid #ccc;
+            padding: 9px;
+            text-align: left;
+            overflow-wrap: anywhere;
+          }
+          th { background: #eee; }
+          @media print {
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Customer Records &amp; Reports</h1>
+        <div class="summary">
+          <strong>Customer:</strong>
+          ${escapeHtml(reportCustomer.email ?? reportCustomer.custom_id ?? reportCustomer.id)}
+          <br />
+          <strong>Customer ID:</strong> ${escapeHtml(reportCustomer.id)}
+          <br />
+          <strong>Start date:</strong> ${escapeHtml(reportStartDate || 'All dates')}
+          <br />
+          <strong>End date:</strong> ${escapeHtml(reportEndDate || 'All dates')}
+          <br />
+          <strong>Generated:</strong> ${escapeHtml(new Date().toLocaleString())}
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Record Type</th>
+              <th>Date</th>
+              <th>Amount</th>
+              <th>Status / Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows ||
+              '<tr><td colspan="4">No records found for the selected filters.</td></tr>'
+            }
+          </tbody>
+        </table>
+
+        <script>
+          window.onload = function () {
+            window.print();
+          };
+        </script>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+};
+
+const reportCustomer = customers.find(
+  (c) => String(c.id) === reportCustomerId
+);
+
+const reportDeposits = deposits.filter(
+  (d: any) => String(d.user_id) === reportCustomerId
+);
+
+const reportWithdrawals = withdrawals.filter(
+  (w: any) => String(w.user_id) === reportCustomerId
+);
+
+const reportDateMatches = (record: any): boolean => {
+  const rawDate = record.created_at || record.updated_at;
+
+  if (!rawDate) return true;
+
+  const date = new Date(rawDate);
+
+  if (Number.isNaN(date.getTime())) return true;
+
+  if (reportStartDate) {
+    const start = new Date(`${reportStartDate}T00:00:00`);
+
+    if (date < start) return false;
+  }
+
+  if (reportEndDate) {
+    const end = new Date(`${reportEndDate}T23:59:59.999`);
+
+    if (date > end) return false;
+  }
+
+  return true;
+};
+
+const filteredReportDeposits =
+  reportDeposits.filter(reportDateMatches);
+
+const filteredReportWithdrawals =
+  reportWithdrawals.filter(reportDateMatches);
+
+const filteredReportTasks =
+  reportTasks.filter(reportDateMatches);
+
+const reportMoney = (value: unknown): string => {
+  const amount = Number(value ?? 0);
+
+  return `$${(Number.isFinite(amount) ? amount : 0).toFixed(2)}`;
+};
+
+const reportDate = (value: unknown): string => {
+  if (!value) return 'Date unavailable';
+
+  const date = new Date(String(value));
+
+  return Number.isNaN(date.getTime())
+    ? 'Date unavailable'
+    : date.toLocaleString();
+};
+
+
 const handleManualTaskLockToggle = async (
   customer: any,
   locked: boolean
@@ -1599,6 +2095,64 @@ const handleManualTaskLockToggle = async (
   // Existing customer list ko refresh karne ke liye
 
  
+};
+
+const handleAutoLuckyOrderToggle = async (
+  customer: CustomerProfile,
+  enabled: boolean
+) => {
+  try {
+    const { data: existingSettings, error: readError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id')
+      .eq('user_id', customer.id)
+      .maybeSingle();
+
+    if (readError) throw readError;
+
+    if (!existingSettings) {
+      showToast(
+        'Customer Auto Lucky Order settings nahi milin. Is customer ki settings pehle initialize karein.',
+        'error'
+      );
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .update({ enabled })
+      .eq('user_id', customer.id);
+
+    if (updateError) throw updateError;
+
+    setCustomers((prev) =>
+      prev.map((item) =>
+        item.id === customer.id
+          ? { ...item, auto_lucky_order_enabled: enabled }
+          : item
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? { ...prev, auto_lucky_order_enabled: enabled }
+        : prev
+    );
+
+    showToast(
+      enabled
+        ? 'Customer Auto Lucky Order enabled.'
+        : 'Customer Auto Lucky Order disabled.'
+    );
+  } catch (err: unknown) {
+    console.error('Auto Lucky Order update failed:', err);
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Auto Lucky Order setting save nahi hui.',
+      'error'
+    );
+  }
 };
 
 const handleResetUserTasks = async (customer: any) => {
@@ -2070,52 +2624,85 @@ const handleSaveSubAdminSelfProfile = async (
       return;
     }
 
-    if (emailChanged || passwordChanged) {
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
+    const invokeCredentialFunction = async (
+      body: Record<string, unknown>
+    ) => {
+      const { data, error } = await supabase.functions.invoke(
+        'sub-admin-credential-requests',
+        { body }
+      );
 
-      if (sessionError) throw sessionError;
+      if (error) {
+        let details: any = null;
 
-      if (!sessionData.session) {
-        throw new Error('Please sign in again before submitting a request.');
-      }
-
-      if (emailChanged) {
-        const { data, error } = await supabase.functions.invoke(
-          'sub-admin-credential-requests',
-          {
-            body: {
-              action: 'submit_request',
-              request_type: 'email',
-              requested_email: newEmail,
-            },
-          }
-        );
-
-        if (error) throw error;
-
-        if (data?.success === false) {
-          throw new Error(data?.error || 'Email request failed.');
+        try {
+          details = await error.context?.json?.();
+        } catch {
+          // Keep the original error if the response is not JSON.
         }
-      }
 
-      if (passwordChanged) {
-        const { data, error } = await supabase.functions.invoke(
-          'sub-admin-credential-requests',
-          {
-            body: {
-              action: 'submit_request',
-              request_type: 'password',
-            },
-          }
+        throw new Error(
+          details?.message ||
+          details?.error ||
+          error.message ||
+          'Credential request failed.'
         );
-
-        if (error) throw error;
-
-        if (data?.success === false) {
-          throw new Error(data?.error || 'Password request failed.');
-        }
       }
+
+      if (data?.success === false) {
+        throw new Error(
+          data?.message || data?.error || 'Credential request failed.'
+        );
+      }
+
+      return data;
+    };
+
+    const messages: string[] = [];
+
+    if (emailChanged) {
+      await invokeCredentialFunction({
+        action: 'submit_request',
+        request_type: 'email',
+        requested_email: newEmail,
+      });
+
+      messages.push(
+        'Email change request submitted for Main Admin approval.'
+      );
+    }
+
+    if (passwordChanged) {
+      const statusData = await invokeCredentialFunction({
+        action: 'get_my_requests',
+      });
+
+      const request = statusData?.request;
+
+      if (request?.status === 'verified') {
+        await invokeCredentialFunction({
+          action: 'complete_password_change',
+          request_id: request.id,
+          new_password: newPassword,
+        });
+
+        messages.push('Password changed successfully.');
+      } else if (request?.status === 'pending') {
+        messages.push(
+          'Password request is pending. Wait for Main Admin approval, then enter the new password and save again.'
+        );
+      } else {
+        await invokeCredentialFunction({
+          action: 'submit_request',
+          request_type: 'password',
+        });
+
+        messages.push(
+          'Password request submitted. After Main Admin approval, enter the new password again and save.'
+        );
+      }
+
+      setSubAdminEditablePassword('');
     }
 
     const settingsPayload: Record<string, string> = {};
@@ -2149,7 +2736,7 @@ const handleSaveSubAdminSelfProfile = async (
     }
 
     if (passwordChanged) {
-      changesList.push('Password change request submitted');
+      changesList.push('Password workflow processed');
     }
 
     if (subAdminPermissions.invitationCode) {
@@ -2183,12 +2770,11 @@ const handleSaveSubAdminSelfProfile = async (
       }
     }
 
-    setSubAdminEditablePassword('');
-
     showToast(
-      emailChanged || passwordChanged
-        ? 'Credential change request submitted. Await Main Admin review.'
-        : 'Sub-Admin profile updated successfully!'
+      messages.length > 0
+        ? messages.join(' ')
+        : 'Sub-Admin profile updated successfully!',
+      'success'
     );
   } catch (err: any) {
     console.error('Sub-Admin profile update failed:', err);
@@ -2198,6 +2784,7 @@ const handleSaveSubAdminSelfProfile = async (
     );
   }
 };
+
 
 const handleUpdateAdminCredentials = async (
   e: React.FormEvent<HTMLFormElement>
@@ -2479,8 +3066,283 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
       );
     }
   };
+  const resetLuckyOrderForm = () => {
+    setLuckyOrderEditingId(null);
+    setLuckyOrderName('');
+    setLuckyOrderStore('Amazon');
+    setLuckyOrderPrice('');
+    setLuckyOrderImageUrl('');
+    setLuckyOrderImageFile(null);
+    setLuckyOrderRating('5');
+    setLuckyOrderMarketingLevel('VIP 1');
+  };
 
-  const filterByUniversalQuery = (c: CustomerProfile, q: string) => {
+  const saveLuckyOrderProduct = async (
+    e: React.FormEvent
+  ) => {
+    e.preventDefault();
+
+    if (
+      !luckyOrderName.trim() ||
+      !luckyOrderPrice ||
+      !Number.isFinite(Number(luckyOrderPrice)) ||
+      Number(luckyOrderPrice) <= 0 ||
+      (!luckyOrderImageUrl.trim() && !luckyOrderImageFile)
+    ) {
+      showToast(
+        'Enter product name, valid price and image.',
+        'error'
+      );
+      return;
+    }
+
+    if (
+      !Number.isFinite(Number(luckyOrderRating)) ||
+      Number(luckyOrderRating) < 1 ||
+      Number(luckyOrderRating) > 5
+    ) {
+      showToast('Rating must be between 1 and 5.', 'error');
+      return;
+    }
+
+    if (
+      luckyOrderEditingId === null &&
+luckyOrderProducts.length >= 250    ) {
+      showToast(
+        'Maximum 250 Lucky Order products allowed.',
+        'error'
+      );
+      return;
+    }
+
+    setLuckyOrderSaving(true);
+
+    try {
+      const {
+        data: authData,
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (
+        authError ||
+        authData.user?.email?.toLowerCase() !==
+          'adoochen64@gmail.com'
+      ) {
+        showToast('Main admin login required.', 'error');
+        return;
+      }
+
+      let imageUrl = luckyOrderImageUrl.trim();
+
+      if (luckyOrderImageFile) {
+        const file = luckyOrderImageFile;
+
+        const allowedTypes = [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+          showToast(
+            'Use JPG, PNG or WEBP images only.',
+            'error'
+          );
+          return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+          showToast(
+            'Image must be 5 MB or smaller.',
+            'error'
+          );
+          return;
+        }
+
+        const ext = file.name.split('.').pop()?.toLowerCase();
+
+        if (
+          !ext ||
+          !['jpg', 'jpeg', 'png', 'webp'].includes(ext)
+        ) {
+          showToast('Invalid image extension.', 'error');
+          return;
+        }
+
+        const imagePath =
+          `lucky-order-products/${crypto.randomUUID()}.${ext}`;
+
+        const {
+          error: uploadError,
+        } = await supabase.storage
+          .from('product-images')
+          .upload(imagePath, file, {
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('product-images')
+          .getPublicUrl(imagePath);
+
+        if (!urlData?.publicUrl) {
+          throw new Error(
+            'Could not generate the product image URL.'
+          );
+        }
+
+        imageUrl = urlData.publicUrl;
+      }
+
+      const payload = {
+        name: luckyOrderName.trim(),
+        store: luckyOrderStore,
+        price: Number(luckyOrderPrice),
+        image_url: imageUrl,
+        rating: Number(luckyOrderRating),
+        marketing_level: luckyOrderMarketingLevel,
+        updated_at: new Date().toISOString(),
+      };
+
+      let saveError: any = null;
+
+      if (luckyOrderEditingId !== null) {
+        const { error } = await supabase
+          .from('lucky_order_products')
+          .update(payload)
+          .eq('id', luckyOrderEditingId);
+
+        saveError = error;
+      } else {
+        const { error } = await supabase
+          .from('lucky_order_products')
+          .insert([payload]);
+
+        saveError = error;
+      }
+
+      if (saveError) throw saveError;
+
+      showToast(
+        luckyOrderEditingId !== null
+          ? 'Lucky Order product updated!'
+          : 'Lucky Order product added!'
+      );
+
+      resetLuckyOrderForm();
+      await fetchLuckyOrderProducts();
+    } catch (err: any) {
+      console.error('Lucky Order product save failed:', err);
+
+      showToast(
+        `Lucky Order error: ${
+          err?.message || 'Unable to save product.'
+        }`,
+        'error'
+      );
+    } finally {
+      setLuckyOrderSaving(false);
+    }
+  };
+
+  const editLuckyOrderProduct = (
+    product: LuckyOrderProduct
+  ) => {
+    setLuckyOrderEditingId(product.id);
+    setLuckyOrderName(product.name);
+    setLuckyOrderStore(product.store || 'Amazon');
+    setLuckyOrderPrice(String(product.price));
+    setLuckyOrderImageUrl(product.image_url || '');
+    setLuckyOrderImageFile(null);
+    setLuckyOrderRating(String(product.rating ?? 5));
+    setLuckyOrderMarketingLevel(
+      product.marketing_level || 'VIP 1'
+    );
+      
+
+    setLuckyOrderOpen(true);
+  };
+
+  const deleteLuckyOrderProduct = async (id: number) => {
+    if (
+      !window.confirm(
+        'Delete this Lucky Order product?'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('lucky_order_products')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setLuckyOrderProducts((prev) =>
+        prev.filter((product) => product.id !== id)
+      );
+
+      if (luckyOrderEditingId === id) {
+        resetLuckyOrderForm();
+      }
+
+      showToast('Lucky Order product deleted.');
+    } catch (err: any) {
+      console.error('Lucky Order product delete failed:', err);
+
+      showToast(
+        `Delete failed: ${
+          err?.message || 'Unable to delete product.'
+        }`,
+        'error'
+      );
+    }
+  };
+
+  const toggleLuckyProductGallery = async (
+  product: LuckyOrderProduct
+) => {
+  const nextValue = !product.in_lucky_gallery;
+
+  try {
+    const { error } = await supabase
+      .from('lucky_order_products')
+      .update({ in_lucky_gallery: nextValue })
+      .eq('id', product.id);
+
+    if (error) throw error;
+
+    setLuckyOrderProducts((prev) =>
+      prev.map((p) =>
+        p.id === product.id
+          ? { ...p, in_lucky_gallery: nextValue }
+          : p
+      )
+    );
+
+    showToast(
+      nextValue
+        ? 'Product moved into Lucky Products gallery.'
+        : 'Product moved out of Lucky Products gallery.'
+    );
+  } catch (err: any) {
+    console.error('Lucky Products move failed:', err);
+
+    showToast(
+      err?.message || 'Could not move this product.',
+      'error'
+    );
+  }
+};
+
+  const filterByUniversalQuery = (
+    c: CustomerProfile,
+    q: string
+  ) => {
     const cleanQ = q.trim().toLowerCase().replace(/^#/, '');
 
     if (!cleanQ) return true;
@@ -2489,7 +3351,11 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
     const userId = String(c.id ?? '').toLowerCase();
 
     const nameStr = String(
-      c.full_name || c.username || c.name || c.display_name || ''
+      c.full_name ||
+        c.username ||
+        c.name ||
+        c.display_name ||
+        ''
     ).toLowerCase();
 
     const username = String(c.username || '').toLowerCase();
@@ -2511,7 +3377,6 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
       inviteCode.includes(cleanQ)
     );
   };
-
   const isCustomerOfSubAdmin = (c: CustomerProfile, subCode: string) => {
     if (isMainAdmin) return true;
     if (subAdminDbId && c.sub_admin_id === subAdminDbId) return true;
@@ -2526,45 +3391,96 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
   const filteredCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, searchQuery));
   const filteredDeleteCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, deleteSearchQuery));
   const filteredTaskCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, taskSearchQuery));
+const filteredDeposits = deposits.filter((d) => {
+  if (!isMainAdmin) {
+    const cust = customers.find((c) => c.id === d.user_id);
 
-  const filteredDeposits = deposits.filter((d) => {
-    if (!isMainAdmin) {
-      const cust = customers.find((c) => c.id === d.user_id);
-      if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
+    if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) {
+      return false;
     }
-    if (!depositSearchQuery || !depositSearchQuery.trim()) return true;
-    const q = depositSearchQuery.toLowerCase().trim().replace('#', '');
-    const custDetails = getCustomerDetailsByUserId(d.user_id);
-    if (/^\d+$/.test(q)) {
-      return custDetails.customId.replace('#', '') === q;
-    }
-    return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
-  });
+  }
 
-  const filteredWithdrawals = withdrawals.filter((w) => {
-    if (!isMainAdmin) {
-      const cust = customers.find(c => c.id === w.user_id);
-      if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
+  const q = depositSearchQuery.trim().toLowerCase().replace(/^#/, '');
+  if (!q) return true;
+
+  const cust = customers.find((c) => c.id === d.user_id);
+  const details = getCustomerDetailsByUserId(d.user_id);
+
+  const searchable = [
+    details.customId,
+    details.name,
+    d.id,
+    d.user_id,
+    d.custom_task_id,
+    cust?.trc20_address,
+    cust?.erc20_address,
+    cust?.bank_name,
+    cust?.invite_code,
+    cust?.referred_by_code,
+    cust?.invitation_code,
+  ]
+    .filter((v) => v !== null && v !== undefined)
+    .join(' ')
+    .toLowerCase();
+
+  return searchable.includes(q);
+});
+const filteredWithdrawals = withdrawals.filter((w) => {
+  if (!isMainAdmin) {
+    const cust = customers.find((c) => c.id === w.user_id);
+    if (!cust || !isCustomerOfSubAdmin(cust, subAdminInviteCode)) {
+      return false;
     }
-    if (!withdrawSearchQuery || !withdrawSearchQuery.trim()) return true;
-    const q = withdrawSearchQuery.toLowerCase().trim().replace('#', '');
-    const custDetails = getCustomerDetailsByUserId(w.user_id);
-    if (/^\d+$/.test(q)) {
-      return custDetails.customId.replace('#', '') === q;
-    }
-    return custDetails.customId.toLowerCase().includes(q) || custDetails.name.toLowerCase().includes(q);
-  });
+  }
+
+  const q = withdrawSearchQuery.trim().toLowerCase().replace(/^#/, '');
+  if (!q) return true;
+
+  const cust = customers.find((c) => c.id === w.user_id);
+  const details = getCustomerDetailsByUserId(w.user_id);
+
+  const searchable = [
+    details.customId,
+    details.name,
+    w.id,
+    w.user_id,
+    cust?.trc20_address,
+    cust?.erc20_address,
+    cust?.bank_name,
+    cust?.invite_code,
+    cust?.referred_by_code,
+    cust?.invitation_code,
+  ]
+    .filter((v) => v !== null && v !== undefined)
+    .join(' ')
+    .toLowerCase();
+
+  return searchable.includes(q);
+});
 
   const filteredProducts = productsList.filter((p) => {
-    const q = productSearchQuery.toLowerCase().trim();
+    const q = productSearchQuery.trim().toLowerCase();
+
     if (!q) return true;
-    return p.name.toLowerCase().includes(q) || p.store.toLowerCase().includes(q);
+
+    return (
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.store || '').toLowerCase().includes(q)
+    );
   });
 
   const filteredChatUsers = chatUsers.filter((uId) => {
-    const cust = customers.find(c => c.id === uId);
+    const cust = customers.find((c) => c.id === uId);
+
     if (!cust) return false;
-    if (!isMainAdmin && !isCustomerOfSubAdmin(cust, subAdminInviteCode)) return false;
+
+    if (
+      !isMainAdmin &&
+      !isCustomerOfSubAdmin(cust, subAdminInviteCode)
+    ) {
+      return false;
+    }
+
     return filterByUniversalQuery(cust, searchQuery);
   });
 
@@ -2596,7 +3512,9 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
   };
 
   const activeUserChatHistory = chatMessages.filter(
-    (m) => m.sender_id === activeChatUserId || m.receiver_id === activeChatUserId
+    (m) =>
+      m.sender_id === activeChatUserId ||
+      m.receiver_id === activeChatUserId
   );
 
   return (
@@ -2723,588 +3641,784 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
           </div>
         )}
 
-        {/* FULL PAGE TASK SETTINGS VIEW */}
-        {isFullPageTaskSettings && selectedUserForModal ? (
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-6">
-            <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="space-y-1.5">
-                <h2 className="text-base font-black text-blue-900 flex items-center gap-2">
-                  <span>⚡</span> Professional Lucky Order Setup for <span className="text-blue-700 font-mono">#{selectedUserForModal.custom_id}</span>
-                </h2>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-600">
-                  <span>Name: <b className="text-slate-800">{selectedUserForModal.full_name || selectedUserForModal.username || selectedUserForModal.name || 'Not Set'}</b></span>
-                  <span>Phone: <b className="text-slate-800">{selectedUserForModal.phone || 'Not Set'}</b></span>
-                  {renderSimpleInvitationCodes(selectedUserForModal)}
-                  <span>Balance: <b className="text-emerald-700 font-mono">${selectedUserForModal.balance.toFixed(2)}</b></span>
-                  <span>Tasks: <b className="text-indigo-800 font-mono">{selectedUserForModal.completed_tasks} / 25</b></span>
-                </div>
-              </div>
+{/* FULL PAGE TASK SETTINGS VIEW */}
+{isFullPageTaskSettings && selectedUserForModal ? (
+  <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
 
-              <div className="w-full md:w-auto">
-                <label className="text-[10px] font-bold text-slate-500 block uppercase mb-1">Upgrade User VIP Level</label>
-                <select
-                  value={editVipLevel}
-                  onChange={(e) => setEditVipLevel(e.target.value)}
-                  className="w-full md:w-56 bg-white border-2 border-blue-900 text-blue-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none shadow"
-                >
-                  <option value="VIP 0 - Regular">VIP 0 - Regular</option>
-                  <option value="Amazon VIP 1 - $1000">Amazon VIP 1 - $1,000</option>
-                  <option value="AliExpress VIP 2 - $2000">AliExpress VIP 2 - $2,000</option>
-                  <option value="Shopify VIP 3 - $5000">Shopify VIP 3 - $5,000</option>
-                </select>
-              </div>
-            </div>
-
-         
-<div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-
-  {/* LEFT: MANUAL LUCKY ORDER — EXISTING HANDLERS PRESERVED */}
-  <section className="rounded-2xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
-    <div className="bg-indigo-50 border-b border-indigo-100 px-5 py-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white text-lg">
-          ⚡
-        </div>
-        <div>
-          <h3 className="text-sm font-black text-indigo-950">
-            Manual Lucky Order
-          </h3>
-          <p className="text-xs text-indigo-700 mt-0.5">
-            Configure an individual customer's order
-          </p>
-        </div>
-      </div>
-      <span className="mt-3 inline-flex rounded-full bg-white border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700">
-        MANUAL CONTROL
-      </span>
+{/* CUSTOMER HEADER */}
+<div className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-slate-50 to-blue-50 shadow-md">
+  {/* Header Title */}
+  <div className="flex items-center gap-3 border-b border-blue-100 bg-white/80 px-4 py-3">
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-900 text-xl text-white shadow-sm">
+      ⚡
     </div>
 
-    <div className="p-5 space-y-4">
-      <div>
-        <label className="mb-1.5 block text-xs font-bold text-slate-700">
-          Target Task Number
-        </label>
-        <input
-          type="number"
-          min="1"
-          max="25"
-          placeholder="e.g. 5"
-          value={slotTaskNum}
-          onChange={(e) => setSlotTaskNum(e.target.value)}
-          className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-        />
-      </div>
+    <div className="min-w-0 flex-1">
+      <h2 className="text-sm font-black text-blue-950">
+        Lucky Order Settings
+      </h2>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1.5 block text-xs font-bold text-slate-700">
-            Minimum Amount (USDT)
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-3 text-sm text-slate-400">$</span>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              placeholder="120"
-              value={slotMinAmount}
-              onChange={(e) => setSlotMinAmount(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-7 pr-2 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-xs font-bold text-slate-700">
-            Maximum Amount (USDT)
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-3 text-sm text-slate-400">$</span>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              placeholder="130"
-              value={slotMaxAmount}
-              onChange={(e) => setSlotMaxAmount(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-7 pr-2 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-xs font-bold text-slate-700">
-          Commission Rate (%)
-        </label>
-        <div className="relative">
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            placeholder="10"
-            value={slotCommPercent}
-            onChange={(e) => setSlotCommPercent(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 pr-10 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          />
-          <span className="absolute right-3 top-3 text-sm font-bold text-slate-400">%</span>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={handlePublishLuckyOrderSlot}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-extrabold uppercase tracking-wide text-white shadow-sm transition hover:bg-indigo-700"
-      >
-        <span>⚡</span>
-        Publish Manual Lucky Order
-      </button>
-
-      <p className="text-[11px] leading-5 text-slate-500">
-        Manual orders continue to use the existing publish and funding workflow.
-      </p>
-    </div>
-  </section>
-
-  {/* RIGHT: AUTOMATIC SLOTS */}
-  <section className="rounded-2xl border border-emerald-200 bg-white shadow-sm overflow-hidden">
-    <div className="bg-emerald-50 border-b border-emerald-100 px-5 py-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white text-lg">
-          ↻
-        </div>
-        <div>
-          <h3 className="text-sm font-black text-emerald-950">
-            Auto Lucky Order Slots
-          </h3>
-          <p className="text-xs text-emerald-700 mt-0.5">
-            Configure up to five automatic slots
-          </p>
-        </div>
-      </div>
-
-      <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-white p-3">
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-slate-500">
         <span>
-          <span className="block text-xs font-bold text-slate-800">
-            Global Auto Slots
-          </span>
-          <span className="mt-0.5 block text-[11px] text-slate-500">
-            {autoSlotsEnabled ? 'Enabled in settings' : 'Disabled in settings'}
+          ID:{" "}
+          <span className="font-mono font-bold text-blue-800">
+            #{selectedUserForModal.custom_id}
           </span>
         </span>
 
-        <input
-          type="checkbox"
-          checked={autoSlotsEnabled}
-          onChange={(e) => setAutoSlotsEnabled(e.target.checked)}
-          className="h-5 w-5 accent-emerald-600"
-          aria-label="Enable Auto Lucky Order Slots"
-        />
-      </label>
+        <span className="text-slate-300">|</span>
+
+        <span>
+          Phone:{" "}
+          <span className="font-bold text-slate-700">
+            {selectedUserForModal.phone || 'Not Set'}
+          </span>
+        </span>
+      </p>
+
+      <p className="mt-1 truncate text-xs text-slate-600">
+        Name:{" "}
+        <span className="font-bold text-slate-800">
+          {selectedUserForModal.full_name ||
+            selectedUserForModal.username ||
+            selectedUserForModal.name ||
+            'Not Set'}
+        </span>
+      </p>
     </div>
 
-    <div className="p-4 space-y-3">
-      {autoSlots.map((slot) => (
-        <div
-          key={slot.id}
-          className={`rounded-xl border p-3 transition ${
-            slot.active
-              ? 'border-emerald-300 bg-emerald-50/50'
-              : 'border-slate-200 bg-slate-50'
-          }`}
-        >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <span className="text-xs font-black text-slate-800">
-                Slot #{slot.id}
-              </span>
-              <span className="ml-2 text-[10px] text-slate-500">
-                {slot.active ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
+    <div className="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-center">
+      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+        Tasks
+      </p>
+      <p className="text-sm font-black text-blue-900">
+        {selectedUserForModal.completed_tasks || 0}/25
+      </p>
+    </div>
+  </div>
 
-            <label className="inline-flex cursor-pointer items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-500">
-                {slot.active ? 'ON' : 'OFF'}
-              </span>
-              <input
-                type="checkbox"
-                checked={slot.active}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setAutoSlots((prev) =>
-                    prev.map((s) =>
-                      s.id === slot.id ? { ...s, active: checked } : s
-                    )
-                  );
-                }}
-                className="h-4 w-4 accent-emerald-600"
-                aria-label={`Enable Auto Slot ${slot.id}`}
-              />
-            </label>
+  {/* Balance and Lucky Order Amount */}
+  <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">
+    <div className="rounded-xl border border-emerald-200 bg-white p-3">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        Current Balance
+      </p>
+
+      <p className="text-lg font-black text-emerald-700">
+        ${Number(selectedUserForModal.balance || 0).toFixed(2)}
+      </p>
+
+      {/* Lucky Order negative amount */}
+      <div className="mt-2 border-t border-slate-100 pt-2">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Lucky Order Negative Amount
+        </p>
+
+        <p className="text-base font-black text-rose-600">
+          {(() => {
+            const luckyAmount = Number(
+              (selectedUserForModal as any).lucky_order_negative_amount ?? 0
+            );
+
+            return `-$${Math.abs(luckyAmount).toFixed(2)}`;
+          })()}
+        </p>
+      </div>
+    </div>
+
+    {/* Task Progress */}
+    <div className="rounded-xl border border-indigo-100 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Daily Task Progress
+        </p>
+
+        <p className="text-xs font-black text-indigo-800">
+          {selectedUserForModal.completed_tasks || 0} / 25
+        </p>
+      </div>
+
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-blue-800 to-indigo-500 transition-all duration-300"
+          style={{
+            width: `${Math.min(
+              100,
+              (Number(selectedUserForModal.completed_tasks || 0) / 25) * 100
+            )}%`,
+          }}
+        />
+      </div>
+    </div>
+  </div>
+
+  {/* VIP Upgrade */}
+  <div className="border-t border-blue-100 bg-white/80 p-3">
+    <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wider text-slate-500">
+      Upgrade User VIP Level
+    </label>
+
+    <select
+      value={editVipLevel}
+      onChange={(e) => setEditVipLevel(e.target.value)}
+      className="w-full rounded-xl border-2 border-blue-900/20 bg-white px-3 py-2.5 text-sm font-bold text-blue-950 outline-none transition focus:border-blue-800 focus:ring-2 focus:ring-blue-100"
+    >
+      <option value="VIP 0 - Regular">VIP 0 - Regular</option>
+      <option value="Amazon VIP 1 - $1000">
+        Amazon VIP 1 - $1,000
+      </option>
+      <option value="AliExpress VIP 2 - $2000">
+        AliExpress VIP 2 - $2,000
+      </option>
+      <option value="Shopify VIP 3 - $5000">
+        Shopify VIP 3 - $5,000
+      </option>
+    </select>
+  </div>
+</div>
+
+    {/* AUTO SLOTS + MANUAL ORDER SIDE BY SIDE */}
+    <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
+
+      {/* AUTO LUCKY ORDER SLOTS */}
+      <section className="min-w-0 overflow-hidden rounded-xl border border-emerald-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-800 px-3 py-2">
+          <div>
+            <h3 className="text-sm font-black text-white">
+              ↻ Auto Lucky Order Slots
+            </h3>
+            <p className="text-[10px] text-emerald-100">
+              Seven compact configurable slots
+            </p>
           </div>
 
+          {/* SELECTED CUSTOMER AUTO LUCKY ORDER TOGGLE */}
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold text-white">
+            <span>
+              Auto Lucky Order
+            </span>
+
+            <input
+              type="checkbox"
+              checked={Boolean(selectedUserForModal.auto_lucky_order_enabled)}
+              onChange={(e) =>
+                handleAutoLuckyOrderToggle(
+                  selectedUserForModal,
+                  e.target.checked
+                )
+              }
+              className="peer sr-only"
+              aria-label="Enable Auto Lucky Order for this customer"
+            />
+
+            <span
+              className="relative h-5 w-9 rounded-full bg-slate-400 transition-colors
+                after:absolute after:left-0.5 after:top-0.5
+                after:h-4 after:w-4 after:rounded-full
+                after:bg-white after:shadow after:transition-transform
+                peer-checked:bg-emerald-400
+                peer-checked:after:translate-x-4"
+            />
+          </label>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[600px]">
+            {/* COLUMN HEADINGS */}
+            <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-2">
+              <span className="text-[9px] font-black text-slate-500">SLOT</span>
+              <span className="text-[9px] font-black text-slate-500">TASK NO.</span>
+              <span className="text-[9px] font-black text-slate-500">MIN USDT</span>
+              <span className="text-[9px] font-black text-slate-500">MAX USDT</span>
+              <span className="text-[9px] font-black text-slate-500">COMM. %</span>
+              <span className="text-center text-[9px] font-black text-slate-500">EDIT</span>
+            </div>
+
+            {Array.from({ length: 7 }, (_, index) => {
+              const slot = autoSlots[index] ?? {
+                id: index + 1,
+                taskNum: '',
+                minAmount: '',
+                maxAmount: '',
+                comm: '',
+                active: false,
+              };
+
+              const updateSlot = (
+                field: 'taskNum' | 'minAmount' | 'maxAmount' | 'comm' | 'active',
+                value: string | boolean
+              ) => {
+                setAutoSlots((prev) => {
+                  const next = Array.from({ length: 7 }, (_, i) => ({
+                    ...(prev[i] || {}),
+                    id: prev[i]?.id ?? i + 1,
+                    taskNum: prev[i]?.taskNum ?? '',
+                    minAmount: prev[i]?.minAmount ?? '',
+                    maxAmount: prev[i]?.maxAmount ?? '',
+                    comm: prev[i]?.comm ?? '',
+                    active: prev[i]?.active ?? false,
+                  }));
+
+                  next[index] = {
+                    ...next[index],
+                    [field]: value,
+                  };
+
+                  return next;
+                });
+              };
+
+              return (
+                <div
+                  key={index + 1}
+                  className={`border-b border-slate-100 last:border-b-0 ${
+                    slot.active ? 'bg-emerald-50/60' : 'bg-white'
+                  }`}
+                >
+                  <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 px-2 py-1.5">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-black ${
+                          slot.active
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                    </div>
+
+                    <span className="truncate text-xs font-bold text-slate-800">
+                      {slot.taskNum || '—'}
+                    </span>
+
+                    <span className="truncate font-mono text-xs text-slate-700">
+                      {slot.minAmount || '—'}
+                    </span>
+
+                    <span className="truncate font-mono text-xs text-slate-700">
+                      {slot.maxAmount || '—'}
+                    </span>
+
+                    <span className="truncate text-xs font-semibold text-indigo-700">
+                      {slot.comm ? `${slot.comm}%` : '—'}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const editor = document.getElementById(
+                          `auto-slot-editor-${index + 1}`
+                        );
+                        editor?.classList.toggle('hidden');
+                      }}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm hover:bg-emerald-50"
+                      aria-label={`Edit Auto Slot ${index + 1}`}
+                      title={`Edit Slot ${index + 1}`}
+                    >
+                      ✏️
+                    </button>
+                  </div>
+
+                  <div
+                    id={`auto-slot-editor-${index + 1}`}
+                    className="hidden border-t border-emerald-100 bg-emerald-50/50 p-2"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[10px] font-black text-emerald-900">
+                        EDIT SLOT #{index + 1}
+                      </span>
+
+                      <label className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
+                        {slot.active ? 'Enabled' : 'Disabled'}
+                        <input
+                          type="checkbox"
+                          checked={Boolean(slot.active)}
+                          onChange={(e) =>
+                            updateSlot('active', e.target.checked)
+                          }
+                          className="h-4 w-4 accent-emerald-600"
+                          aria-label={`Enable Auto Slot ${index + 1}`}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <label className="text-[10px] font-bold text-slate-600">
+                        Task Number
+                        <input
+                          type="number"
+                          min="1"
+                          max="25"
+                          value={slot.taskNum ?? ''}
+                          onChange={(e) =>
+                            updateSlot('taskNum', e.target.value)
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                        />
+                      </label>
+
+                      <label className="text-[10px] font-bold text-slate-600">
+                        Minimum
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={slot.minAmount ?? ''}
+                          onChange={(e) =>
+                            updateSlot('minAmount', e.target.value)
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                        />
+                      </label>
+
+                      <label className="text-[10px] font-bold text-slate-600">
+                        Maximum
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={slot.maxAmount ?? ''}
+                          onChange={(e) =>
+                            updateSlot('maxAmount', e.target.value)
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                        />
+                      </label>
+
+                      <label className="text-[10px] font-bold text-slate-600">
+                        Commission %
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={slot.comm ?? ''}
+                          onChange={(e) =>
+                            updateSlot('comm', e.target.value)
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex gap-2 border-t border-slate-200 bg-slate-50 p-2">
+          <button
+            type="button"
+            onClick={handleResetAutoSlots}
+            disabled={autoSlotsSaving}
+            className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50"
+          >
+            Reset
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSaveAutoSlots}
+            disabled={autoSlotsSaving}
+            className="flex-[2] rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {autoSlotsSaving ? 'Saving...' : 'Save Auto Slots'}
+          </button>
+        </div>
+      </section>
+
+      {/* MANUAL LUCKY ORDER */}
+      <section className="min-w-0 overflow-hidden rounded-xl border border-indigo-200 bg-white">
+        <div className="bg-indigo-900 px-3 py-3">
+          <h3 className="text-sm font-black text-white">
+            ⚡ Manual Lucky Order
+          </h3>
+          <p className="mt-1 text-[10px] text-indigo-100">
+            Publish an individual customer's order
+          </p>
+        </div>
+
+        <div className="space-y-3 p-3">
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="mb-1 block text-[10px] font-bold text-slate-600">
-                Task Number
-              </label>
+            <label className="text-[10px] font-bold text-slate-600">
+              Task Number
               <input
                 type="number"
                 min="1"
                 max="25"
-                placeholder="1–25"
-                value={slot.taskNum}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setAutoSlots((prev) =>
-                    prev.map((s) =>
-                      s.id === slot.id ? { ...s, taskNum: val } : s
-                    )
-                  );
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                placeholder="e.g. 5"
+                value={slotTaskNum}
+                onChange={(e) => setSlotTaskNum(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-1 block text-[10px] font-bold text-slate-600">
-                Commission (%)
-              </label>
+            <label className="text-[10px] font-bold text-slate-600">
+              Commission %
               <input
                 type="number"
                 min="0"
                 max="100"
                 step="0.01"
-                placeholder="10"
-                value={slot.comm}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setAutoSlots((prev) =>
-                    prev.map((s) =>
-                      s.id === slot.id ? { ...s, comm: val } : s
-                    )
-                  );
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500"
+                value={slotCommPercent}
+                onChange={(e) => setSlotCommPercent(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-1 block text-[10px] font-bold text-slate-600">
-                Minimum (USDT)
-              </label>
+            <label className="text-[10px] font-bold text-slate-600">
+              Minimum USDT
               <input
                 type="number"
                 min="0.01"
                 step="0.01"
-                placeholder="Min amount"
-                value={slot.minAmount}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setAutoSlots((prev) =>
-                    prev.map((s) =>
-                      s.id === slot.id ? { ...s, minAmount: val } : s
-                    )
-                  );
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500"
+                value={slotMinAmount}
+                onChange={(e) => setSlotMinAmount(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-1 block text-[10px] font-bold text-slate-600">
-                Maximum (USDT)
-              </label>
+            <label className="text-[10px] font-bold text-slate-600">
+              Maximum USDT
               <input
                 type="number"
                 min="0.01"
                 step="0.01"
-                placeholder="Max amount"
-                value={slot.maxAmount}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setAutoSlots((prev) =>
-                    prev.map((s) =>
-                      s.id === slot.id ? { ...s, maxAmount: val } : s
-                    )
-                  );
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500"
+                value={slotMaxAmount}
+                onChange={(e) => setSlotMaxAmount(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
               />
-            </div>
+            </label>
           </div>
+
+          <button
+            type="button"
+            onClick={handlePublishLuckyOrderSlot}
+            className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white transition hover:bg-indigo-700"
+          >
+            ⚡ Publish Manual Order
+          </button>
+
+          <p className="text-[10px] leading-4 text-slate-500">
+            Existing manual order publish and funding workflow is preserved.
+          </p>
         </div>
-      ))}
-
-      <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row">
-        <button
-          type="button"
-          onClick={handleResetAutoSlots}
-          disabled={autoSlotsSaving}
-          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 sm:flex-1"
-        >
-          Reset Slots
-        </button>
-
-        <button
-          type="button"
-          onClick={handleSaveAutoSlots}
-          disabled={autoSlotsSaving}
-          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-[2]"
-        >
-          {autoSlotsSaving ? 'Saving Settings...' : 'Save Auto Slots'}
-        </button>
-      </div>
-
-      <p className="text-[11px] leading-5 text-slate-500">
-        Changes to slot settings are saved when you select Save Auto Slots.
-      </p>
+      </section>
     </div>
-  </section>
 
-  {/* CONFIGURED MANUAL ORDERS — FULL WIDTH BELOW BOTH COLUMNS */}
-  <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-    <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h3 className="text-sm font-black text-slate-800">
-          Configured Synchronized Lucky Orders
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Review the existing manual Lucky Order records for this customer.
-        </p>
+    {/* CONFIGURED MANUAL ORDERS */}
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div>
+          <h3 className="text-xs font-black text-slate-900">
+            Configured Manual Lucky Orders
+          </h3>
+          <p className="text-[10px] text-slate-500">
+            Existing manual orders for this customer
+          </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={customTasksList.length === 0}
+          onClick={handleClearLuckyOrderConfig}
+          className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Clear Completed
+        </button>
       </div>
+
+      <div className="max-h-36 space-y-1.5 overflow-y-auto p-2">
+        {customTasksList.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-center text-[10px] text-slate-400">
+            No synchronized Lucky Orders for this user.
+          </p>
+        ) : (
+          customTasksList.map((task) => (
+            <div
+              key={task.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-800">
+                  Task #{task.task_number}
+                  <span className="ml-2 font-mono text-indigo-600">
+                    ${task.min_amount} – ${task.max_amount} USDT
+                  </span>
+                </div>
+                <div className="mt-1 text-[10px] text-slate-500">
+                  Commission: {task.commission_rate ?? 10}% · Configured
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleDeleteCustomTask(task.id)}
+                className="rounded-lg bg-rose-50 px-3 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100"
+              >
+                Delete
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+
+    {/* PAGE ACTIONS */}
+    <div className="flex flex-col justify-end gap-2 border-t border-slate-200 pt-3 sm:flex-row">
+      <button
+        type="button"
+        onClick={() => setIsFullPageTaskSettings(false)}
+        className="rounded-lg bg-slate-200 px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-300"
+      >
+        Back to User List
+      </button>
 
       <button
         type="button"
-        disabled={customTasksList.length === 0}
-        onClick={handleClearLuckyOrderConfig}
-        className="rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={handleSaveFullPageTaskSettings}
+        className="rounded-lg bg-blue-900 px-6 py-2.5 text-xs font-black text-white hover:bg-blue-800"
       >
-        Clear Completed
+        Save VIP Settings
       </button>
     </div>
+  </div>
+) : null}
 
-    <div className="max-h-[500px] space-y-2 overflow-y-auto p-4">
-      {customTasksList.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-xs text-slate-400">
-          No synchronized Lucky Orders for this user.
-        </p>
-      ) : (
-        customTasksList.map((task) => (
-          <div
-            key={task.id}
-            className="flex w-full flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div>
-              <div className="text-sm font-bold text-slate-800">
-                Task #{task.task_number}
-                <span className="ml-2 font-mono text-indigo-600">
-                  ${task.min_amount} – ${task.max_amount} USDT
-                </span>
-              </div>
-
-              <div className="mt-1 text-[11px] font-medium text-slate-500">
-                Commission: {task.commission_rate || 10}% · Status:{' '}
-                {('status' in task && task.status === 'completed') ? (
-                  <span className="font-bold text-emerald-600">Completed ✓</span>
-                ) : (
-                  <span className="font-bold text-amber-600">Pending</span>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => handleDeleteCustomTask(task.id)}
-              className="self-start rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100 sm:self-auto"
-            >
-              Delete
-            </button>
-          </div>
-        ))
-      )}
-    </div>
-  </section>
-
-</div>
-
-
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <button
-                onClick={() => setIsFullPageTaskSettings(false)}
-                className="px-6 py-3 bg-slate-200 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-300"
-              >
-                Back to User List
-              </button>
-              <button
-                onClick={handleSaveFullPageTaskSettings}
-                className="px-8 py-3 bg-blue-900 text-white font-black text-xs rounded-xl shadow hover:bg-blue-800"
-              >
-                Save VIP Settings
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-      
 {/* TAB 1: USERS */}
 {!isFullPageTaskSettings && activeTab === 'users' && (
-  <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-    <div className="flex justify-between items-center border-b pb-4">
+  <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-4 shadow-xl sm:p-6">
+
+    {/* Professional Header */}
+    <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <h2 className="text-lg font-black text-blue-900">Users</h2>
-        <p className="text-xs text-slate-500 font-medium">
+        <h2 className="text-xl font-black tracking-tight text-slate-900">
+          Customer Management
+        </h2>
+        <p className="mt-1 text-xs font-medium text-slate-500">
+          Manage customer accounts, balances, task permissions and settings.
+        </p>
+        <p className="mt-2 text-xs font-semibold text-slate-600">
           Assigned Customers:{' '}
-          <span className="font-bold text-blue-700">
+          <span className="font-black text-blue-700">
             {filteredCustomers.length}
           </span>
         </p>
       </div>
 
-      <div className="w-80">
+      <div className="w-full lg:max-w-xs">
         <input
           type="text"
-          placeholder="Search by ID, Name, Phone..."
+          placeholder="Search ID, name, phone or email..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
         />
       </div>
     </div>
 
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs">
+    {/* Customer Table */}
+    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+      <table className="w-full border-collapse text-left text-xs">
         <thead>
-          <tr className="bg-[#1e3a8a] text-white font-bold">
-            <th className="p-3">Users</th>
-            <th className="p-3">Invite Code</th>
-            <th className="p-3">Gmail / VIP Status</th>
-            <th className="p-3">Tasks</th>
-            <th className="p-3">Bal</th>
-            <th className="p-3">Auto Tasks</th>
-            <th className="p-3">Manual Tasks</th>
-            <th className="p-3">Status</th>
-            <th className="p-3 text-right">Actions &amp; Settings</th>
-          </tr>
+   
+<tr className="bg-[#1e3a8a] text-white font-bold">
+  <th className="p-3">User</th>
+  <th className="p-3">Invite Code</th>
+  <th className="p-3">Email / VIP</th>
+  <th className="p-3">Tasks</th>
+  <th className="p-3">Balance</th>
+  <th className="p-3 text-center">Task Controls</th>
+  <th className="p-3 text-center">Status</th>
+  <th className="p-3 text-center">Actions</th>
+</tr>
+
         </thead>
 
-        <tbody className="divide-y divide-slate-200 font-medium">
+        <tbody className="divide-y divide-slate-100">
           {filteredCustomers.map((c) => (
-            <tr key={c.id} className="hover:bg-slate-50 transition">
-              <td className="p-3 whitespace-nowrap">
-                <div className="text-sm font-mono font-black text-blue-900">
+            <tr
+              key={c.id}
+              className="transition-colors hover:bg-blue-50/50"
+            >
+              {/* User */}
+              <td className="whitespace-nowrap px-4 py-4">
+                <div className="font-mono text-sm font-black text-blue-950">
                   #{c.custom_id}
                 </div>
-                <div className="text-xs font-bold text-slate-700 mt-0.5">
+                <div className="mt-1 font-semibold text-slate-700">
                   👤 {c.full_name || c.username || c.name || 'No Name'}
                 </div>
               </td>
 
-              <td className="p-3 whitespace-nowrap">
-                <div className="inline-flex items-center whitespace-nowrap font-mono text-[11px] font-bold">
+              {/* Invitation Code */}
+              <td className="whitespace-nowrap px-4 py-4">
+                <div className="font-mono text-xs font-bold text-slate-700">
                   {renderSimpleInvitationCodes(c)}
                 </div>
               </td>
 
-              <td className="p-3">
-                <div className="text-slate-700 font-semibold">
+              {/* Email and VIP */}
+              <td className="min-w-[190px] px-4 py-4">
+                <div className="break-words font-semibold text-slate-700">
                   {c.email || 'customer@appuser.local'}
                 </div>
-                <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-800 font-bold rounded text-[9px] mt-0.5 inline-block">
+                <span className="mt-1.5 inline-block rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
                   {c.vip_level || 'VIP 0 - Regular'}
                 </span>
               </td>
 
-              <td className="p-3 font-mono font-bold text-blue-900 text-sm">
-                {c.completed_tasks || 0} / 25
-              </td>
-
-              <td className="p-3 font-mono whitespace-nowrap">
-                <div className="font-black text-emerald-600 text-sm">
-                  ${Number(c.balance || 0).toFixed(2)}
+              {/* Task Progress */}
+              <td className="whitespace-nowrap px-4 py-4 text-center">
+                <div className="font-mono text-sm font-black text-blue-950">
+                  {c.completed_tasks || 0} / 25
                 </div>
-
-                <div className="flex items-center gap-1.5 mt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedUserForModal(c);
-                      setModalType('add_funds');
-                      setFundInput('');
+                <div className="mx-auto mt-2 h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-blue-600 transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          (Number(c.completed_tasks || 0) / 25) * 100
+                        )
+                      )}%`,
                     }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
-                  >
-                    <span>+</span> Add Funds
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedUserForModal(c);
-                      setModalType('cut_funds');
-                      setFundInput('');
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-bold text-rose-700 transition hover:bg-rose-600 hover:text-white"
-                  >
-                    <span>−</span> Deduct
-                  </button>
-                </div>
-              </td>
-
-              {/* EXISTING AUTO TASKS TOGGLE — UNCHANGED */}
-              <td className="p-3">
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(c.auto_task_lock)}
-                    onChange={(e) =>
-                      handleAutoTaskLockToggle(c, e.target.checked)
-                    }
-                    className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </td>
-
-              {/* NEW MANUAL TASKS TOGGLE */}
-              <td className="p-3">
-                <div className="flex flex-col items-start gap-1">
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(c.manual_task_lock)}
-                      onChange={(e) =>
-                        handleManualTaskLockToggle(c, e.target.checked)
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-                  </label>
-
-                  <span
-                    className={`text-[10px] font-bold ${
-                      c.manual_task_lock
-                        ? 'text-red-600'
-                        : 'text-emerald-600'
-                    }`}
-                  >
-                    {c.manual_task_lock ? 'TASKS OFF' : 'TASKS ON'}
-                  </span>
                 </div>
               </td>
 
-              <td className="p-3">
+          
+<td className="p-3 whitespace-nowrap">
+  <div className="font-black text-emerald-600 text-sm">
+    ${Number(c.balance || 0).toFixed(2)}
+  </div>
+
+  <div className="flex items-center gap-2 mt-2">
+    <button
+      type="button"
+      onClick={() => {
+        setSelectedUserForModal(c);
+        setModalType('add_funds');
+        setFundInput('');
+      }}
+      className="rounded-lg bg-emerald-600 px-2.5 py-1.5
+        text-[10px] font-bold text-white hover:bg-emerald-700"
+    >
+      + Add
+    </button>
+
+    <button
+      type="button"
+      onClick={() => {
+        setSelectedUserForModal(c);
+        setModalType('cut_funds');
+        setFundInput('');
+      }}
+      className="rounded-lg bg-rose-600 px-2.5 py-1.5
+        text-[10px] font-bold text-white hover:bg-rose-700"
+    >
+      − Deduct
+    </button>
+  </div>
+</td>
+
+<td className="p-3">
+  <div className="flex items-center justify-center gap-3 whitespace-nowrap">
+
+    {/* Auto Tasks */}
+    <div className="flex flex-col items-center gap-1">
+      <label className="relative inline-flex items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={Boolean(c.auto_task_lock)}
+          onChange={(e) =>
+            handleAutoTaskLockToggle(c, e.target.checked)
+          }
+          className="sr-only peer"
+        />
+        <div className="w-9 h-5 rounded-full bg-slate-300
+          peer-checked:bg-emerald-500
+          after:content-[''] after:absolute after:top-[2px]
+          after:left-[2px] after:h-4 after:w-4
+          after:rounded-full after:bg-white after:shadow
+          after:transition-transform
+          peer-checked:after:translate-x-4">
+        </div>
+      </label>
+      <span className="text-[10px] font-semibold text-slate-600">
+        Auto
+      </span>
+    </div>
+
+    {/* Lucky Order */}
+    <div className="flex flex-col items-center gap-1">
+      <label className="relative inline-flex items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={Boolean(c.auto_lucky_order_enabled)}
+          onChange={(e) =>
+            handleAutoLuckyOrderToggle(c, e.target.checked)
+          }
+          className="sr-only peer"
+        />
+        <div className="w-9 h-5 rounded-full bg-slate-300
+          peer-checked:bg-amber-500
+          after:content-[''] after:absolute after:top-[2px]
+          after:left-[2px] after:h-4 after:w-4
+          after:rounded-full after:bg-white after:shadow
+          after:transition-transform
+          peer-checked:after:translate-x-4">
+        </div>
+      </label>
+      <span className="text-[10px] font-semibold text-slate-600">
+        Lucky
+      </span>
+    </div>
+
+    {/* Manual Tasks */}
+    <div className="flex flex-col items-center gap-1">
+      <label className="relative inline-flex items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={Boolean(c.manual_task_lock)}
+          onChange={(e) =>
+            handleManualTaskLockToggle(c, e.target.checked)
+          }
+          className="sr-only peer"
+        />
+        <div className="w-9 h-5 rounded-full bg-slate-300
+          peer-checked:bg-rose-500
+          after:content-[''] after:absolute after:top-[2px]
+          after:left-[2px] after:h-4 after:w-4
+          after:rounded-full after:bg-white after:shadow
+          after:transition-transform
+          peer-checked:after:translate-x-4">
+        </div>
+      </label>
+      <span className="text-[10px] font-semibold text-slate-600">
+        Manual
+      </span>
+    </div>
+
+  </div>
+</td>
+
+
+              {/* Account Status */}
+              <td className="px-4 py-4">
                 <select
                   value={c.is_frozen ? 'frozen' : 'active'}
                   onChange={(e) =>
                     handleStatusChange(c, e.target.value === 'frozen')
                   }
-                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border focus:outline-none ${
+                  className={`rounded-lg border px-2.5 py-2 text-[10px] font-bold outline-none focus:ring-2 ${
                     c.is_frozen
-                      ? 'bg-red-100 border-red-300 text-red-700'
-                      : 'bg-emerald-100 border-emerald-300 text-emerald-700'
+                      ? 'border-rose-200 bg-rose-50 text-rose-700 focus:ring-rose-100'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700 focus:ring-emerald-100'
                   }`}
                 >
                   <option value="active">Active</option>
@@ -3312,38 +4426,62 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
                 </select>
               </td>
 
-              <td className="p-3 text-right">
-                <div className="inline-flex flex-wrap justify-end gap-1.5">
-                  {/* RESET TASKS */}
-                  <button
-                    type="button"
-                    onClick={() => handleResetUserTasks(c)}
-                    title="Reset completed task count to zero"
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow hover:bg-amber-600"
-                  >
-                 <span aria-hidden="true">↻</span>
-                    Reset Tasks
-                  </button>
+<td className="p-3">
+  <div className="flex items-center justify-center gap-2.5">
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFullPageTaskSettings(c)}
-                    className="px-2.5 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700"
-                  >
-                    Settings
-                  </button>
+    <button
+      type="button"
+      onClick={() => handleResetUserTasks(c)}
+      title="Reset Tasks"
+      className="h-10 w-10 rounded-xl border border-slate-300
+        bg-white text-slate-700 text-2xl font-bold
+        shadow-sm hover:bg-slate-100 hover:shadow
+        transition flex items-center justify-center"
+    >
+      ↻
+    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenUserProfileModal(c)}
-                    className="px-2.5 py-1.5 bg-blue-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-blue-700"
-                  >
-                    Profile
-                  </button>
+    <button
+      type="button"
+      onClick={() => handleOpenFullPageTaskSettings(c)}
+      title="Task Settings"
+      className="h-10 w-10 rounded-xl border border-blue-200
+        bg-blue-50 text-blue-800 text-xl
+        shadow-sm hover:bg-blue-100 hover:shadow
+        transition flex items-center justify-center"
+    >
+      ⚙
+    </button>
+
+    <button
+      type="button"
+      onClick={() => handleOpenUserProfileModal(c)}
+      title="Customer Profile"
+      className="h-10 w-10 rounded-xl border border-emerald-200
+        bg-emerald-50 text-emerald-800 text-xl
+        shadow-sm hover:bg-emerald-100 hover:shadow
+        transition flex items-center justify-center"
+    >
+      👤
+    </button>
+
+  </div>
+</td>
+      </tr>
+          ))}
+
+          {filteredCustomers.length === 0 && (
+            <tr>
+              <td colSpan={10} className="px-4 py-12 text-center">
+                <div className="text-sm font-bold text-slate-500">
+                  No customers found
                 </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Try a different search term.
+                </p>
               </td>
             </tr>
-          ))}
+          )}
         </tbody>
       </table>
     </div>
@@ -3352,96 +4490,388 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
 
         {/* TAB 2: DEPOSIT RECORDS */}
         {!isFullPageTaskSettings && activeTab === 'deposits' && (
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-            <div className="flex justify-between items-center border-b pb-3 gap-4">
-              <h2 className="text-lg font-black text-blue-900">Deposit Records & Approvals</h2>
-              <div className="w-80 max-w-full">
+          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-5">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-200 pb-4 gap-3">
+              <div>
+                <h2 className="text-lg font-black text-blue-900">
+                  Deposit Records & Approvals
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Customer deposits, TRC20 verification and approval history
+                </p>
+              </div>
+
+              <div className="w-full sm:w-80">
                 <input
                   type="text"
-                  placeholder="Search by ID, Name, Phone or TRC20..."
+                  placeholder="Search ID, name, phone, TXID or wallet..."
                   value={depositSearchQuery}
                   onChange={(e) => setDepositSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-200"
                 />
               </div>
             </div>
 
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-              <div className="flex flex-wrap items-center gap-2">
+            {/* TRC20 Auto Verification */}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-blue-950">
+                    TRON TRC20 Auto-Verify & Release
+                  </h3>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Automatic release sirf confirmed USDT TRC20 transaction,
+                    correct receiving wallet aur exact amount match hone par.
+                    Unverified deposits pending rahenge.
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   onClick={handleCheckTrc20Transfers}
                   disabled={scannerLoading}
-                  className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                  className="shrink-0 rounded-xl bg-blue-700 hover:bg-blue-800 px-5 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {scannerLoading ? 'Checking...' : 'Check Confirmed Transfers'}
+                  {scannerLoading ? 'Checking Transfers...' : 'Check Confirm Funds'}
                 </button>
               </div>
 
+              {/* Scanner summary */}
               {scannerResult && (
-                <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs">
-                  {JSON.stringify(scannerResult, null, 2)}
-                </pre>
+                <div className="space-y-3">
+                  {scannerResult.error ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                      {scannerResult.error}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="rounded-xl border border-blue-100 bg-white p-3">
+                        <p className="text-[10px] uppercase tracking-wide font-bold text-slate-500">
+                          Transfers Checked
+                        </p>
+                        <p className="text-2xl font-black text-blue-800 mt-1">
+                          {scannerResult.transfers_checked ?? 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                        <p className="text-[10px] uppercase tracking-wide font-bold text-slate-500">
+                          Deposits Released
+                        </p>
+                        <p className="text-2xl font-black text-emerald-600 mt-1">
+                          {scannerResult.released ?? 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-amber-100 bg-white p-3">
+                        <p className="text-[10px] uppercase tracking-wide font-bold text-slate-500">
+                          Skipped / Unmatched
+                        </p>
+                        <p className="text-2xl font-black text-amber-600 mt-1">
+                          {scannerResult.skipped ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detailed transactions returned by Edge Function */}
+                  {Array.isArray(scannerResult.transactions) &&
+                    scannerResult.transactions.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-black text-slate-800">
+                          TRC20 Transaction Details
+                        </h4>
+
+                        {scannerResult.transactions.map((tx: {
+                          txid?: string;
+                          transaction_id?: string;
+                          release_status?: string;
+                          status?: string;
+                          customer_name?: string;
+                          customer_id?: string;
+                          submitted_amount?: string | number;
+                          verified_amount?: string | number;
+                          amount?: string | number;
+                          block_timestamp?: string | number;
+                          timestamp?: string | number;
+                          from?: string;
+                          sender_address?: string;
+                          to?: string;
+                          receiving_address?: string;
+                        }, index: number) => (
+                          <div
+                            key={tx.txid || tx.transaction_id || index}
+                            className="rounded-xl border border-slate-200 bg-white p-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                              <span className="text-xs font-black text-slate-800">
+                                Transaction {index + 1}
+                              </span>
+
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
+                                  tx.release_status === 'released' ||
+                                  tx.status === 'verified'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {tx.release_status ||
+                                  tx.status ||
+                                  'Verified transfer'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                              <div>
+                                <p className="text-slate-500 font-semibold">
+                                  Customer
+                                </p>
+                                <p className="font-bold text-slate-800 break-words">
+                                  {tx.customer_name || 'See deposit record'}
+                                  {tx.customer_id ? ` (${tx.customer_id})` : ''}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-slate-500 font-semibold">
+                                  Submitted Deposit
+                                </p>
+                                <p className="font-black text-slate-800">
+                                  {tx.submitted_amount != null
+                                    ? `$${tx.submitted_amount} USDT`
+                                    : 'Not provided'}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-slate-500 font-semibold">
+                                  Blockchain Verified Amount
+                                </p>
+                                <p className="font-black text-emerald-700">
+                                  {tx.verified_amount != null
+                                    ? `$${tx.verified_amount} USDT`
+                                    : tx.amount != null
+                                      ? `$${tx.amount} USDT`
+                                      : 'Not available'}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-slate-500 font-semibold">
+                                  Blockchain Date & Time
+                                </p>
+                                <p className="font-semibold text-slate-800">
+                                  {tx.block_timestamp
+                                    ? new Date(
+                                        Number(tx.block_timestamp) < 1e12
+                                          ? Number(tx.block_timestamp) * 1000
+                                          : Number(tx.block_timestamp)
+                                      ).toLocaleString()
+                                    : tx.timestamp
+                                      ? new Date(
+                                          Number(tx.timestamp) < 1e12
+                                            ? Number(tx.timestamp) * 1000
+                                            : Number(tx.timestamp)
+                                        ).toLocaleString()
+                                      : 'Not provided'}
+                                </p>
+                              </div>
+
+                              <div className="sm:col-span-2">
+                                <p className="text-slate-500 font-semibold">
+                                  Transaction ID (TXID)
+                                </p>
+                                <p className="font-mono text-[11px] text-slate-800 break-all">
+                                  {tx.txid || tx.transaction_id || 'Not provided'}
+                                </p>
+                              </div>
+
+                              <div className="sm:col-span-2">
+                                <p className="text-slate-500 font-semibold">
+                                  Sender Wallet Address
+                                </p>
+                                <p className="font-mono text-[11px] text-slate-800 break-all">
+                                  {tx.from ||
+                                    tx.sender_address ||
+                                    'Not provided by scanner'}
+                                </p>
+                              </div>
+
+                              <div className="sm:col-span-2">
+                                <p className="text-slate-500 font-semibold">
+                                  Receiving Wallet Address
+                                </p>
+                                <p className="font-mono text-[11px] text-slate-800 break-all">
+                                  {tx.to ||
+                                    tx.receiving_address ||
+                                    'Not provided by scanner'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                  {scannerResult &&
+                    !scannerResult.error &&
+                    (!Array.isArray(scannerResult.transactions) ||
+                      scannerResult.transactions.length === 0) && (
+                      <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                        Scanner summary received. No detailed transactions
+                        were returned in this response. Unmatched deposits
+                        must remain pending for manual review.
+                      </p>
+                    )}
+
+                  {/* Scanner diagnostics */}
+                  <details className="rounded-xl border border-slate-200 bg-white p-3">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-600">
+                      Scanner response / diagnostic details
+                    </summary>
+                    <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-700">
+                      {JSON.stringify(scannerResult, null, 2)}
+                    </pre>
+                  </details>
+                </div>
               )}
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Deposit records table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#1e3a8a] text-white font-bold">
-                    <th className="p-3">Users</th>
+                    <th className="p-3">Customer</th>
                     <th className="p-3">Deposit Amount</th>
-                    <th className="p-3">TRC20 Wallet Address</th>
+                    <th className="p-3">Wallet / TXID</th>
                     <th className="p-3">Date & Time</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Action</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredDeposits.map((dep) => {
-                    const custDetails = getCustomerDetailsByUserId(dep.user_id);
-                    return (
-                      <tr key={dep.id} className="hover:bg-slate-50 transition">
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="text-sm font-mono font-black text-blue-900">{custDetails.customId}</div>
-                          <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {custDetails.name}</div>
-                        </td>
-                        <td className="p-3 font-mono font-black text-emerald-600 text-sm">${dep.amount} USDT</td>
-                        <td className="p-3 font-mono text-slate-600 text-[11px]">{dep.trc20_address || 'Not provided'}</td>
-                        <td className="p-3 font-mono text-slate-500 text-[11px]">{new Date(dep.created_at).toLocaleString()}</td>
-                        <td className="p-3">
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black ${dep.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : dep.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-                            {dep.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          {dep.status === 'pending' ? (
-                            <div className="inline-flex gap-1.5">
-                              <button
-                                onClick={() => handleDepositAction(dep, 'approved')}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] rounded-xl shadow transition"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleDepositAction(dep, 'rejected')}
-                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-xl shadow transition"
-                              >
-                                Reject
-                              </button>
+                  {filteredDeposits.length > 0 ? (
+                    filteredDeposits.map((dep) => {
+                      const custDetails = getCustomerDetailsByUserId(dep.user_id);
+
+                      return (
+                        <tr key={dep.id} className="hover:bg-slate-50 transition">
+                          {/* Customer */}
+                          <td className="p-3 whitespace-nowrap">
+                            <div className="text-sm font-mono font-black text-blue-900">
+                              {custDetails.customId || 'No ID'}
                             </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-[10px]">Processed</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            <div className="text-xs font-bold text-slate-700 mt-0.5">
+                              👤 {custDetails.name || 'Unknown customer'}
+                            </div>
+                        
+                          </td>
+
+                          {/* Amount */}
+                          <td className="p-3 whitespace-nowrap">
+                            <div className="font-mono font-black text-emerald-600 text-sm">
+                              ${Number(dep.amount || 0).toFixed(2)} USDT
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-1">
+                              {dep.payment_method || 'trc20'}
+                            </div>
+                          </td>
+
+                          {/* Wallet and TXID */}
+                          <td className="p-3 min-w-56 max-w-xs">
+                            <div className="text-[10px] font-bold text-slate-500 mb-1">
+                              Submitted Wallet Address
+                            </div>
+                            <div className="font-mono text-slate-700 text-[11px] break-all">
+                              {dep.trc20_address || 'Not provided'}
+                            </div>
+
+                            {dep.txid && (
+                              <div className="mt-2">
+                                <div className="text-[10px] font-bold text-slate-500 mb-1">
+                                  TXID
+                                </div>
+                                <div className="font-mono text-[10px] text-blue-700 break-all">
+                                  {dep.txid}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Date */}
+                          <td className="p-3 whitespace-nowrap font-mono text-slate-500 text-[11px]">
+                            {dep.created_at
+                              ? new Date(dep.created_at).toLocaleString()
+                              : 'Not available'}
+                          </td>
+
+                          {/* Status */}
+                          <td className="p-3">
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black ${
+                                dep.status === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : dep.status === 'rejected'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {String(dep.status || 'pending').toUpperCase()}
+                            </span>
+
+                            {dep.status === 'pending' && (
+                              <div className="text-[10px] text-amber-700 mt-1 font-semibold">
+                                Awaiting approval / verification
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="p-3 text-right whitespace-nowrap">
+                            {dep.status === 'pending' ? (
+                              <div className="inline-flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDepositAction(dep, 'approved')}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] rounded-xl shadow transition"
+                                >
+                                  Approve
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDepositAction(dep, 'rejected')}
+                                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] rounded-xl shadow transition"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-[10px]">
+                                Processed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-500">
+                        No deposit records found.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )}
+
 
         {/* TAB 3: WITHDRAWAL REQUESTS */}
         {!isFullPageTaskSettings && activeTab === 'withdrawals' && (
@@ -3517,92 +4947,173 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
           </div>
         )}
 
-        {/* TAB 4: TASK MANAGEMENT */}
-        {!isFullPageTaskSettings && activeTab === 'tasks' && (
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h2 className="text-lg font-black text-blue-900">Task Management & User Overview</h2>
-              <div className="w-80">
-                <input
-                  type="text"
-                  placeholder="Search tasks..."
-                  value={taskSearchQuery}
-                  onChange={(e) => setTaskSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-                />
-              </div>
-            </div>
+     
+{/* TAB 4: TASK MANAGEMENT */}
+{!isFullPageTaskSettings && activeTab === 'tasks' && (
+  <div className="space-y-5 rounded-3xl border border-slate-200 bg-white p-4 shadow-xl sm:p-6">
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[#1e3a8a] text-white font-bold">
-                    <th className="p-3.5 px-5">Users</th>
-                    <th className="p-3.5 px-5">Invite Code</th>
-                    <th className="p-3.5 px-5 text-center">Neg Bal</th>
-                    <th className="p-3.5 px-5 text-center">VIP Level</th>
-                    <th className="p-3.5 px-5 text-center">Tasks</th>
-                    <th className="p-3.5 px-5 text-center">Task Lock</th>
-                    <th className="p-3.5 px-5 text-right">Task Settings</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredTaskCustomers.map((c) => {
-                    const negVal = Number(c.running_tasks || 0);
-                    const hasNeg = negVal < 0;
+    {/* Professional Heading */}
+    <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <h2 className="text-xl font-black tracking-tight text-slate-900">
+          Task Management & User Overview
+        </h2>
+        <p className="mt-1 text-xs font-medium text-slate-500">
+          Manage customer balances, task progress, locks and individual settings.
+        </p>
+      </div>
 
-                    return (
-                      <tr key={c.id} className="hover:bg-slate-50 transition">
-                        <td className="p-3.5 px-5 whitespace-nowrap">
-                          <div className="text-sm font-mono font-black text-blue-900">#{c.custom_id}</div>
-                          <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                        </td>
-                        <td className="p-3.5 px-5 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
-                        
-                        <td className="p-3.5 px-5 text-center">
-                          <span className={`inline-block px-2.5 py-1 rounded-md font-mono text-sm font-black ${
-                            hasNeg 
-                              ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm' 
-                              : 'text-red-500 font-bold text-xs'
-                          }`}>
-                            {hasNeg ? `$${Math.abs(negVal).toFixed(2)}` : '$0.00'}
-                          </span>
-                        </td>
+      <div className="w-full lg:max-w-xs">
+        <input
+          type="text"
+          placeholder="Search customers or tasks..."
+          value={taskSearchQuery}
+          onChange={(e) => setTaskSearchQuery(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+        />
+      </div>
+    </div>
 
-                        <td className="p-3.5 px-5 text-center font-bold text-amber-700">{c.vip_level || 'VIP 0'}</td>
-                        <td className="p-3.5 px-5 text-center font-mono font-bold text-blue-900 text-sm">{c.completed_tasks} / 25</td>
-                        <td className="p-3.5 px-5 text-center">
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(c.auto_task_lock)}
-                              onChange={(e) => handleAutoTaskLockToggle(c, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                          </label>
-                        </td>
-                        
-                        <td className="p-3.5 px-5 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end space-x-2">
-                            <button
-                              onClick={() => handleOpenFullPageTaskSettings(c)}
-                              className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-[10px] rounded-lg shadow hover:bg-indigo-700 transition"
-                            >
-                              Settings
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+    {/* Customer Table */}
+    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+      <table className="w-full border-collapse text-left text-xs">
+        <thead>
+          <tr className="bg-gradient-to-r from-blue-950 to-blue-800 text-white">
+            <th className="whitespace-nowrap px-4 py-4 font-bold">Users</th>
+            <th className="whitespace-nowrap px-4 py-4 font-bold">Invite Code</th>
+            <th className="whitespace-nowrap px-4 py-4 text-center font-bold">Balance</th>
+            <th className="whitespace-nowrap px-4 py-4 text-center font-bold">VIP Level</th>
+            <th className="whitespace-nowrap px-4 py-4 text-center font-bold">Tasks</th>
+            <th className="whitespace-nowrap px-4 py-4 text-center font-bold">Task Lock</th>
+            <th className="whitespace-nowrap px-4 py-4 text-right font-bold">Task Settings</th>
+          </tr>
+        </thead>
 
-    
+        <tbody className="divide-y divide-slate-100">
+          {filteredTaskCustomers.map((c) => {
+            const negVal = Number(c.running_tasks || 0);
+            const hasNeg = negVal < 0;
+            const currentBalance = Number(c.balance || 0);
+            const completedTasks = Number(c.completed_tasks || 0);
+
+            return (
+              <tr
+                key={c.id}
+                className="transition-colors hover:bg-blue-50/50"
+              >
+                {/* User */}
+                <td className="whitespace-nowrap px-4 py-4">
+                  <div className="font-mono text-sm font-black text-blue-950">
+                    #{c.custom_id}
+                  </div>
+                  <div className="mt-1 font-semibold text-slate-700">
+                    <span className="mr-1">👤</span>
+                    {c.full_name || c.username || c.name || 'No Name'}
+                  </div>
+                </td>
+
+                {/* Invitation Codes */}
+                <td className="whitespace-nowrap px-4 py-4">
+                  <div className="inline-block rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5 font-mono text-xs font-bold text-amber-900">
+                    {renderSimpleInvitationCodes(c)}
+                  </div>
+                </td>
+
+                {/* Current balance + negative amount */}
+                <td className="px-4 py-4 text-center">
+                  <div className="inline-flex min-w-[100px] flex-col items-center gap-1">
+                    <span className="font-mono text-sm font-black text-emerald-700">
+                      ${currentBalance.toFixed(2)}
+                    </span>
+
+                    {hasNeg && (
+                      <span className="rounded-md bg-rose-50 px-2 py-0.5 font-mono text-xs font-bold text-rose-600">
+                        -${Math.abs(negVal).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                </td>
+
+                {/* VIP Level */}
+                <td className="whitespace-nowrap px-4 py-4 text-center">
+                  <span className="inline-block rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5 font-bold text-amber-800">
+                    {c.vip_level || 'VIP 0'}
+                  </span>
+                </td>
+
+                {/* Tasks */}
+                <td className="whitespace-nowrap px-4 py-4 text-center">
+                  <div className="font-mono text-sm font-black text-blue-950">
+                    {completedTasks} / 25
+                  </div>
+                  <div className="mx-auto mt-2 h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, (completedTasks / 25) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </td>
+
+                {/* Existing Task Lock Handler */}
+                <td className="px-4 py-4 text-center">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <label className="relative inline-flex cursor-pointer items-center">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.auto_task_lock)}
+                        onChange={(e) =>
+                          handleAutoTaskLockToggle(c, e.target.checked)
+                        }
+                        className="peer sr-only"
+                      />
+                      <div className="h-6 w-11 rounded-full bg-slate-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-transform after:content-[''] peer-checked:bg-emerald-600 peer-checked:after:translate-x-5 peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-100" />
+                    </label>
+
+                    <span
+                      className={`text-[10px] font-bold ${
+                        c.auto_task_lock
+                          ? 'text-rose-600'
+                          : 'text-emerald-600'
+                      }`}
+                    >
+                      {c.auto_task_lock ? 'Locked' : 'Unlocked'}
+                    </span>
+                  </div>
+                </td>
+
+                {/* Existing Settings Handler */}
+                <td className="whitespace-nowrap px-4 py-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFullPageTaskSettings(c)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-100"
+                  >
+                    <span>⚙</span>
+                    Settings
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+
+          {filteredTaskCustomers.length === 0 && (
+            <tr>
+              <td
+                colSpan={7}
+                className="px-4 py-10 text-center text-sm font-medium text-slate-400"
+              >
+                No customers found.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
+
 {/* TAB 5: PRODUCTS MANAGEMENT */}
 {!isFullPageTaskSettings && activeTab === 'products' && isMainAdmin && (
   <div className="space-y-6">
@@ -3633,6 +5144,512 @@ const handleSaveMainSettings = async (e: React.FormEvent) => {
           {isFetchingLive ? 'Fetching...' : '📥 Fetch Products'}
         </button>
       </div>
+    </div>
+
+    {/* LUCKY ORDER PRODUCTS — SEPARATE INVENTORY */}
+    <div className="overflow-hidden rounded-3xl border border-violet-300/30 bg-[#0b0c10] shadow-xl shadow-violet-950/20">
+      <button
+        type="button"
+        onClick={() => {
+          const nextOpen = !luckyOrderOpen;
+          setLuckyOrderOpen(nextOpen);
+          if (nextOpen) void fetchLuckyOrderProducts();
+        }}
+        className="group relative flex w-full items-center justify-between gap-4 overflow-hidden bg-gradient-to-r from-violet-950 via-indigo-950 to-slate-950 p-5 text-left transition hover:brightness-110 md:p-6"
+      >
+        <div className="absolute -right-8 -top-12 h-40 w-40 rounded-full bg-violet-500/10 blur-3xl" />
+
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-violet-300/30 bg-violet-400/15 text-3xl shadow-inner">
+            🎁
+          </div>
+
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-violet-300">
+              Exclusive Inventory
+            </p>
+            <h3 className="mt-1 text-xl font-black text-white md:text-2xl">
+              Lucky Order Products
+            </h3>
+            <p className="mt-1 text-xs text-slate-300">
+              Separate inventory · Manage up to 250 products
+            </p>
+          </div>
+        </div>
+
+        <div className="relative flex shrink-0 items-center gap-3">
+          <span className="rounded-full border border-violet-300/30 bg-violet-400/10 px-3 py-1.5 text-xs font-black text-violet-200">
+            {luckyOrderProducts.length}/250
+          </span>
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xl text-white">
+            {luckyOrderOpen ? '−' : '+'}
+          </span>
+        </div>
+      </button>
+
+      {luckyOrderOpen && (
+        <div className="space-y-6 border-t border-violet-400/20 p-4 md:p-6">
+          {/* INVENTORY SUMMARY */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/60 to-slate-900 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-300">
+                Total Products
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {luckyOrderProducts.length}
+                <span className="text-sm text-slate-400"> / 50</span>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-950/40 to-slate-900 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                Active Products
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {luckyOrderProducts.filter((p) => p.is_active).length}
+              </p>
+            </div>
+
+            <div className="col-span-2 rounded-2xl border border-blue-400/20 bg-gradient-to-br from-blue-950/40 to-slate-900 p-4 md:col-span-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300">
+                Available Capacity
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {Math.max(0, 50 - luckyOrderProducts.length)}
+              </p>
+            </div>
+          </div>
+
+          {/* ADD / EDIT PRODUCT FORM */}
+          <div className="rounded-3xl border border-slate-700 bg-slate-900/70 p-4 md:p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-xl">
+                {luckyOrderEditingId !== null ? '✏️' : '➕'}
+              </div>
+              <div>
+                <h4 className="font-black text-white">
+                  {luckyOrderEditingId !== null
+                    ? 'Edit Lucky Order Product'
+                    : 'Add New Lucky Order Product'}
+                </h4>
+                <p className="mt-1 text-xs text-slate-400">
+                  Add product details, image, rating and level label.
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={saveLuckyOrderProduct}
+              className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+            >
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Product Name
+                </label>
+                <input
+                  required
+                  maxLength={160}
+                  value={luckyOrderName}
+                  onChange={(e) => setLuckyOrderName(e.target.value)}
+                  placeholder="Enter product name"
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm text-white outline-none focus:border-violet-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Store
+                </label>
+                <select
+                  value={luckyOrderStore}
+                  onChange={(e) => setLuckyOrderStore(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm font-bold text-white outline-none focus:border-violet-400"
+                >
+                  <option value="Amazon">Amazon</option>
+                  <option value="AliExpress">AliExpress</option>
+                  <option value="Shopify">Shopify</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Product Price (USDT)
+                </label>
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={luckyOrderPrice}
+                  onChange={(e) => setLuckyOrderPrice(e.target.value)}
+                  placeholder="e.g. 185.00"
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm text-white outline-none focus:border-violet-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Product Image URL
+                </label>
+                <input
+                  type="url"
+                  value={luckyOrderImageUrl}
+                  onChange={(e) => setLuckyOrderImageUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm text-white outline-none focus:border-violet-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Upload Image (JPG, PNG, WEBP)
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) =>
+                    setLuckyOrderImageFile(e.target.files?.[0] || null)
+                  }
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-2 text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-600 file:px-3 file:py-2 file:font-bold file:text-white"
+                />
+                {luckyOrderImageFile && (
+                  <p className="mt-1 truncate text-xs text-violet-300">
+                    {luckyOrderImageFile.name}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Product Rating
+                </label>
+                <select
+                  value={luckyOrderRating}
+                  onChange={(e) => setLuckyOrderRating(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm text-white outline-none focus:border-violet-400"
+                >
+                  <option value="5">★★★★★ — 5 Stars</option>
+                  <option value="4">★★★★☆ — 4 Stars</option>
+                  <option value="3">★★★☆☆ — 3 Stars</option>
+                  <option value="2">★★☆☆☆ — 2 Stars</option>
+                  <option value="1">★☆☆☆☆ — 1 Star</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  Marketing Commission Level
+                </label>
+                <select
+                  value={luckyOrderMarketingLevel}
+                  onChange={(e) => setLuckyOrderMarketingLevel(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-[#0b0c10] p-3 text-sm text-white outline-none focus:border-violet-400"
+                >
+                 <option value="Regular">Regular</option>
+
+                  <option value="VIP 1">VIP 1</option>
+                  <option value="VIP 2">VIP 2</option>
+                  <option value="VIP 3">VIP 3</option>
+                  <option value="VIP 4">VIP 4</option>
+                  <option value="VIP 5">VIP 5</option>
+                </select>
+              </div>
+
+           
+              <div className="flex flex-wrap items-end gap-2 md:col-span-2 xl:col-span-3">
+                <button
+                  type="submit"
+                  disabled={
+                    luckyOrderSaving ||
+                    (luckyOrderEditingId === null &&
+                      luckyOrderProducts.length >= 250)
+                  }
+                  className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3 text-xs font-black text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {luckyOrderSaving
+                    ? 'Saving Product...'
+                    : luckyOrderEditingId !== null
+                      ? '💾 Save Product Changes'
+                      : '+ Add Lucky Order Product'}
+                </button>
+
+                {luckyOrderEditingId !== null && (
+                  <button
+                    type="button"
+                    onClick={resetLuckyOrderForm}
+                    disabled={luckyOrderSaving}
+                    className="rounded-xl border border-slate-600 px-5 py-3 text-xs font-black text-slate-300 transition hover:bg-slate-800"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+{/* BLUE LUCKY PRODUCTS GALLERY */}
+<div className="overflow-hidden rounded-3xl border border-blue-400/30 bg-[#0b0c10] shadow-xl shadow-blue-950/30">
+  <button
+    type="button"
+    onClick={() =>
+      setLuckyProductsGalleryOpen((prev) => !prev)
+    }
+    className="flex w-full items-center justify-between gap-4 bg-gradient-to-r from-blue-950 via-blue-900 to-slate-950 p-5 text-left transition hover:brightness-110 md:p-6"
+  >
+    <div className="flex items-center gap-4">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-300/30 bg-blue-400/15 text-3xl">
+        🗂️
+      </div>
+
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-300">
+          Separate Product Gallery
+        </p>
+
+        <h4 className="mt-1 text-xl font-black text-white">
+          Lucky Products
+        </h4>
+
+        <p className="mt-1 text-xs text-blue-100/70">
+          Click to view moved products
+        </p>
+      </div>
+    </div>
+
+    <div className="flex items-center gap-3">
+      <span className="rounded-full border border-blue-300/30 bg-blue-400/10 px-3 py-1.5 text-xs font-black text-blue-200">
+        {luckyOrderProducts.filter((p) => p.in_lucky_gallery).length}
+      </span>
+
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xl text-white">
+        {luckyProductsGalleryOpen ? '−' : '+'}
+      </span>
+    </div>
+  </button>
+
+  {luckyProductsGalleryOpen && (
+    <div className="border-t border-blue-400/20 p-4 md:p-6">
+      {luckyOrderProducts.filter((p) => p.in_lucky_gallery).length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-blue-400/30 bg-blue-950/20 p-8 text-center">
+          <p className="text-3xl">🗂️</p>
+          <p className="mt-3 font-bold text-white">
+            No products in Lucky Products yet
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Use Move In on any product below to add it here.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {luckyOrderProducts
+            .filter((p) => p.in_lucky_gallery)
+            .map((product) => (
+              <div
+                key={product.id}
+                className="overflow-hidden rounded-2xl border border-blue-400/25 bg-slate-900"
+              >
+                <div className="flex h-32 items-center justify-center bg-gradient-to-br from-blue-950 to-slate-900 p-2">
+                  {product.image_url ? (
+                    <img
+                      src={product.image_url}
+                      alt={product.name}
+                      className="h-full max-w-full rounded-lg object-contain"
+                    />
+                  ) : (
+                    <span className="text-4xl">📦</span>
+                  )}
+                </div>
+
+                <div className="space-y-2 p-3">
+                  <p className="break-words text-xs font-bold text-white">
+                    {product.name}
+                  </p>
+
+                  <p className="text-sm font-black text-emerald-400">
+                    ${Number(product.price).toFixed(2)}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => void toggleLuckyProductGallery(product)}
+                    className="w-full rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-2 text-xs font-black text-amber-200 transition hover:bg-amber-500/20"
+                  >
+                    ↩ Move Out
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  )}
+</div>
+          {/* PRODUCT INVENTORY */}
+          <div>
+            <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <h4 className="font-black text-white">
+                  🎁 Lucky Order Inventory
+                </h4>
+                <p className="mt-1 text-xs text-slate-400">
+                  These products are separate from your regular batches.
+                </p>
+              </div>
+
+              <input
+                value={luckyOrderSearch}
+                onChange={(e) => setLuckyOrderSearch(e.target.value)}
+                placeholder="🔎 Search Lucky products..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs text-white outline-none focus:border-violet-400 sm:max-w-xs"
+              />
+            </div>
+
+            {luckyOrderLoading ? (
+              <div className="rounded-2xl border border-slate-700 bg-slate-900 p-12 text-center">
+                <p className="text-sm font-bold text-violet-300">
+                  Loading Lucky Order products...
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+{luckyOrderProducts
+  .filter((p) => !p.in_lucky_gallery)
+  .filter((p) =>
+    `${p.name} ${p.store} ${p.marketing_level}`
+      .toLowerCase()
+      .includes(luckyOrderSearch.trim().toLowerCase())
+  )
+  .map((product) => (
+                    <div
+                      key={product.id}
+                      className="group overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 transition duration-200 hover:-translate-y-0.5 hover:border-violet-400/60 hover:shadow-lg hover:shadow-violet-950/20"
+                    >
+                      <div className="relative flex h-44 items-center justify-center overflow-hidden bg-gradient-to-br from-slate-800 via-slate-900 to-violet-950/50 p-4">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="h-full max-w-full rounded-xl object-contain transition duration-300 group-hover:scale-105"
+                          />
+                        ) : (
+                          <span className="text-5xl">📦</span>
+                        )}
+
+                        <span
+                          className={`absolute right-3 top-3 rounded-full px-2.5 py-1 text-[9px] font-black ${
+                            product.is_active
+                              ? 'border border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                              : 'border border-amber-400/30 bg-amber-400/10 text-amber-300'
+                          }`}
+                        >
+                          {product.is_active ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h5 className="break-words text-sm font-black text-white">
+                              {product.name}
+                            </h5>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {product.store}
+                            </p>
+                          </div>
+
+                          <p className="shrink-0 text-sm font-black text-emerald-400">
+                            ${Number(product.price).toFixed(2)}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-bold text-amber-300">
+                            ★ {Number(product.rating).toFixed(1)} / 5
+                          </span>
+
+                          <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-xs font-black text-violet-200">
+                            {product.marketing_level}
+                          </span>
+                        </div>
+
+                      
+                        <div className="flex gap-2 border-t border-slate-700 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => editLuckyOrderProduct(product)}
+                            className="flex-1 rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2.5 text-xs font-black text-violet-200 transition hover:bg-violet-500/20"
+                          ><div className="flex flex-wrap gap-2 border-t border-slate-700 pt-3">
+
+  {/* EDIT BUTTON — pehle se mojood */}
+  <button
+    type="button"
+    onClick={() => editLuckyOrderProduct(product)}
+    className="flex-1 rounded-xl border border-slate-600 px-3 py-2.5 text-xs font-black"
+  >
+    ✏️ Edit
+  </button>
+
+  {/* MOVE IN / MOVE OUT BUTTON — yahan paste karein */}
+  <button
+    type="button"
+    onClick={() => void toggleLuckyProductGallery(product)}
+    className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-black transition ${
+      product.in_lucky_gallery
+        ? 'border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+        : 'border-blue-400/30 bg-blue-500/10 text-blue-200 hover:bg-blue-500/20'
+    }`}
+  >
+    {product.in_lucky_gallery ? '↩ Move Out' : '＋ Move In'}
+  </button>
+
+  {/* REMOVE BUTTON — aapka pehle se mojood code */}
+  <button
+    type="button"
+    onClick={() => deleteLuckyOrderProduct(product.id)}
+    className="flex-1 rounded-xl border border-red-500/30 px-3 py-2.5 text-xs font-black"
+  >
+    🗑 Remove
+  </button>
+
+</div>
+                            ✏️ Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteLuckyOrderProduct(product.id)}
+                            className="flex-1 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-xs font-black text-rose-300 transition hover:bg-rose-500/20"
+                          >
+                            🗑 Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                {luckyOrderProducts.filter((p) =>
+                  `${p.name} ${p.store} ${p.marketing_level}`
+                    .toLowerCase()
+                    .includes(luckyOrderSearch.trim().toLowerCase())
+                ).length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-10 text-center sm:col-span-2 xl:col-span-3">
+                    <div className="text-4xl">🎁</div>
+                    <p className="mt-3 font-black text-white">
+                      {luckyOrderProducts.length === 0
+                        ? 'No Lucky Order products yet'
+                        : 'No matching products found'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {luckyOrderProducts.length === 0
+                        ? 'Add your first product using the form above.'
+                        : 'Try another search term.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
 
     {/* SUMMARY CARDS */}
@@ -4841,75 +6858,377 @@ if (batchManagerSelectedBatch === 'all') {
           </div>
         )}
 
-        {/* TAB 9: DELETE CUSTOMERS PANEL */}
-        {!isFullPageTaskSettings && activeTab === 'delete_users' && isMainAdmin && (
-          <div className="bg-white rounded-3xl shadow-xl border border-red-200 p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-red-100 pb-4">
-              <div>
-                <h2 className="text-lg font-black text-red-700 flex items-center gap-2">
-                  <span>🗑️</span> Customer Deletion Management
-                </h2>
-                <p className="text-xs text-slate-500 font-medium">Permanently delete customer accounts.</p>
-              </div>
+{/* TAB 9: RECORDS & REPORTS */}
+{!isFullPageTaskSettings && activeTab === 'delete_users' && isMainAdmin && (
+  <div className="space-y-6">
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+      <div className="bg-gradient-to-r from-slate-950 via-slate-800 to-amber-700 p-6 text-white">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
+              Customer Activity Center
+            </p>
+            <h2 className="mt-2 text-2xl font-black">
+              📊 Records &amp; Reports
+            </h2>
+            <p className="mt-2 text-sm text-slate-200">
+              Customer ki financial aur task history date range ke mutabiq dekhein.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3">
+            <p className="text-xs text-slate-200">Selected Customer</p>
+            <p className="text-xl font-black">
+              {reportCustomer ? `#${reportCustomer.custom_id}` : 'None'}
+            </p>
+          </div>
+        </div>
+      </div>
 
-              <div className="w-80">
-                <input
-                  type="text"
-                  placeholder="Search to delete..."
-                  value={deleteSearchQuery}
-                  onChange={(e) => setDeleteSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-red-500"
-                />
-              </div>
-            </div>
+      <div className="space-y-5 p-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label className="mb-2 block text-xs font-black text-slate-700">
+              SEARCH CUSTOMER
+            </label>
+            <input
+              value={deleteSearchQuery}
+              onChange={(e) => setDeleteSearchQuery(e.target.value)}
+              placeholder="Name, email, ID or invite code..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-amber-500"
+            />
+          </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-red-900 text-white font-bold">
-                    <th className="p-3">Users</th>
-                    <th className="p-3">Invite Code</th>
-                    <th className="p-3">Email / Account</th>
-                    <th className="p-3">Bal</th>
-                    <th className="p-3 text-right">Permanent Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-medium">
-                  {filteredDeleteCustomers.map((c) => (
-                    <tr key={c.id} className="hover:bg-red-50/50 transition">
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="text-sm font-mono font-black text-red-900">#{c.custom_id}</div>
-                        <div className="text-xs font-bold text-slate-700 mt-0.5">👤 {c.full_name || c.username || c.name || 'No Name'}</div>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">{renderSimpleInvitationCodes(c)}</td>
-                      <td className="p-3 text-slate-700 font-semibold">{c.email || 'customer@appuser.local'}</td>
-                      <td className="p-3 font-mono font-bold text-emerald-600">${c.balance.toFixed(2)}</td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => {
-                            const confirmed = window.confirm(`Are you sure you want to delete customer #${c.custom_id}?`);
-                            if (!confirmed) return;
-                            supabase.from('profiles').delete().eq('id', c.id).then(({ error }) => {
-                              if (!error) {
-                                setCustomers(prev => prev.filter(item => item.id !== c.id));
-                                showToast('Customer deleted successfully.');
-                              } else {
-                                showToast(error.message, 'error');
-                              }
-                            });
-                          }}
-                          className="px-3 py-1.5 bg-red-600 text-white font-black text-[10px] rounded-lg shadow hover:bg-red-700 transition"
-                        >
-                          🗑️ Delete Customer
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div>
+            <label className="mb-2 block text-xs font-black text-slate-700">
+              FROM DATE
+            </label>
+            <input
+              type="date"
+              value={reportStartDate}
+              onChange={(e) => setReportStartDate(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-black text-slate-700">
+              TO DATE
+            </label>
+            <input
+              type="date"
+              value={reportEndDate}
+              min={reportStartDate || undefined}
+              onChange={(e) => setReportEndDate(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { id: 'all', title: 'All Records', icon: '📚', color: 'slate' },
+            { id: 'deposits', title: 'Deposits & Funds', icon: '💰', color: 'emerald' },
+            { id: 'withdrawals', title: 'Withdrawals', icon: '🏦', color: 'blue' },
+            { id: 'lucky', title: 'Lucky Orders', icon: '🍀', color: 'amber' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setReportCategory(item.id)}
+              className={`rounded-2xl border p-4 text-left transition ${
+                reportCategory === item.id
+                  ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-200'
+                  : 'border-slate-200 bg-white hover:border-amber-300 hover:bg-slate-50'
+              }`}
+            >
+              <span className="text-2xl">{item.icon}</span>
+              <p className="mt-2 text-sm font-black text-slate-800">{item.title}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {reportCategory === item.id ? 'Selected view' : 'Click to view'}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="w-full min-w-[700px] text-left text-xs">
+            <thead className="bg-slate-900 text-white">
+              <tr>
+                <th className="p-3">Customer</th>
+                <th className="p-3">Email / Account</th>
+                <th className="p-3">Current Balance</th>
+                <th className="p-3">Invite Code</th>
+                <th className="p-3 text-right">Report</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredDeleteCustomers.map((c) => (
+                <tr
+                  key={c.id}
+                  className={`transition hover:bg-amber-50 ${
+                    reportCustomerId === String(c.id) ? 'bg-amber-50' : ''
+                  }`}
+                >
+                  <td className="p-3">
+                    <p className="font-black text-slate-900">
+                      #{c.custom_id}
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-600">
+                      {c.full_name || c.username || c.name || 'No Name'}
+                    </p>
+                  </td>
+                  <td className="p-3 font-medium text-slate-600">
+                    {c.email || 'customer@appuser.local'}
+                  </td>
+                  <td className="p-3 font-black text-emerald-700">
+                    {reportMoney(c.balance)}
+                  </td>
+                  <td className="p-3">{renderSimpleInvitationCodes(c)}</td>
+                  <td className="p-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void handleLoadCustomerReport(String(c.id))}
+                      className="rounded-xl bg-slate-900 px-4 py-2 font-black text-white hover:bg-amber-600"
+                    >
+                      {reportCustomerId === String(c.id) ? 'Refresh Report' : 'View History'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredDeleteCustomers.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-500">
+                    No customers match your search.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {reportError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+            {reportError}
           </div>
         )}
+
+        {reportCustomer && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div>
+                <h3 className="font-black text-slate-900">
+                  {reportCustomer.full_name || reportCustomer.username || reportCustomer.name || 'Customer'}
+                  {' '}— Records
+                </h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  {reportStartDate || 'Beginning'} to {reportEndDate || 'Today / latest available'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadCustomerReport}
+                className="rounded-xl bg-emerald-700 px-5 py-3 text-xs font-black text-white hover:bg-emerald-800"
+              >
+                ⬇ Export / Save as PDF
+              </button>
+            </div>
+
+            {reportLoading ? (
+              <div className="rounded-2xl border border-slate-200 p-8 text-center font-bold text-slate-500">
+                Loading customer history...
+              </div>
+            ) : (
+              <>
+                {(reportCategory === 'all' || reportCategory === 'deposits') && (
+                  <div className="overflow-x-auto rounded-2xl border border-emerald-200">
+                    <h4 className="bg-emerald-50 p-4 font-black text-emerald-900">
+                      💰 Deposits & Funds ({filteredReportDeposits.length})
+                    </h4>
+                    <table className="w-full min-w-[650px] text-left text-xs">
+                      <thead className="bg-emerald-800 text-white">
+                        <tr>
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Amount</th>
+                          <th className="p-3">Status</th>
+                          <th className="p-3">Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredReportDeposits.map((d: any, i: number) => (
+                          <tr key={d.id || i}>
+                            <td className="p-3">{reportDate(d.created_at)}</td>
+                            <td className="p-3 font-black">{reportMoney(d.amount)}</td>
+                            <td className="p-3">{d.status || d.payment_status || 'Recorded'}</td>
+                            <td className="p-3">{d.id || d.tx_hash || d.transaction_id || '—'}</td>
+                          </tr>
+                        ))}
+                        {!filteredReportDeposits.length && (
+                          <tr><td colSpan={4} className="p-4 text-slate-500">No deposits in this date range.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {(reportCategory === 'all' || reportCategory === 'withdrawals') && (
+                  <div className="overflow-x-auto rounded-2xl border border-blue-200">
+                    <h4 className="bg-blue-50 p-4 font-black text-blue-900">
+                      🏦 Withdrawals ({filteredReportWithdrawals.length})
+                    </h4>
+                    <table className="w-full min-w-[650px] text-left text-xs">
+                      <thead className="bg-blue-800 text-white">
+                        <tr>
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Amount</th>
+                          <th className="p-3">Status</th>
+                          <th className="p-3">Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredReportWithdrawals.map((w: any, i: number) => (
+                          <tr key={w.id || i}>
+                            <td className="p-3">{reportDate(w.created_at)}</td>
+                            <td className="p-3 font-black">{reportMoney(w.amount)}</td>
+                            <td className="p-3">{w.status || 'Recorded'}</td>
+                            <td className="p-3">{w.id || w.transaction_id || w.tx_hash || '—'}</td>
+                          </tr>
+                        ))}
+                        {!filteredReportWithdrawals.length && (
+                          <tr><td colSpan={4} className="p-4 text-slate-500">No withdrawals in this date range.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {(reportCategory === 'all' || reportCategory === 'lucky') && (
+                  <div className="overflow-x-auto rounded-2xl border border-amber-200">
+                    <h4 className="bg-amber-50 p-4 font-black text-amber-900">
+                      🍀 Task & Lucky Order History ({filteredReportTasks.filter((t: any) => reportCategory !== 'lucky' || t.is_lucky_order).length})
+                    </h4>
+                    <table className="w-full min-w-[750px] text-left text-xs">
+                      <thead className="bg-amber-700 text-white">
+                        <tr>
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Task #</th>
+                          <th className="p-3">Type</th>
+                          <th className="p-3">Task Amount</th>
+                          <th className="p-3">Commission</th>
+                          <th className="p-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredReportTasks
+                          .filter((t: any) => reportCategory !== 'lucky' || t.is_lucky_order)
+                          .map((t: any, i: number) => (
+                            <tr key={t.id || i}>
+                              <td className="p-3">{reportDate(t.created_at)}</td>
+                              <td className="p-3 font-black">{t.task_number ?? t.task_num ?? '—'}</td>
+                              <td className="p-3">
+                                {t.is_lucky_order ? '🍀 Lucky Order' : 'Normal / Custom Task'}
+                              </td>
+                              <td className="p-3 font-black">
+                                {reportMoney(t.task_amount ?? t.locked_price ?? t.amount ?? t.price)}
+                              </td>
+                              <td className="p-3 font-bold text-emerald-700">
+                                {reportMoney(t.locked_commission ?? t.commission ?? 0)}
+                              </td>
+                              <td className="p-3">{t.status || t.funding_status || 'Recorded'}</td>
+                            </tr>
+                          ))}
+                        {filteredReportTasks.filter((t: any) => reportCategory !== 'lucky' || t.is_lucky_order).length === 0 && (
+                          <tr><td colSpan={6} className="p-4 text-slate-500">No task records in this date range.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Existing customer deletion feature remains separate */}
+    <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-100 bg-red-50 p-5">
+        <div>
+          <h3 className="font-black text-red-800">🗑️ Delete Customer</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            This is a separate permanent action. Review carefully before deleting.
+          </p>
+        </div>
+        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
+          Main Admin Only
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px] text-left text-xs">
+          <thead className="bg-red-900 text-white">
+            <tr>
+              <th className="p-3">Customer ID / Name</th>
+              <th className="p-3">Invite Code</th>
+              <th className="p-3">Email / Account</th>
+              <th className="p-3">Balance</th>
+              <th className="p-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filteredDeleteCustomers.map((c) => (
+              <tr key={c.id} className="hover:bg-red-50">
+                <td className="p-3">
+                  <div className="font-black text-red-900">#{c.custom_id}</div>
+                  <div className="mt-1 font-semibold text-slate-700">
+                    {c.full_name || c.username || c.name || 'No Name'}
+                  </div>
+                </td>
+                <td className="p-3">{renderSimpleInvitationCodes(c)}</td>
+                <td className="p-3 font-semibold text-slate-700">
+                  {c.email || 'customer@appuser.local'}
+                </td>
+                <td className="p-3 font-mono font-bold text-emerald-600">
+                  {reportMoney(c.balance)}
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        `Are you sure you want to delete customer #${c.custom_id}?`
+                      );
+                      if (!confirmed) return;
+
+                      supabase.from('profiles').delete().eq('id', c.id).then(({ error }) => {
+                        if (!error) {
+                          setCustomers((prev) => prev.filter((item) => item.id !== c.id));
+                          if (reportCustomerId === String(c.id)) {
+                            setReportCustomerId('');
+                            setReportTasks([]);
+                          }
+                          showToast('Customer deleted successfully.');
+                        } else {
+                          showToast(error.message, 'error');
+                        }
+                      });
+                    }}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-[10px] font-black text-white hover:bg-red-700"
+                  >
+                    🗑️ Delete Customer
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!filteredDeleteCustomers.length && (
+              <tr><td colSpan={5} className="p-6 text-center text-slate-500">No customers found.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
 
       </div>
 

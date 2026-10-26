@@ -177,25 +177,48 @@ console.log("Credential request admin check:", {
           400,
         );
       }
+const { data: existing, error: existingError } = await db
+  .from("sub_admin_credential_requests")
+  .select("id, request_type, status, expires_at")
+  .eq("sub_admin_id", subAdmin.id)
+  .eq("request_type", requestType)
+  .in("status", ["pending", "verified"])
+  .order("created_at", { ascending: false })
+  .limit(1);
 
-      const { data: existing, error: existingError } = await db
-        .from("sub_admin_credential_requests")
-        .select("id")
-        .eq("sub_admin_id", subAdmin.id)
-        .in("status", ["pending", "verified"])
-        .limit(1);
+if (existingError) throw existingError;
 
-      if (existingError) throw existingError;
+const activeRequest = existing?.[0];
 
-      if (existing?.length) {
-        return respond(
-          {
-            success: false,
-            message: "You already have a pending or approved request",
-          },
-          409,
-        );
-      }
+if (activeRequest) {
+  const expired =
+    activeRequest.expires_at &&
+    new Date(activeRequest.expires_at).getTime() <= Date.now();
+
+  if (expired) {
+    const { error: expireError } = await db
+      .from("sub_admin_credential_requests")
+      .update({
+        status: "expired",
+        verification_code_hash: null,
+      })
+      .eq("id", activeRequest.id)
+      .in("status", ["pending", "verified"]);
+
+    if (expireError) throw expireError;
+  } else {
+    return respond(
+      {
+        success: false,
+        message:
+          activeRequest.status === "verified"
+            ? "Your request is approved. Enter your new password and save again to complete the change."
+            : "You already have a pending request. Please wait for Main Admin approval.",
+      },
+      409,
+    );
+  }
+}
 
       const { data: request, error: insertError } = await db
         .from("sub_admin_credential_requests")

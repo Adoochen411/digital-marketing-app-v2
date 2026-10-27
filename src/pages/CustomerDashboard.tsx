@@ -84,7 +84,17 @@ const [depositStep, setDepositStep] = useState<1 | 2>(1);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+const [selectedSupportImage, setSelectedSupportImage] =
+  useState<File | null>(null);
 
+const [supportImagePreview, setSupportImagePreview] =
+  useState<string | null>(null);
+
+const [isSendingSupportMessage, setIsSendingSupportMessage] =
+  useState(false);
+
+const [supportImageUrls, setSupportImageUrls] =
+  useState<Record<string, string>>({});
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showWalletBindModal, setShowWalletBindModal] = useState(false);
@@ -265,6 +275,231 @@ Please use the platform responsibly, protect your account, and review all financ
       hour12: true
     });
   };
+
+
+useEffect(() => {
+  if (!user?.id) return;
+
+  let isMounted = true;
+
+  const fetchUserProfileAndData = async () => {
+    try {
+      // 1. Products load
+      const { data: prodData, error: prodError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('rotation_batch', {
+          ascending: true,
+          nullsFirst: false,
+        })
+        .order('id', { ascending: true });
+
+      if (prodError) {
+        console.error('Products loading failed:', prodError);
+      } else if (prodData && isMounted) {
+        setDbProducts(prodData);
+      }
+
+      // 2. Profile load
+      const { data, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('Profile loading failed:', profileError);
+      }
+
+      if (data && isMounted) {
+        setBalance(Number(data.balance) || 0);
+        setTodayCommission(Number(data.total_profits) || 0);
+        setRunningTasksVal(Number(data.running_tasks) || 0);
+        if (data.email) setUserEmail(data.email);
+        if (data.phone) setUserPhone(data.phone);
+
+        setMyInviteCode(
+          String(data.user_invite_code || data.invitation_code || '').trim()
+        );
+
+        if (data.completed_tasks !== undefined) {
+          setCompletedTasks(data.completed_tasks);
+        }
+
+        if (data.vip_level) setActiveVipLevel(data.vip_level);
+        if (data.withdraw_message) {
+          setWithdrawLockedMsg(data.withdraw_message);
+        }
+
+        if (data.is_frozen !== undefined) {
+          setIsAccountFrozen(Boolean(data.is_frozen));
+        }
+
+        if (data.auto_task_lock !== undefined) {
+          setIsAutoTaskLocked(Boolean(data.auto_task_lock));
+        }
+
+        setCurrentTask(data.pending_task ?? null);
+
+        if (
+          data.trc20 ||
+          data.trc20_address ||
+          data.account_number ||
+          data.bank_name
+        ) {
+          setTrc20Address(data.trc20_address || data.trc20 || '');
+          setErc20Address(data.erc20 || '');
+          setBankName(data.bank_name || '');
+          setAccountNumber(data.account_number || '');
+          setIsWalletAlreadyBound(true);
+        }
+      }
+
+      // 3. Settings, deposits and withdrawals load together
+      const [settingsResult, depositsResult, withdrawalsResult] =
+        await Promise.all([
+          supabase
+            .from('system_settings')
+            .select('deposit_trc20_address')
+            .maybeSingle(),
+
+          supabase
+            .from('deposits')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false }),
+
+          supabase
+            .from('withdrawals')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false }),
+        ]);
+
+      if (!isMounted) return;
+
+      if (settingsResult.error) {
+        console.error('Settings load failed:', settingsResult.error);
+      } else if (settingsResult.data?.deposit_trc20_address) {
+        setAdminTrc20DepositAddress(
+          settingsResult.data.deposit_trc20_address
+        );
+      }
+
+      if (depositsResult.error) {
+        console.error('Deposit history load failed:', depositsResult.error);
+      } else {
+        setDepositHistory(depositsResult.data ?? []);
+      }
+
+      if (withdrawalsResult.error) {
+        console.error(
+          'Withdrawal history load failed:',
+          withdrawalsResult.error
+        );
+      } else {
+        setWithdrawHistory(withdrawalsResult.data ?? []);
+      }
+    } catch (error) {
+      console.error('Customer dashboard loading failed:', error);
+    }
+  };
+
+  void fetchUserProfileAndData();
+
+  const syncInterval = window.setInterval(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Profile sync failed:', error);
+      return;
+    }
+
+    if (!data || !isMounted) return;
+
+    setBalance(Number(data.balance) || 0);
+    setCurrentTask(data.pending_task ?? null);
+    setTodayCommission(Number(data.total_profits) || 0);
+    setRunningTasksVal(Number(data.running_tasks) || 0);
+
+    if (data.completed_tasks !== undefined) {
+      setCompletedTasks(data.completed_tasks);
+    }
+
+    if (data.vip_level) setActiveVipLevel(data.vip_level);
+
+    if (data.withdraw_message) {
+      setWithdrawLockedMsg(data.withdraw_message);
+    }
+
+    if (data.is_frozen !== undefined) {
+      setIsAccountFrozen(Boolean(data.is_frozen));
+    }
+
+    if (data.auto_task_lock !== undefined) {
+      setIsAutoTaskLocked(Boolean(data.auto_task_lock));
+    }
+  }, 2000);
+
+  const channel = supabase
+    .channel(`customer-room-${user.id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`,
+      },
+      (payload) => {
+        if (!isMounted || !payload.new) return;
+
+        const profile = payload.new as Record<string, unknown>;
+
+        setBalance(Number(profile.balance) || 0);
+        setTodayCommission(Number(profile.total_profits) || 0);
+        setRunningTasksVal(Number(profile.running_tasks) || 0);
+
+        if (profile.completed_tasks !== undefined) {
+          setCompletedTasks(Number(profile.completed_tasks));
+        }
+
+        if (profile.vip_level) {
+          setActiveVipLevel(String(profile.vip_level));
+        }
+
+        if (profile.withdraw_message) {
+          setWithdrawLockedMsg(String(profile.withdraw_message));
+        }
+
+        if (profile.is_frozen !== undefined) {
+          setIsAccountFrozen(Boolean(profile.is_frozen));
+        }
+
+        if (profile.auto_task_lock !== undefined) {
+          setIsAutoTaskLocked(Boolean(profile.auto_task_lock));
+        }
+
+      setCurrentTask(
+  (profile.pending_task as ProductTask | null | undefined) ?? null
+);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    isMounted = false;
+    window.clearInterval(syncInterval);
+    void supabase.removeChannel(channel);
+  };
+}, [user?.id]);
+
+
 
 useEffect(() => {
   if (!user?.id) return;
@@ -528,131 +763,6 @@ const applyProfileSettings = (profile: any) => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-
-const fetchUserProfileAndData = async () => {
-  
-const { data: prodData, error: prodError } = await supabase
-  .from('products')
-  .select('*')
-  .eq('is_active', true)
-  .order('rotation_batch', { ascending: true, nullsFirst: false })
-  .order('id', { ascending: true });
-
-if (prodError) {
-  console.error('Products loading failed:', prodError);
-} else if (prodData) {
-  setDbProducts(prodData);
-}
-
-
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
-
-      if (data) {
-        setBalance(Number(data.balance) || 0.00);
-        setTodayCommission(Number(data.total_profits) || 0.00);
-        setRunningTasksVal(Number(data.running_tasks) || 0.00);
-        if (data.email) setUserEmail(data.email);
-        if (data.phone) setUserPhone(data.phone);
-
-        const currentCode = String(
-          data.user_invite_code || data.invitation_code || ''
-        ).trim();
-
-        setMyInviteCode(currentCode);
-
-        if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
-        if (data.vip_level) setActiveVipLevel(data.vip_level);
-        if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
-        if (data.is_frozen !== undefined) setIsAccountFrozen(Boolean(data.is_frozen));
-        if (data.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(data.auto_task_lock));
-
-      setCurrentTask(data.pending_task ?? null);
-        if (data.trc20 || data.trc20_address || data.account_number || data.bank_name) {
-          setTrc20Address(data.trc20_address || data.trc20 || '');
-          setErc20Address(data.erc20 || '');
-          setBankName(data.bank_name || '');
-          setAccountNumber(data.account_number || '');
-          setIsWalletAlreadyBound(true);
-        }
-      }
-
-      const { data: settingsData } = await supabase
-        .from('system_settings')
-        .select('*')
-        .maybeSingle();
-
-      if (settingsData?.deposit_trc20_address) {
-        setAdminTrc20DepositAddress(settingsData.deposit_trc20_address);
-      }
-
-      const { data: depData } = await supabase.from('deposits').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (depData) setDepositHistory(depData);
-
-      const { data: witData } = await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (witData) setWithdrawHistory(witData);
-
-      const { data: chatData } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .order('created_at', { ascending: true });
-      if (chatData) setChatMessages(chatData);
-    };
-
-    fetchUserProfileAndData();
-
-    const syncInterval = setInterval(async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (data) {
-        setBalance(Number(data.balance) || 0.00);
-        setCurrentTask(data.pending_task ?? null);
-        setTodayCommission(Number(data.total_profits) || 0.00);
-        setRunningTasksVal(Number(data.running_tasks) || 0.00);
-        if (data.completed_tasks !== undefined) setCompletedTasks(data.completed_tasks);
-        if (data.vip_level) setActiveVipLevel(data.vip_level);
-        if (data.withdraw_message) setWithdrawLockedMsg(data.withdraw_message);
-        if (data.is_frozen !== undefined) setIsAccountFrozen(Boolean(data.is_frozen));
-        if (data.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(data.auto_task_lock));
-      }
-    }, 2000);
-
-    const channel = supabase
-      .channel(`customer-room-${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-        (payload) => {
-          if (payload.new) {
-            setBalance(Number(payload.new.balance) || 0.00);
-            setTodayCommission(Number(payload.new.total_profits) || 0.00);
-            setRunningTasksVal(Number(payload.new.running_tasks) || 0.00);
-            if (payload.new.completed_tasks !== undefined) setCompletedTasks(payload.new.completed_tasks);
-            if (payload.new.vip_level) setActiveVipLevel(payload.new.vip_level);
-            if (payload.new.withdraw_message) setWithdrawLockedMsg(payload.new.withdraw_message);
-            if (payload.new.is_frozen !== undefined) setIsAccountFrozen(Boolean(payload.new.is_frozen));
-            if (payload.new.auto_task_lock !== undefined) setIsAutoTaskLocked(Boolean(payload.new.auto_task_lock));
-          setCurrentTask(payload.new.pending_task ?? null);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      clearInterval(syncInterval);
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ text, type });
@@ -722,32 +832,434 @@ useEffect(() => {
     supabase.removeChannel(channel);
   };
 }, [user?.id]);
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || !user) return;
 
-    const currentTxt = inputMessage.trim();
-    const tempMsgObj: ChatMessage = {
-      id: `temp-${Date.now()}`,
-      sender_id: user.id,
-      receiver_id: 'admin',
-      message: currentTxt,
-      created_at: new Date().toISOString(),
-      is_admin: false,
-    };
 
-    setChatMessages((prev) => [...prev, tempMsgObj]);
-    setInputMessage('');
 
-    await supabase.from('chat_messages').insert([
-      {
-        sender_id: user.id,
-        receiver_id: 'admin',
-        message: currentTxt,
-        is_admin: false,
+  
+useEffect(() => {
+  if (!user?.id) return;
+
+  let isMounted = true;
+
+  const loadChatHistory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Live Support history load failed:', error);
+        return;
       }
-    ]);
+
+      if (!isMounted || !data) return;
+
+      setChatMessages((previous) => {
+        const byId = new Map(
+          previous.map((message) => [message.id, message])
+        );
+
+        data.forEach((message) => {
+          byId.set(message.id, message);
+        });
+
+        return Array.from(byId.values()).sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() -
+            new Date(b.created_at).getTime()
+        );
+      });
+
+      await loadChatAttachmentUrls(data.map((message) => message.id));
+    } catch (error) {
+      console.error('Live Support history error:', error);
+    }
   };
+
+  const loadChatAttachmentUrls = async (messageIds: string[]) => {
+    if (!messageIds.length || !isMounted) return;
+
+    const { data, error } = await supabase
+      .from('chat_attachments')
+      .select('chat_message_id, file_path')
+      .eq('conversation_user_id', user.id)
+      .in('chat_message_id', messageIds);
+
+    if (error) {
+      console.error('Chat attachment history failed:', error);
+      return;
+    }
+
+    if (!data || !isMounted) return;
+
+    const urlEntries = await Promise.all(
+      data.map(async (attachment) => {
+        const { data: signedData, error: signedError } =
+          await supabase.storage
+            .from('chat-attachments')
+            .createSignedUrl(attachment.file_path, 3600);
+
+        if (signedError || !signedData) {
+          console.error('Could not load chat image:', signedError);
+          return null;
+        }
+
+        return [
+          attachment.chat_message_id,
+          signedData.signedUrl,
+        ] as const;
+      })
+    );
+
+    if (!isMounted) return;
+
+    setSupportImageUrls((previous) => ({
+      ...previous,
+      ...Object.fromEntries(urlEntries.filter((entry) => entry !== null)),
+    }));
+  };
+
+ void loadChatHistory();
+
+const chatChannel = supabase
+  .channel(`customer-chat-live-${user.id}-${crypto.randomUUID()}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'chat_messages',
+      },
+      (payload) => {
+        const incoming = payload.new as {
+          id: string;
+          sender_id: string;
+          receiver_id: string;
+          message: string;
+          is_admin: boolean;
+          created_at: string;
+          is_read: boolean;
+        };
+
+        // Only display messages belonging to this customer.
+        if (
+          incoming.sender_id !== user.id &&
+          incoming.receiver_id !== user.id
+        ) {
+          return;
+        }
+
+       
+setChatMessages((previous) => {
+  const existingIndex = previous.findIndex(
+    (message) => String(message.id) === String(incoming.id)
+  );
+
+  if (existingIndex !== -1) {
+    return previous.map((message, index) =>
+      index === existingIndex
+        ? { ...message, ...incoming }
+        : message
+    );
+  }
+
+  const withoutMatchingTemp = previous.filter(
+    (message) =>
+      !(
+        String(message.id).startsWith('temp-') &&
+        message.sender_id === incoming.sender_id &&
+        message.message === incoming.message
+      )
+  );
+
+  return [
+    ...withoutMatchingTemp,
+    incoming as (typeof previous)[number],
+  ].sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() -
+      new Date(b.created_at).getTime()
+  );
+});
+
+
+        // Attachments may be inserted just after the message.
+        window.setTimeout(() => {
+          if (isMounted) {
+            void loadChatAttachmentUrls([incoming.id]);
+          }
+        }, 500);
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chat_messages',
+      },
+      (payload) => {
+        const updated = payload.new as {
+          id: string;
+          sender_id: string;
+          receiver_id: string;
+          message: string;
+          is_admin: boolean;
+          created_at: string;
+          is_read: boolean;
+        };
+
+        if (
+          updated.sender_id !== user.id &&
+          updated.receiver_id !== user.id
+        ) {
+          return;
+        }
+
+        setChatMessages((previous) =>
+          previous.map((message) =>
+            message.id === updated.id
+              ? { ...message, ...updated }
+              : message
+          )
+        );
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'chat_attachments',
+      },
+      (payload) => {
+        const attachment = payload.new as {
+          chat_message_id: string;
+          conversation_user_id: string;
+          file_path: string;
+        };
+
+        if (attachment.conversation_user_id !== user.id) return;
+
+        void (async () => {
+          const { data: signedData, error } = await supabase.storage
+            .from('chat-attachments')
+            .createSignedUrl(attachment.file_path, 3600);
+
+          if (error || !signedData || !isMounted) {
+            if (error) console.error('Live chat image error:', error);
+            return;
+          }
+
+          setSupportImageUrls((previous) => ({
+            ...previous,
+            [attachment.chat_message_id]: signedData.signedUrl,
+          }));
+        })();
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('Customer chat realtime status:', status);
+      }
+    });
+
+  return () => {
+    isMounted = false;
+    void supabase.removeChannel(chatChannel);
+  };
+}, [user?.id]);
+
+const handleSupportImageChange = (
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Please select an image file.', 'error');
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('Image size must be 5 MB or less.', 'error');
+    return;
+  }
+
+  setSelectedSupportImage(file);
+  setSupportImagePreview(URL.createObjectURL(file));
+};
+
+const handleSendSupportMessage = async (
+  event: React.FormEvent<HTMLFormElement>
+) => {
+  event.preventDefault();
+
+  const messageText = inputMessage.trim();
+  const imageFile = selectedSupportImage;
+
+  if (!messageText && !imageFile) {
+    showToast('Please type a message or select an image.', 'error');
+    return;
+  }
+
+  if (isSendingSupportMessage) return;
+
+  setIsSendingSupportMessage(true);
+
+  let uploadedPath: string | null = null;
+  let messageSaved = false;
+
+  try {
+    const {
+      data: { user: authUser },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !authUser) {
+      throw new Error('Please log in again to send your message.');
+    }
+
+    let signedImageUrl: string | null = null;
+
+    // Upload the image before inserting the chat message.
+    if (imageFile) {
+      const extension = imageFile.name.split('.').pop() || 'jpg';
+      uploadedPath = `${authUser.id}/${crypto.randomUUID()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-attachments')
+        .upload(uploadedPath, imageFile, {
+          contentType: imageFile.type || 'image/jpeg',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+    }
+
+    // Save exactly one message in the database.
+    const { data: savedMessage, error: messageError } = await supabase
+      .from('chat_messages')
+      .insert({
+        sender_id: authUser.id,
+        receiver_id: 'admin',
+        message: messageText || (imageFile ? '📷 Image attachment' : ''),
+        is_admin: false,
+        is_read: false,
+      })
+      .select('*')
+      .single();
+
+    if (messageError) throw messageError;
+
+    if (!savedMessage) {
+      throw new Error('The message could not be saved.');
+    }
+
+    messageSaved = true;
+
+    // Save the image reference against the saved message.
+    if (imageFile && uploadedPath) {
+      const { error: attachmentError } = await supabase
+        .from('chat_attachments')
+        .insert({
+          chat_message_id: savedMessage.id,
+          conversation_user_id: authUser.id,
+          uploaded_by: authUser.id,
+          file_name: imageFile.name,
+          file_path: uploadedPath,
+          mime_type: imageFile.type,
+          file_size: imageFile.size,
+        });
+
+      if (attachmentError) {
+        throw attachmentError;
+      }
+
+      const { data: signedData, error: signedError } =
+        await supabase.storage
+          .from('chat-attachments')
+          .createSignedUrl(uploadedPath, 3600);
+
+      if (signedError) throw signedError;
+
+      signedImageUrl = signedData.signedUrl;
+
+      setSupportImageUrls((previous) => ({
+        ...previous,
+        [savedMessage.id]: signedImageUrl!,
+      }));
+    }
+
+    // Realtime may have inserted this message already.
+    setChatMessages((previous) => {
+      const existingIndex = previous.findIndex(
+        (message) => String(message.id) === String(savedMessage.id)
+      );
+
+      if (existingIndex !== -1) {
+        return previous.map((message, index) =>
+          index === existingIndex
+            ? { ...message, ...savedMessage }
+            : message
+        );
+      }
+
+      // Remove a matching temporary optimistic message, if present.
+      const withoutTemp = previous.filter(
+        (message) =>
+          !(
+            String(message.id).startsWith('temp-') &&
+            message.sender_id === savedMessage.sender_id &&
+            message.message === savedMessage.message
+          )
+      );
+
+      return [...withoutTemp, savedMessage].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() -
+          new Date(b.created_at).getTime()
+      );
+    });
+
+    setInputMessage('');
+    setSelectedSupportImage(null);
+
+    setSupportImagePreview((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+
+    showToast('Message sent successfully.', 'success');
+  } catch (error) {
+    console.error('Support message/image error:', error);
+
+    // If the message was saved, retain its uploaded file for recovery.
+    // Remove the file only when message creation failed.
+    if (uploadedPath && !messageSaved) {
+      const { error: cleanupError } = await supabase.storage
+        .from('chat-attachments')
+        .remove([uploadedPath]);
+
+      if (cleanupError) {
+        console.error('Uploaded image cleanup failed:', cleanupError);
+      }
+    }
+
+    showToast(
+      error instanceof Error
+        ? error.message
+        : 'Could not send your message. Please try again.',
+      'error'
+    );
+  } finally {
+    setIsSendingSupportMessage(false);
+  }
+};
 
   const handleSelectVipLevel = async (vipName: string, minReq: number) => {
     if (balance < minReq) {
@@ -2128,7 +2640,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
           </p>
         </div>
 
-        {/* ADMIN SAVED SUPPORT LINKS */}
+        {/* SUPPORT LINKS */}
         <div className="grid grid-cols-2 gap-3">
           <a
             href={telegramUrl || 'https://t.me'}
@@ -2153,6 +2665,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
       </div>
 
       <div className="bg-[#18150a] border-2 border-[#d4af37]/60 rounded-2xl p-4 space-y-3 flex-1 flex flex-col justify-between shadow-inner">
+
         <div className="flex justify-between items-center border-b border-[#d4af37]/30 pb-2">
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
@@ -2160,11 +2673,13 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
               Live Assistant Portal
             </span>
           </div>
+
           <span className="text-[10px] text-emerald-400 font-mono font-bold">
             ● Online
           </span>
         </div>
 
+        {/* CHAT HISTORY */}
         <div className="flex-1 min-h-[320px] max-h-[450px] overflow-y-auto space-y-2.5 pr-1 text-xs">
           {chatMessages.length === 0 ? (
             <div className="text-center text-gray-500 text-xs py-16">
@@ -2185,7 +2700,29 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                       : 'bg-black text-gray-200 border border-[#d4af37]/50 rounded-bl-none'
                   }`}
                 >
-                  <p className="leading-snug text-xs">{msg.message}</p>
+                  {supportImageUrls[msg.id] && (
+                    <a
+                      href={supportImageUrls[msg.id]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block mb-2"
+                    >
+                      <img
+                        src={supportImageUrls[msg.id]}
+                        alt="Chat attachment"
+                        className="max-w-full max-h-64 rounded-xl object-contain border border-[#d4af37]/40"
+                      />
+                    </a>
+                  )}
+
+                
+{msg.message && msg.message !== '📷 Image attachment' && (
+  <p className="leading-snug text-xs whitespace-pre-wrap break-words">
+    {msg.message}
+  </p>
+)}
+
+
                   <span className="text-[8px] opacity-75 block text-right mt-1 font-mono">
                     {formatDateWithTime(msg.created_at)}
                   </span>
@@ -2195,26 +2732,91 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
           )}
         </div>
 
+        {/* SELECTED IMAGE PREVIEW */}
+        {supportImagePreview && (
+          <div className="relative p-3 bg-black border border-[#d4af37]/50 rounded-2xl">
+            <div className="text-[10px] text-[#f3e5ab] font-bold mb-2">
+              IMAGE READY TO SEND
+            </div>
+
+            <img
+              src={supportImagePreview}
+              alt="Selected image preview"
+              className="max-h-40 max-w-full rounded-xl object-contain"
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedSupportImage(null);
+                setSupportImagePreview((previous) => {
+                  if (previous) URL.revokeObjectURL(previous);
+                  return null;
+                });
+              }}
+              disabled={isSendingSupportMessage}
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-600 text-white font-black shadow disabled:opacity-50"
+              aria-label="Remove selected image"
+              title="Remove image"
+            >
+              ×
+            </button>
+
+            <p className="text-[10px] text-gray-400 mt-2 break-all">
+              {selectedSupportImage?.name}
+            </p>
+          </div>
+        )}
+
+        {/* MESSAGE INPUT + GALLERY */}
         <form
-          onSubmit={handleSendMessage}
-          className="flex gap-2 pt-2 border-t border-[#d4af37]/30"
+          onSubmit={handleSendSupportMessage}
+          className="pt-2 border-t border-[#d4af37]/30 space-y-2"
         >
-          <input
-            type="text"
-            placeholder="Type your message..."
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            className="flex-1 bg-black border border-[#d4af37]/60 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
-          />
-          <button
-            type="submit"
-            className="px-5 py-2.5 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider"
-          >
-            Send
-          </button>
+          <div className="flex gap-2 items-center">
+            <label
+              className={`shrink-0 w-11 h-11 flex items-center justify-center rounded-xl border border-[#d4af37]/70 bg-black text-[#f3e5ab] text-xl cursor-pointer hover:bg-[#d4af37]/10 ${
+                isSendingSupportMessage ? 'opacity-50 pointer-events-none' : ''
+              }`}
+              title="Choose image from gallery"
+            >
+              <span>▧</span>
+
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleSupportImageChange}
+                disabled={isSendingSupportMessage}
+                className="hidden"
+              />
+            </label>
+
+            <input
+              type="text"
+              placeholder="Type your message..."
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              disabled={isSendingSupportMessage}
+              className="min-w-0 flex-1 bg-black border border-[#d4af37]/60 rounded-xl px-3 py-3 text-xs text-white focus:outline-none focus:border-[#f3e5ab] disabled:opacity-50"
+            />
+
+            <button
+              type="submit"
+              disabled={
+                isSendingSupportMessage ||
+                (!inputMessage.trim() && !selectedSupportImage)
+              }
+              className="shrink-0 px-4 py-3 bg-gradient-to-r from-[#d4af37] via-[#f3e5ab] to-[#d4af37] text-black font-black text-xs rounded-xl shadow uppercase tracking-wider disabled:opacity-50"
+            >
+              {isSendingSupportMessage ? '...' : 'Send'}
+            </button>
+          </div>
+
+          <p className="text-[9px] text-gray-500 px-1">
+            Gallery images only · Maximum 5 MB
+          </p>
         </form>
       </div>
-
     </div>
   </div>
 )}
@@ -3097,10 +3699,23 @@ readOnly={isLuckyOrderDeposit}
       .eq('is_lucky_order', true)
       .maybeSingle();
 
-    if (error || !luckyOrder) {
-      showToast('Could not load this Lucky Order. Please try again.', 'error');
-      return;
-    }
+   
+if (error || !luckyOrder) {
+  console.error('Lucky Order lookup failed:', {
+    customTaskId: currentTask.customTaskId,
+    customerId: user.id,
+    luckyOrder,
+    error,
+  });
+
+  showToast(
+    error
+      ? `Lucky Order query failed: ${error.message}`
+      : 'Lucky Order record not found for this customer. Check Console.',
+    'error'
+  );
+  return;
+}
 
     // If verified funding already exists, use the existing completion handler
     if (luckyOrder.funding_status === 'funded') {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 interface CustomerProfile {
   id: string;
@@ -106,6 +106,22 @@ interface ChatMessage {
   is_admin: boolean;
   is_read: boolean;
 }
+
+interface ChatAttachment {
+  id: string;
+  chat_message_id: string;
+  conversation_user_id: string;
+  uploaded_by: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+interface ChatAttachmentView extends ChatAttachment {
+  signedUrl: string | null;
+}
 interface SubAdminCredentialRequest {
   id: string;
   sub_admin_id: string;
@@ -150,9 +166,41 @@ const defaultSubAdminPermissions: SubAdminPermissions = {
 
 
 export const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<
-    'users' | 'deposits' | 'withdrawals' | 'tasks' | 'products' | 'support' | 'whatsapp_telegram' | 'settings' | 'delete_users'
-  >('deposits');
+ const validAdminTabs = [
+  'users',
+  'deposits',
+  'withdrawals',
+  'tasks',
+  'products',
+  'support',
+  'whatsapp_telegram',
+  'settings',
+  'delete_users',
+] as const;
+
+type AdminTab = (typeof validAdminTabs)[number];
+
+const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+  try {
+    const savedTab = sessionStorage.getItem('admin_dashboard_active_tab');
+
+    if (savedTab && validAdminTabs.includes(savedTab as AdminTab)) {
+      return savedTab as AdminTab;
+    }
+  } catch {
+    // Agar browser storage unavailable ho to default tab use hoga.
+  }
+
+  return 'deposits';
+});
+
+useEffect(() => {
+  try {
+    sessionStorage.setItem('admin_dashboard_active_tab', activeTab);
+  } catch {
+    // Storage error se dashboard ko block nahi karna.
+  }
+}, [activeTab]);
 
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'zh' | 'ur' | 'ar'>('en');
   const [searchQuery, setSearchQuery] = useState('');
@@ -174,6 +222,16 @@ export const AdminDashboard: React.FC = () => {
   const [mainInviteCode, setMainInviteCode] = useState(() => localStorage.getItem('global_invite') || 'MAIN2026');
   const [reportCustomerId, setReportCustomerId] = useState<string>('');
 
+const [chatAttachments, setChatAttachments] = useState<
+  Record<string, ChatAttachmentView[]>
+>({});
+
+const [attachmentUploading, setAttachmentUploading] = useState(false);
+
+const [attachmentError, setAttachmentError] = useState('');
+
+const attachmentInputRef = useRef<HTMLInputElement>(null);
+
   const [reportStartDate, setReportStartDate] = useState('');
   const [reportEndDate, setReportEndDate] = useState('');
   const [reportCategory, setReportCategory] = useState('all');
@@ -194,6 +252,31 @@ export const AdminDashboard: React.FC = () => {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [credentialRequests, setCredentialRequests] =
     useState<SubAdminCredentialRequest[]>([]);
+
+const [supportSearch, setSupportSearch] = useState('');
+const [supportLabels, setSupportLabels] = useState<
+  Record<string, { name: string; payment: string }>
+>({});
+const [supportLabelDraft, setSupportLabelDraft] = useState({
+  name: '',
+  payment: '',
+});
+const [supportLabelEditorOpen, setSupportLabelEditorOpen] = useState(false);
+
+
+const saveSupportLabelDraft = () => {
+  if (!activeChatUserId) return;
+
+  setSupportLabels((previous) => ({
+    ...previous,
+    [activeChatUserId]: {
+      name: supportLabelDraft.name.trim(),
+      payment: supportLabelDraft.payment.trim(),
+    },
+  }));
+
+  setSupportLabelEditorOpen(false);
+};
 
   const [credentialRequestsLoading, setCredentialRequestsLoading] =
     useState(false);
@@ -294,7 +377,8 @@ export const AdminDashboard: React.FC = () => {
   const [luckyOrderSaving, setLuckyOrderSaving] = useState(false);
   const [luckyOrderEditingId, setLuckyOrderEditingId] =
     useState<number | null>(null);
-
+const [previewAttachment, setPreviewAttachment] =
+  useState<ChatAttachmentView | null>(null);
   const [luckyOrderName, setLuckyOrderName] = useState('');
   const [luckyOrderStore, setLuckyOrderStore] = useState('Amazon');
   const [luckyOrderPrice, setLuckyOrderPrice] = useState('');
@@ -320,7 +404,73 @@ export const AdminDashboard: React.FC = () => {
 
   const [selectedUserForModal, setSelectedUserForModal] = useState<CustomerProfile | null>(null);
   const [modalType, setModalType] = useState<'add_funds' | 'cut_funds' | 'user_profile_all' | null>(null);
-  const [isFullPageTaskSettings, setIsFullPageTaskSettings] = useState(false);
+ 
+const [isFullPageTaskSettings, setIsFullPageTaskSettings] = useState(() => {
+  try {
+    return sessionStorage.getItem('admin_full_page_task_settings') === 'true';
+  } catch {
+    return false;
+  }
+});
+
+useEffect(() => {
+  try {
+    sessionStorage.setItem(
+      'admin_full_page_task_settings',
+      String(isFullPageTaskSettings)
+    );
+  } catch {
+    // Storage unavailable ho to dashboard normal chale.
+  }
+}, [isFullPageTaskSettings]);
+
+useEffect(() => {
+  const handleEscapeKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+
+    if (isFullPageTaskSettings) {
+      setIsFullPageTaskSettings(false);
+      return;
+    }
+
+    if (modalType !== null || selectedUserForModal !== null) {
+      setModalType(null);
+      setSelectedUserForModal(null);
+      return;
+    }
+
+    if (luckyOrderOpen) {
+      setLuckyOrderOpen(false);
+      return;
+    }
+
+    if (selectedSubAdminForModal !== null) {
+      setSelectedSubAdminForModal(null);
+      return;
+    }
+
+    if (showNotificationsDropdown) {
+      setShowNotificationsDropdown(false);
+    }
+
+    // Browser ko Back nahi karna; website ke bahar nahi jana.
+  };
+
+  window.addEventListener('keydown', handleEscapeKey);
+
+  return () => {
+    window.removeEventListener('keydown', handleEscapeKey);
+  };
+}, [
+  isFullPageTaskSettings,
+  modalType,
+  selectedUserForModal,
+  luckyOrderOpen,
+  selectedSubAdminForModal,
+  showNotificationsDropdown,
+]);
+
+  
   const [fundInput, setFundInput] = useState('');
 
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -416,7 +566,255 @@ export const AdminDashboard: React.FC = () => {
       await fetchAdminData();
     }
   };
+const loadChatAttachments = async (messageIds: string[]) => {
+  if (messageIds.length === 0) {
+    setChatAttachments({});
+    return;
+  }
 
+  const { data, error } = await supabase
+    .from('chat_attachments')
+    .select('*')
+    .in('chat_message_id', messageIds);
+
+  if (error) {
+    console.error('Failed to load chat attachments:', error);
+    setAttachmentError('Attachments could not be loaded.');
+    return;
+  }
+
+  const rows = (data || []) as ChatAttachment[];
+  const grouped: Record<string, ChatAttachmentView[]> = {};
+
+  await Promise.all(
+    rows.map(async (attachment) => {
+      let signedUrl: string | null = null;
+
+      const { data: signedData, error: signedError } =
+        await supabase.storage
+          .from('chat-attachments')
+          .createSignedUrl(attachment.file_path, 300);
+
+      if (signedError) {
+        console.error('Could not create attachment URL:', signedError);
+      } else {
+        signedUrl = signedData.signedUrl;
+      }
+
+      if (!grouped[attachment.chat_message_id]) {
+        grouped[attachment.chat_message_id] = [];
+      }
+
+      grouped[attachment.chat_message_id].push({
+        ...attachment,
+        signedUrl,
+      });
+    })
+  );
+
+  setChatAttachments((previous) => ({
+    ...previous,
+    ...grouped,
+  }));
+};
+
+const handleSendAdminAttachment = async (
+  event: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = event.target.files?.[0];
+
+  // Allow the same file to be selected again later.
+  event.target.value = '';
+
+  if (!file || !activeChatUserId) return;
+
+  const allowedTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ]);
+
+  if (!allowedTypes.has(file.type)) {
+    showToast(
+      'File type not allowed. Choose an image, PDF, Word, Excel or TXT file.',
+      'error'
+    );
+    return;
+  }
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+  if (file.size <= 0 || file.size > MAX_FILE_SIZE) {
+    showToast('File must be smaller than 10 MB.', 'error');
+    return;
+  }
+
+  setAttachmentUploading(true);
+  setAttachmentError('');
+
+  let uploadedPath: string | null = null;
+  let insertedMessageId: string | null = null;
+
+  try {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error('Your Supabase session has expired. Please log in again.');
+    }
+
+    const safeName = file.name
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(-120);
+
+    const filePath =
+      `${user.id}/${activeChatUserId}/${crypto.randomUUID()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    uploadedPath = filePath;
+
+    const { data: insertedMessage, error: messageError } = await supabase
+      .from('chat_messages')
+      .insert({
+        sender_id: 'admin',
+        receiver_id: activeChatUserId,
+        message: `📎 ${file.name}`,
+        is_admin: true,
+        is_read: false,
+      })
+      .select('*')
+      .single();
+
+    if (messageError) throw messageError;
+
+    insertedMessageId = insertedMessage.id;
+
+    const { error: metadataError } = await supabase
+      .from('chat_attachments')
+      .insert({
+        chat_message_id: insertedMessage.id,
+        conversation_user_id: activeChatUserId,
+        uploaded_by: user.id,
+        file_name: file.name,
+        file_path: filePath,
+        mime_type: file.type,
+        file_size: file.size,
+      });
+
+    if (metadataError) throw metadataError;
+
+    setChatMessages((previous) => [...previous, insertedMessage]);
+
+    await loadChatAttachments([insertedMessage.id]);
+
+    showToast('Attachment sent successfully.', 'success');
+  } catch (error) {
+    console.error('Failed to send chat attachment:', error);
+
+    // Best-effort cleanup if a later database step fails.
+    if (insertedMessageId) {
+      await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('id', insertedMessageId);
+    }
+
+    if (uploadedPath) {
+      await supabase.storage
+        .from('chat-attachments')
+        .remove([uploadedPath]);
+    }
+
+    const message =
+      error instanceof Error ? error.message : 'Unknown upload error';
+
+    setAttachmentError(message);
+    showToast(`Attachment failed: ${message}`, 'error');
+  } finally {
+    setAttachmentUploading(false);
+  }
+};
+
+
+
+useEffect(() => {
+  let cancelled = false;
+
+  const loadAttachments = async () => {
+    const messageIds = chatMessages
+      .filter(
+        (message) =>
+          message.sender_id === activeChatUserId ||
+          message.receiver_id === activeChatUserId
+      )
+      .map((message) => message.id);
+
+    if (!activeChatUserId || messageIds.length === 0) {
+      if (!cancelled) setChatAttachments({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('chat_attachments')
+      .select('*')
+      .in('chat_message_id', messageIds);
+
+    if (error) {
+      console.error('Attachment query failed:', error);
+      return;
+    }
+
+    const rows = (data || []) as ChatAttachment[];
+    const grouped: Record<string, ChatAttachmentView[]> = {};
+
+    await Promise.all(
+      rows.map(async (attachment) => {
+        const { data: signedData, error: signedError } =
+          await supabase.storage
+            .from('chat-attachments')
+            .createSignedUrl(attachment.file_path, 300);
+
+        if (signedError) {
+          console.error('Signed URL failed:', signedError);
+        }
+
+        if (!grouped[attachment.chat_message_id]) {
+          grouped[attachment.chat_message_id] = [];
+        }
+
+        grouped[attachment.chat_message_id].push({
+          ...attachment,
+          signedUrl: signedError ? null : signedData.signedUrl,
+        });
+      })
+    );
+
+    if (!cancelled) setChatAttachments(grouped);
+  };
+
+  void loadAttachments();
+
+  return () => {
+    cancelled = true;
+  };
+}, [activeChatUserId, chatMessages]);
   const handleGenerateCredentialCode = async (requestId: string) => {
     setCredentialRequestMessage('');
 
@@ -822,104 +1220,310 @@ export const AdminDashboard: React.FC = () => {
     void loadAutoSlots();
   }, []);
 
-  useEffect(() => {
-    checkAdminRoleAndFetchData();
+const refreshConfiguredLuckyOrders = async (userId: string) => {
+  // 1. Manual Lucky Orders hamesha database se load hon.
+  const { data: manualOrders, error: manualError } = await supabase
+    .from('custom_tasks')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_lucky_order', true)
+    .eq('is_active', true)
+    .order('task_number', { ascending: true });
 
-    const syncInterval = setInterval(() => {
-      checkAdminRoleAndFetchData();
-    }, 3000);
+  if (manualError) throw manualError;
 
-    let chatRefreshInProgress = false;
+  // 2. Customer ke Auto Slots load karein.
+  const { data: autoSettings, error: autoError } = await supabase
+    .from('customer_auto_lucky_order_settings')
+    .select('user_id, enabled, slots')
+    .eq('user_id', userId)
+    .maybeSingle();
 
-    const refreshAdminChat = async () => {
-      if (chatRefreshInProgress) return;
-      chatRefreshInProgress = true;
+  if (autoError) throw autoError;
 
-      try {
-        const { data, error } = await supabase
-          .from('chat_messages')
-          .select('*')
-          .order('created_at', { ascending: true });
+  // 3. Auto Slots sirf master toggle ON aur slot active hone par show hon.
+  const autoSlotRows =
+    autoSettings?.enabled === true &&
+    Array.isArray(autoSettings.slots)
+      ? autoSettings.slots
+          .filter((slot: any) => {
+            const taskNum = Number(slot?.taskNum);
+            const minAmount = Number(slot?.minAmount);
+            const maxAmount = Number(slot?.maxAmount);
+            const comm = Number(slot?.comm);
 
-        if (error) {
-          console.error('Failed to refresh admin chat:', error);
-          return;
-        }
+            return (
+              slot?.active === true &&
+              Number.isInteger(taskNum) &&
+              taskNum >= 1 &&
+              taskNum <= 25 &&
+              Number.isFinite(minAmount) &&
+              Number.isFinite(maxAmount) &&
+              minAmount > 0 &&
+              maxAmount >= minAmount &&
+              Number.isFinite(comm) &&
+              comm >= 0 &&
+              comm <= 100
+            );
+          })
+          .map((slot: any) => ({
+            id: `auto-slot-${userId}-${slot.id}`,
+            user_id: userId,
+            is_lucky_order: true,
+            is_auto_slot: true,
+            auto_slot_id: slot.id,
+            task_number: Number(slot.taskNum),
+            min_amount: Number(slot.minAmount),
+            max_amount: Number(slot.maxAmount),
+            commission_rate: Number(slot.comm),
+            is_active: true,
+            status: 'configured',
+            funding_status: 'configuration only',
+          }))
+      : [];
 
-        if (data) {
-          setChatMessages(data);
+  // 4. Manual Orders ko kabhi Auto Slots se replace na karein.
+  const combinedOrders: any[] = [
+    ...(manualOrders ?? []),
+    ...autoSlotRows,
+  ].sort(
+    (a: any, b: any) =>
+      Number(a.task_number) - Number(b.task_number)
+  );
 
-          const uniqueUserIds = Array.from(
-            new Set(
-              data
-                .map((m) =>
-                  m.sender_id === 'admin'
-                    ? m.receiver_id
-                    : m.sender_id
-                )
-                .filter((id) => id && id !== 'admin')
-            )
-          );
+  setCustomTasksList(combinedOrders);
 
-          setChatUsers(uniqueUserIds);
+  return combinedOrders;
+};
 
-          setActiveChatUserId((currentId) => {
-            if (currentId && uniqueUserIds.includes(currentId)) {
-              return currentId;
-            }
 
-            return uniqueUserIds[0] || '';
-          });
-        }
-      } catch (err) {
-        console.error('Unexpected admin chat refresh error:', err);
-      } finally {
-        chatRefreshInProgress = false;
+// Selected customer ke Lucky Orders ka live sync.
+useEffect(() => {
+  const userId = selectedUserForModal?.id;
+
+  if (!isFullPageTaskSettings || !userId) return;
+
+  let disposed = false;
+  let refreshing = false;
+  let queued = false;
+
+  const refresh = async () => {
+    if (disposed) return;
+
+    if (!navigator.onLine) return;
+
+    if (refreshing) {
+      queued = true;
+      return;
+    }
+
+    refreshing = true;
+
+    try {
+      do {
+        queued = false;
+
+        await refreshConfiguredLuckyOrders(userId);
+
+        if (disposed) return;
+      } while (queued && !disposed);
+    } catch (err) {
+      console.error('Lucky Orders live sync failed:', err);
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  const handleOnline = () => {
+    void refresh();
+  };
+
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      void refresh();
+    }
+  };
+
+  // Page khulne par pehli dafa list load karein.
+  void refresh();
+
+  const channel = supabase
+    .channel(`admin-lucky-orders-${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'custom_tasks',
+        filter: `user_id=eq.${userId}`,
+      },
+      () => void refresh()
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'customer_auto_lucky_order_settings',
+        filter: `user_id=eq.${userId}`,
+      },
+      () => void refresh()
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        void refresh();
       }
-    };
+    });
 
-    void refreshAdminChat();
+  window.addEventListener('online', handleOnline);
+  document.addEventListener('visibilitychange', handleVisibility);
 
-    const adminChannel = supabase
-      .channel('admin-live-sync-room')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'profiles' },
-        () => {
-          void checkAdminRoleAndFetchData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_notifications' },
-        () => {
-          void checkAdminRoleAndFetchData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'system_settings' },
-        () => {
-          void checkAdminRoleAndFetchData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_messages' },
-        () => {
-          void refreshAdminChat();
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          void refreshAdminChat();
+  return () => {
+    disposed = true;
+
+    window.removeEventListener('online', handleOnline);
+    document.removeEventListener('visibilitychange', handleVisibility);
+
+    void supabase.removeChannel(channel);
+  };
+}, [selectedUserForModal?.id, isFullPageTaskSettings]);
+
+
+// Admin dashboard ka existing live sync.
+useEffect(() => {
+  let disposed = false;
+  let chatRefreshInProgress = false;
+  let adminRefreshInProgress = false;
+
+  const refreshAdminData = async () => {
+    if (disposed || adminRefreshInProgress) return;
+
+    adminRefreshInProgress = true;
+
+    try {
+      await checkAdminRoleAndFetchData();
+    } catch (err) {
+      console.error('Admin live data refresh failed:', err);
+    } finally {
+      adminRefreshInProgress = false;
+    }
+  };
+
+  
+  const refreshAdminChat = async () => {
+    if (disposed || chatRefreshInProgress) return;
+
+    chatRefreshInProgress = true;
+
+    try {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      if (disposed || !data) return;
+
+      setChatMessages(data);
+
+      // Har customer ke sab se naye message ka timestamp.
+      const latestMessageByUser = new Map<string, number>();
+
+      data.forEach((message: any) => {
+        const userId =
+          message.sender_id === 'admin'
+            ? message.receiver_id
+            : message.sender_id;
+
+        if (!userId || userId === 'admin') return;
+
+        const timestamp = new Date(message.created_at).getTime();
+        const previousTimestamp = latestMessageByUser.get(userId);
+
+        if (
+          Number.isFinite(timestamp) &&
+          (previousTimestamp === undefined ||
+            timestamp >= previousTimestamp)
+        ) {
+          latestMessageByUser.set(userId, timestamp);
         }
       });
-    return () => {
-      clearInterval(syncInterval);
-      void supabase.removeChannel(adminChannel);
-    };
-  }, []);
+
+      // Latest message wala customer list mein sab se upar.
+      const uniqueUserIds = Array.from(
+        latestMessageByUser.keys()
+      ).sort(
+        (a, b) =>
+          (latestMessageByUser.get(b) ?? 0) -
+          (latestMessageByUser.get(a) ?? 0)
+      );
+
+      setChatUsers(uniqueUserIds);
+
+      setActiveChatUserId((currentId) => {
+        if (currentId && uniqueUserIds.includes(currentId)) {
+          return currentId;
+        }
+
+        return uniqueUserIds[0] || '';
+      });
+    } catch (err) {
+      console.error('Admin chat refresh failed:', err);
+    } finally {
+      chatRefreshInProgress = false;
+    }
+  };
+
+  // Initial load.
+  void refreshAdminData();
+  void refreshAdminChat();
+
+  const handleAdminOnline = () => {
+    void refreshAdminData();
+    void refreshAdminChat();
+  };
+
+  const adminChannel = supabase
+    .channel('admin-live-sync-room')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'profiles' },
+      () => void refreshAdminData()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'admin_notifications' },
+      () => void refreshAdminData()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'system_settings' },
+      () => void refreshAdminData()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'chat_messages' },
+      () => void refreshAdminChat()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_tasks' },
+      () => void refreshAdminData()
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        void refreshAdminChat();
+      }
+    });
+
+  window.addEventListener('online', handleAdminOnline);
+
+  return () => {
+    disposed = true;
+    window.removeEventListener('online', handleAdminOnline);
+    void supabase.removeChannel(adminChannel);
+  };
+}, []);
 
   const handleAdminLogout = async () => {
     localStorage.removeItem('sub_admin_logged_in');
@@ -1127,7 +1731,6 @@ export const AdminDashboard: React.FC = () => {
     showToast('Auto Slots reset locally. Save settings to apply the reset.');
   };
 
-
   const handleSaveAutoSlots = async () => {
     if (autoSlotsSaving) return;
 
@@ -1147,10 +1750,10 @@ export const AdminDashboard: React.FC = () => {
       const comm = Number(slot.comm);
 
       if (
+        slot.taskNum.trim() === '' ||
         !Number.isInteger(taskNum) ||
         taskNum < 1 ||
-        taskNum > 25 ||
-        slot.taskNum.trim() === ''
+        taskNum > 25
       ) {
         showToast(
           `Slot ${slot.id}: Task Number 1 se 25 ke darmiyan hona chahiye.`,
@@ -1186,7 +1789,7 @@ export const AdminDashboard: React.FC = () => {
         );
         return;
       }
-    }
+    } // Active slots wala for loop yahan close hota hai
 
     // Har enabled slot ka task number unique hona chahiye
     const enabledTaskNumbers = autoSlots
@@ -1227,7 +1830,7 @@ export const AdminDashboard: React.FC = () => {
 
       const customerId = selectedUserForModal.id;
 
-      // Pehle check karein ke customer ki settings row maujood hai
+      // Check karein ke customer ki settings row maujood hai
       const { data: existingSettings, error: readError } = await supabase
         .from('customer_auto_lucky_order_settings')
         .select('user_id')
@@ -1237,7 +1840,7 @@ export const AdminDashboard: React.FC = () => {
       if (readError) throw readError;
 
       if (existingSettings) {
-        // Sirf slots update honge; enabled toggle bilkul change nahi hoga
+        // Existing customer ka enabled toggle change nahi hoga
         const { error: updateError } = await supabase
           .from('customer_auto_lucky_order_settings')
           .update({
@@ -1247,8 +1850,7 @@ export const AdminDashboard: React.FC = () => {
 
         if (updateError) throw updateError;
       } else {
-        // Missing row ke liye default ON setting ke saath initialize karein.
-        // Agar row pehle se nahi thi, tabhi enabled true set hoga.
+        // Row nahi hai to default enabled setting ke saath insert karein
         const { error: insertError } = await supabase
           .from('customer_auto_lucky_order_settings')
           .insert({
@@ -1763,165 +2365,544 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+const handleOpenFullPageTaskSettings = async (
+  user: CustomerProfile
+) => {
+  // Refresh ke baad isi customer ki settings dobara kholne ke liye
+  try {
+    sessionStorage.setItem(
+      'admin_full_page_task_user_id',
+      String(user.id)
+    );
 
-  const handleOpenFullPageTaskSettings = async (user: CustomerProfile) => {
-    setSelectedUserForModal(user);
-    setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
+    sessionStorage.setItem(
+      'admin_full_page_task_user',
+      JSON.stringify(user)
+    );
+  } catch {
+    // Storage unavailable ho to dashboard normal chale.
+  }
+
+  setSelectedUserForModal(user);
+  setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
+
+  try {
     await fetchUserCustomTasks(user.id);
 
-    try {
-      const { data, error } = await supabase
-        .from('custom_tasks')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_lucky_order', true)
-        .order('task_number', { ascending: true });
+    // Customer ki Auto Slots database se load karein.
+    const { data: autoSettings, error: autoError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id, enabled, slots')
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-      if (error) throw error;
+    if (autoError) throw autoError;
 
-      setCustomTasksList(data ?? []);
-      setIsFullPageTaskSettings(true);
-    } catch (err: any) {
-      showToast(
-        err?.message || 'Could not load Lucky Orders.',
-        'error'
+    if (autoSettings) {
+      setAutoSlotsEnabled(autoSettings.enabled === true);
+
+      const defaults = Array.from({ length: 7 }, (_, index) => ({
+        id: index + 1,
+        active: false,
+        taskNum: '',
+        minAmount: '',
+        maxAmount: '',
+        comm: '',
+      }));
+
+      const savedSlots = Array.isArray(autoSettings.slots)
+        ? autoSettings.slots
+        : [];
+
+      setAutoSlots(
+        defaults.map((slot) => {
+          const saved = savedSlots.find(
+            (item: any) => Number(item.id) === slot.id
+          );
+
+          return saved
+            ? {
+                ...slot,
+                active: Boolean(saved.active),
+                taskNum: String(saved.taskNum ?? ''),
+                minAmount: String(saved.minAmount ?? ''),
+                maxAmount: String(saved.maxAmount ?? ''),
+                comm: String(saved.comm ?? ''),
+              }
+            : slot;
+        })
+      );
+    } else {
+      setAutoSlotsEnabled(false);
+      setAutoSlots(
+        Array.from({ length: 7 }, (_, index) => ({
+          id: index + 1,
+          active: false,
+          taskNum: '',
+          minAmount: '',
+          maxAmount: '',
+          comm: '',
+        }))
       );
     }
-  };
 
-  const handleEditCustomTask = async (task: any) => {
-    const taskNumberInput = window.prompt(
-      'Enter task number:',
-      String(task.task_number ?? '')
+    // Manual aur configured Lucky Orders ki existing loading.
+    await refreshConfiguredLuckyOrders(user.id);
+
+    // Wohi full-page settings screen khuli rakhein.
+    setIsFullPageTaskSettings(true);
+  } catch (err: any) {
+    showToast(
+      err?.message || 'Could not load Lucky Orders.',
+      'error'
+    );
+  }
+};
+
+
+// Refresh ke baad saved customer ko restore karein.
+useEffect(() => {
+  if (!isFullPageTaskSettings || selectedUserForModal?.id) {
+    return;
+  }
+
+  let savedUserId: string | null = null;
+  let savedUser: CustomerProfile | null = null;
+
+  try {
+    savedUserId = sessionStorage.getItem(
+      'admin_full_page_task_user_id'
     );
 
-    if (taskNumberInput === null) return;
-
-    const minAmountInput = window.prompt(
-      'Enter minimum amount (USDT):',
-      String(task.min_amount ?? '')
+    const savedUserJson = sessionStorage.getItem(
+      'admin_full_page_task_user'
     );
 
-    if (minAmountInput === null) return;
-
-    const maxAmountInput = window.prompt(
-      'Enter maximum amount (USDT):',
-      String(task.max_amount ?? '')
-    );
-
-    if (maxAmountInput === null) return;
-
-    const commissionInput = window.prompt(
-      'Enter commission percentage:',
-      String(task.commission_rate ?? 10)
-    );
-
-    if (commissionInput === null) return;
-
-    const taskNumber = Number(taskNumberInput);
-    const minAmount = Number(minAmountInput);
-    const maxAmount = Number(maxAmountInput);
-    const rate = Number(commissionInput);
-
-    if (
-      !Number.isInteger(taskNumber) ||
-      taskNumber < 1 ||
-      taskNumber > 25 ||
-      !Number.isFinite(minAmount) ||
-      !Number.isFinite(maxAmount) ||
-      minAmount <= 0 ||
-      maxAmount < minAmount ||
-      !Number.isFinite(rate) ||
-      rate < 0 ||
-      rate > 100
-    ) {
-      showToast('Please enter valid task number, amounts, and commission.', 'error');
-      return;
+    if (savedUserJson) {
+      savedUser = JSON.parse(savedUserJson) as CustomerProfile;
     }
+  } catch {
+    // Storage data read na ho to safely handle karein.
+  }
 
-    const centsMin = Math.ceil(minAmount * 100);
-    const centsMax = Math.floor(maxAmount * 100);
+  if (!savedUserId && savedUser?.id) {
+    savedUserId = String(savedUser.id);
+  }
 
-    if (centsMax < centsMin) {
-      showToast('The amount range must allow at least one valid cent value.', 'error');
-      return;
-    }
+  if (!savedUserId) {
+    setIsFullPageTaskSettings(false);
+    return;
+  }
 
-    const randomCents =
-      Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
+  const restoreUserId = savedUserId;
+  let cancelled = false;
 
-    const taskAmount = Number((randomCents / 100).toFixed(2));
-    const commission = Number((taskAmount * rate / 100).toFixed(2));
+  const restoreTaskSettings = async () => {
+    let userToRestore = savedUser;
 
     try {
-      const { error } = await supabase
-        .from('custom_tasks')
-        .update({
-          task_number: taskNumber,
-          min_amount: minAmount,
-          max_amount: maxAmount,
-          commission_rate: rate,
-          task_amount: taskAmount,
-          commission,
-          locked_price: taskAmount,
-          locked_commission: commission,
-        })
-        .eq('id', task.id)
-        .eq('user_id', selectedUserForModal?.id)
-        .eq('is_lucky_order', true);
+      // Database se latest customer profile lein.
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', restoreUserId)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (cancelled) return;
 
-      const userId = selectedUserForModal?.id;
-      if (userId) {
-        const { data, error: refreshError } = await supabase
-          .from('custom_tasks')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('is_lucky_order', true)
-          .order('task_number', { ascending: true });
+      if (!error && data) {
+        userToRestore = data as CustomerProfile;
+      }
+    } catch {
+      // Query fail ho to saved customer record fallback hoga.
+    }
 
-        if (refreshError) throw refreshError;
+    if (cancelled) return;
 
-        setCustomTasksList(data ?? []);
-        await fetchUserCustomTasks(userId);
+    if (!userToRestore) {
+      showToast(
+        'Saved customer could not be restored.',
+        'error'
+      );
+      setIsFullPageTaskSettings(false);
+      return;
+    }
+
+    // Existing function latest Manual Orders aur Auto Slots bhi load karega.
+    await handleOpenFullPageTaskSettings(userToRestore);
+  };
+
+  void restoreTaskSettings();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  isFullPageTaskSettings,
+  selectedUserForModal?.id,
+]);
+
+const handleEditCustomTask = async (task: any) => {
+  // Auto Slot ko uski asal customer settings mein save karein.
+  if (task.is_auto_slot) {
+    const userId = selectedUserForModal?.id;
+    if (!userId) return;
+
+    try {
+      const { data: settings, error: readError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .select('user_id, enabled, slots')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (readError) throw readError;
+      if (!settings) {
+        throw new Error('Customer Auto Slots settings nahi milin.');
       }
 
-      showToast('Lucky Order updated successfully.');
-    } catch (err: any) {
-      showToast(err?.message || 'Could not update Lucky Order.', 'error');
-    }
-  };
+      const slots = Array.isArray(settings.slots)
+        ? settings.slots
+        : [];
 
-  const handleDeleteCustomTask = async (taskId: string) => {
-    if (!window.confirm('Are you sure you want to delete this custom task?')) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('custom_tasks')
-        .delete()
-        .eq('id', taskId);
-
-      if (error) throw error;
-
-      setCustomTasksList((prev: any[]) =>
-        prev.filter((task) => String(task.id) !== String(taskId))
+      const slotIndex = slots.findIndex(
+        (slot: any) =>
+          String(slot.id) === String(task.auto_slot_id)
       );
 
-      setUserCustomTasks((prev: any[]) =>
-        prev.filter((task) => String(task.id) !== String(taskId))
+      if (slotIndex < 0) {
+        throw new Error('Auto Slot database mein nahi mila.');
+      }
+
+      const slot = slots[slotIndex];
+
+      const taskNumInput = window.prompt(
+        'Task number (1–25):',
+        String(slot.taskNum ?? '')
+      );
+      if (taskNumInput === null) return;
+
+      const minInput = window.prompt(
+        'Minimum amount (USDT):',
+        String(slot.minAmount ?? '')
+      );
+      if (minInput === null) return;
+
+      const maxInput = window.prompt(
+        'Maximum amount (USDT):',
+        String(slot.maxAmount ?? '')
+      );
+      if (maxInput === null) return;
+
+      const commissionInput = window.prompt(
+        'Commission percentage:',
+        String(slot.comm ?? '')
+      );
+      if (commissionInput === null) return;
+
+      const taskNum = Number(taskNumInput);
+      const minAmount = Number(minInput);
+      const maxAmount = Number(maxInput);
+      const comm = Number(commissionInput);
+
+      if (
+        !Number.isInteger(taskNum) ||
+        taskNum < 1 ||
+        taskNum > 25 ||
+        !Number.isFinite(minAmount) ||
+        minAmount <= 0 ||
+        !Number.isFinite(maxAmount) ||
+        maxAmount < minAmount ||
+        !Number.isFinite(comm) ||
+        comm < 0 ||
+        comm > 100
+      ) {
+        showToast('Auto Slot ki values valid nahi hain.', 'error');
+        return;
+      }
+
+      const duplicate = slots.some(
+        (item: any, index: number) =>
+          index !== slotIndex &&
+          item.active === true &&
+          Number(item.taskNum) === taskNum
       );
 
-      showToast('Custom task deleted successfully.');
+      if (duplicate) {
+        showToast(
+          'Do active Auto Slots ka task number same nahi ho sakta.',
+          'error'
+        );
+        return;
+      }
+
+      const updatedSlots = slots.map((item: any, index: number) =>
+        index === slotIndex
+          ? {
+              ...item,
+              taskNum: String(taskNum),
+              minAmount: String(minAmount),
+              maxAmount: String(maxAmount),
+              comm: String(comm),
+            }
+          : item
+      );
+
+      const { data: saved, error: saveError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .update({ slots: updatedSlots })
+        .eq('user_id', userId)
+        .select('user_id')
+        .maybeSingle();
+
+      if (saveError) throw saveError;
+      if (!saved) {
+        throw new Error('Auto Slot save verify nahi ho saka.');
+      }
+
+      // Master enabled toggle ko change nahi karna.
+      await refreshConfiguredLuckyOrders(userId);
+
+      setAutoSlots((prev) =>
+        prev.map((item) =>
+          item.id === Number(slot.id)
+            ? {
+                ...item,
+                taskNum: String(taskNum),
+                minAmount: String(minAmount),
+                maxAmount: String(maxAmount),
+                comm: String(comm),
+              }
+            : item
+        )
+      );
+
+      showToast('Auto Slot update aur save ho gaya.');
     } catch (err: any) {
       showToast(
-        err?.message || 'Could not delete custom task.',
+        err?.message || 'Auto Slot update nahi ho saka.',
         'error'
       );
     }
-  };
+
+    return;
+  }
+
+  // Manual Lucky Order edit.
+  const taskNumberInput = window.prompt(
+    'Enter task number:',
+    String(task.task_number ?? '')
+  );
+  if (taskNumberInput === null) return;
+
+  const minAmountInput = window.prompt(
+    'Enter minimum amount (USDT):',
+    String(task.min_amount ?? '')
+  );
+  if (minAmountInput === null) return;
+
+  const maxAmountInput = window.prompt(
+    'Enter maximum amount (USDT):',
+    String(task.max_amount ?? '')
+  );
+  if (maxAmountInput === null) return;
+
+  const commissionInput = window.prompt(
+    'Enter commission percentage:',
+    String(task.commission_rate ?? 10)
+  );
+  if (commissionInput === null) return;
+
+  const taskNumber = Number(taskNumberInput);
+  const minAmount = Number(minAmountInput);
+  const maxAmount = Number(maxAmountInput);
+  const rate = Number(commissionInput);
+
+  if (
+    !Number.isInteger(taskNumber) ||
+    taskNumber < 1 ||
+    taskNumber > 25 ||
+    !Number.isFinite(minAmount) ||
+    !Number.isFinite(maxAmount) ||
+    minAmount <= 0 ||
+    maxAmount < minAmount ||
+    !Number.isFinite(rate) ||
+    rate < 0 ||
+    rate > 100
+  ) {
+    showToast(
+      'Please enter valid task number, amounts, and commission.',
+      'error'
+    );
+    return;
+  }
+
+  const centsMin = Math.ceil(minAmount * 100);
+  const centsMax = Math.floor(maxAmount * 100);
+
+  if (centsMax < centsMin) {
+    showToast(
+      'The amount range must allow at least one valid cent value.',
+      'error'
+    );
+    return;
+  }
+
+  const randomCents =
+    Math.floor(Math.random() * (centsMax - centsMin + 1)) +
+    centsMin;
+
+  const taskAmount = Number((randomCents / 100).toFixed(2));
+  const commission = Number((taskAmount * rate / 100).toFixed(2));
+
+  try {
+    const userId = selectedUserForModal?.id;
+    if (!userId) {
+      throw new Error('Please select a customer first.');
+    }
+
+    const { data: updatedTask, error } = await supabase
+      .from('custom_tasks')
+      .update({
+        task_number: taskNumber,
+        min_amount: minAmount,
+        max_amount: maxAmount,
+        commission_rate: rate,
+        task_amount: taskAmount,
+        commission,
+        locked_price: taskAmount,
+        locked_commission: commission,
+      })
+      .eq('id', task.id)
+      .eq('user_id', userId)
+      .eq('is_lucky_order', true)
+      .select('id')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!updatedTask) {
+      throw new Error('Lucky Order update verify nahi ho saka.');
+    }
+
+    await refreshConfiguredLuckyOrders(userId);
+    showToast('Lucky Order updated successfully.');
+  } catch (err: any) {
+    showToast(
+      err?.message || 'Could not update Lucky Order.',
+      'error'
+    );
+  }
+};
+const handleDeleteCustomTask = async (taskId: string) => {
+  const selectedUserId = selectedUserForModal?.id;
+
+  if (!selectedUserId) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
+
+  const task = customTasksList.find(
+    (item: any) => String(item.id) === String(taskId)
+  );
+
+  const isAutoSlot =
+(task as any)?.is_auto_slot === true ||
+    String(taskId).startsWith('auto-slot-');
+
+  if (
+    !window.confirm(
+      isAutoSlot
+        ? 'Are you sure you want to remove this Auto Lucky Slot?'
+        : 'Are you sure you want to delete this manual Lucky Order?'
+    )
+  ) {
+    return;
+  }
+
+  try {
+    if (isAutoSlot) {
+      // Synthetic ID se customer ID ya UUID delete nahi karna.
+      const slotId = Number(
+(task as any)?.auto_slot_id ??
+          String(taskId).slice(String(taskId).lastIndexOf('-') + 1)
+      );
+
+      if (!Number.isInteger(slotId)) {
+        throw new Error('Auto Slot ID is invalid.');
+      }
+
+      // Customer ki current Auto Slots settings load karein.
+      const { data: settings, error: readError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .select('user_id, enabled, slots')
+        .eq('user_id', selectedUserId)
+        .maybeSingle();
+
+      if (readError) throw readError;
+
+      if (!settings) {
+        throw new Error('Customer Auto Slots settings were not found.');
+      }
+
+      const currentSlots = Array.isArray(settings.slots)
+        ? settings.slots
+        : [];
+
+      const matchingSlotExists = currentSlots.some(
+        (slot: any) => Number(slot?.id) === slotId
+      );
+
+      if (!matchingSlotExists) {
+        throw new Error('This Auto Slot no longer exists. Please refresh the list.');
+      }
+
+      // Slot ko remove karne ke bajaye inactive karein.
+      // Is se baqi slots ki numbering aur configuration safe rahegi.
+      const updatedSlots = currentSlots.map((slot: any) =>
+        Number(slot?.id) === slotId
+          ? { ...slot, active: false }
+          : slot
+      );
+
+      const { error: updateError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .update({ slots: updatedSlots })
+        .eq('user_id', selectedUserId);
+
+      if (updateError) throw updateError;
+
+      await refreshConfiguredLuckyOrders(selectedUserId);
+
+      showToast('Auto Lucky Slot removed from the configured list.');
+      return;
+    }
+
+    // Manual Lucky Order: actual database UUID se delete karein.
+    if (!task || !task.id) {
+      throw new Error('Lucky Order was not found in the current list.');
+    }
+
+    const { error: deleteError } = await supabase
+      .from('custom_tasks')
+      .delete()
+      .eq('id', task.id)
+      .eq('user_id', selectedUserId)
+      .eq('is_lucky_order', true);
+
+    if (deleteError) throw deleteError;
+
+    await refreshConfiguredLuckyOrders(selectedUserId);
+
+    showToast('Manual Lucky Order deleted successfully.');
+  } catch (err: any) {
+    console.error('Lucky Order delete failed:', err);
+
+    showToast(
+      err?.message || 'Could not delete this Lucky Order.',
+      'error'
+    );
+  }
+};
+
 
   const fetchUserCustomTasks = async (userId: string) => {
     try {
@@ -2256,51 +3237,54 @@ export const AdminDashboard: React.FC = () => {
       );
     }
   };
+const handleResetUserTasks = async (customer: any) => {
+  const confirmed = window.confirm(
+    `Customer #${customer.custom_id} ke 25 tasks aur Lucky Order settings reset karni hain?`
+  );
 
-  const handleResetUserTasks = async (customer: any) => {
-    const confirmed = window.confirm(
-      `Customer #${customer.custom_id} ke completed task count ko 0 karna hai?`
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabase.rpc(
+      'admin_reset_customer_tasks_and_lucky_orders',
+      { p_user_id: customer.id }
     );
 
-    if (!confirmed) return;
+    if (error) throw error;
 
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ completed_tasks: 0 })
-        .eq('id', customer.id);
+    // User Management table mein task count update karein
+    setCustomers((prev) =>
+      prev.map((item) =>
+        item.id === customer.id
+          ? { ...item, completed_tasks: 0 }
+          : item
+      )
+    );
 
-      if (error) throw error;
+    // Selected customer modal mein count update karein
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? { ...prev, completed_tasks: 0 }
+        : prev
+    );
 
-      // Users table mein task count update karein
-      setCustomers((prev) =>
-        prev.map((item) =>
-          item.id === customer.id
-            ? { ...item, completed_tasks: 0 }
-            : item
-        )
-      );
+    // Configured Lucky Orders ki visible list foran clear karein
+    setCustomTasksList([]);
 
-      // Selected user ke profile/modal mein bhi update karein
-      setSelectedUserForModal((prev) =>
-        prev && prev.id === customer.id
-          ? { ...prev, completed_tasks: 0 }
-          : prev
-      );
+    showToast(
+      'Tasks reset ho gaye. Manual Lucky Orders clear aur Auto Slots OFF ho gaye.'
+    );
+  } catch (err: unknown) {
+    console.error('Reset tasks and Lucky Orders failed:', err);
 
-      showToast('Completed task count 0 ho gaya hai.');
-    } catch (err: unknown) {
-      console.error('Reset tasks failed:', err);
-
-      showToast(
-        err instanceof Error
-          ? err.message
-          : 'Tasks reset nahi huay. Please try again.',
-        'error'
-      );
-    }
-  };
-
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Reset nahi hua. Please dobara try karein.',
+      'error'
+    );
+  }
+};
   const handleAutoTaskLockToggle = async (
     user: CustomerProfile,
     shouldLock: boolean
@@ -2368,18 +3352,10 @@ export const AdminDashboard: React.FC = () => {
         throw new Error('Could not clear Lucky Order configurations.');
       }
 
-      const { data: activeTasks, error: refreshError } = await supabase
-        .from('custom_tasks')
-        .select('*')
-        .eq('user_id', selectedUserForModal.id)
-        .eq('is_lucky_order', true)
-        .eq('is_active', true)
-        .order('task_number', { ascending: true });
+   
+await refreshConfiguredLuckyOrders(selectedUserForModal.id);
 
-      if (refreshError) throw refreshError;
-
-      setCustomTasksList(activeTasks ?? []);
-      await fetchUserCustomTasks(selectedUserForModal.id);
+await fetchUserCustomTasks(selectedUserForModal.id);
 
       showToast(
         `Cleared ${data.cleared_count ?? 0} completed Lucky Order configuration(s). History and balance were preserved.`
@@ -2393,121 +3369,116 @@ export const AdminDashboard: React.FC = () => {
       );
     }
   };
+
 const handlePublishLuckyOrderSlot = async () => {
-    if (!selectedUserForModal) {
-      showToast('Please select a customer first.', 'error');
-      return;
-    }
+  if (!selectedUserForModal) {
+    showToast('Please select a customer first.', 'error');
+    return;
+  }
 
-    const taskNumber = Number(slotTaskNum);
-    const rate = Number(slotCommPercent);
-    const minAmount = Number(slotMinAmount);
-    const maxAmount = Number(slotMaxAmount);
+  const taskNumber = Number(slotTaskNum);
+  const rate = Number(slotCommPercent);
+  const minAmount = Number(slotMinAmount);
+  const maxAmount = Number(slotMaxAmount);
 
-    if (!Number.isInteger(taskNumber) || taskNumber < 1 || taskNumber > 25) {
-      showToast('Enter a task number between 1 and 25.', 'error');
-      return;
-    }
+  if (!Number.isInteger(taskNumber) || taskNumber < 1 || taskNumber > 25) {
+    showToast('Enter a task number between 1 and 25.', 'error');
+    return;
+  }
 
-    if (!Number.isFinite(rate) || rate <= 0 || rate > 100) {
-      showToast('Commission rate must be greater than 0 and at most 100%.', 'error');
-      return;
-    }
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 100) {
+    showToast('Commission rate must be greater than 0 and at most 100%.', 'error');
+    return;
+  }
 
-    if (
-      !Number.isFinite(minAmount) ||
-      !Number.isFinite(maxAmount) ||
-      minAmount <= 0 ||
-      maxAmount < minAmount
-    ) {
-      showToast('Enter a valid minimum and maximum amount.', 'error');
-      return;
-    }
+  if (
+    !Number.isFinite(minAmount) ||
+    !Number.isFinite(maxAmount) ||
+    minAmount <= 0 ||
+    maxAmount < minAmount
+  ) {
+    showToast('Enter a valid minimum and maximum amount.', 'error');
+    return;
+  }
 
-    const centsMin = Math.ceil(minAmount * 100);
-    const centsMax = Math.floor(maxAmount * 100);
+  const centsMin = Math.ceil(minAmount * 100);
+  const centsMax = Math.floor(maxAmount * 100);
 
-    if (centsMax < centsMin) {
-      showToast('The amount range must allow at least one valid cent value.', 'error');
-      return;
-    }
+  if (centsMax < centsMin) {
+    showToast(
+      'The amount range must allow at least one valid cent value.',
+      'error'
+    );
+    return;
+  }
 
-    try {
-      const userId = selectedUserForModal.id;
-      const randomCents =
-        Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
+  try {
+    const userId = selectedUserForModal.id;
 
-      const taskAmount = Number((randomCents / 100).toFixed(2));
-      const commission = Number((taskAmount * rate / 100).toFixed(2));
+    const randomCents =
+      Math.floor(Math.random() * (centsMax - centsMin + 1)) + centsMin;
 
-      const { data: activeLuckyOrder, error: activeCheckError } =
-        await supabase
-          .from('custom_tasks')
-          .select('id, task_number')
-          .eq('user_id', userId)
-          .eq('is_lucky_order', true)
-          .eq('is_active', true)
-          .eq('status', 'pending')
-          .limit(1)
-          .maybeSingle();
+    const taskAmount = Number((randomCents / 100).toFixed(2));
+    const commission = Number((taskAmount * rate / 100).toFixed(2));
 
-      if (activeCheckError) throw activeCheckError;
-
-      const { error: insertError } = await supabase
+    const { data: activeLuckyOrder, error: activeCheckError } =
+      await supabase
         .from('custom_tasks')
-        .insert({
-          user_id: userId,
-          task_number: taskNumber,
-          task_amount: taskAmount,
-          min_amount: minAmount,
-          max_amount: maxAmount,
-          commission_rate: rate,
-          commission,
-          locked_price: taskAmount,
-          locked_commission: commission,
-          vip_level: selectedUserForModal.vip_level || 'VIP 0 - Regular',
-          status: 'pending',
-          is_active: !activeLuckyOrder,
-          is_lucky_order: true,
-          funding_status: 'pending',
-        });
-
-      if (insertError) throw insertError;
-
-      const { data: refreshedTasks, error: refreshError } = await supabase
-        .from('custom_tasks')
-        .select('*')
+        .select('id')
         .eq('user_id', userId)
         .eq('is_lucky_order', true)
         .eq('is_active', true)
-        .order('task_number', { ascending: true });
+        .eq('status', 'pending')
+        .limit(1)
+        .maybeSingle();
 
-      if (refreshError) throw refreshError;
+    if (activeCheckError) throw activeCheckError;
 
-      setCustomTasksList(refreshedTasks ?? []);
-      await fetchUserCustomTasks(userId);
+    const { error: insertError } = await supabase
+      .from('custom_tasks')
+      .insert({
+        user_id: userId,
+        task_number: taskNumber,
+        task_amount: taskAmount,
+        min_amount: minAmount,
+        max_amount: maxAmount,
+        commission_rate: rate,
+        commission,
+        locked_price: taskAmount,
+        locked_commission: commission,
+        vip_level: selectedUserForModal.vip_level || 'VIP 0 - Regular',
+        status: 'pending',
+        is_active: !activeLuckyOrder,
+        is_lucky_order: true,
+        funding_status: 'pending',
+      });
 
-      setSlotTaskNum('');
-      setSlotMinAmount('');
-      setSlotMaxAmount('');
-      setSlotCommPercent('');
+    if (insertError) throw insertError;
 
-      showToast(
-        `Lucky Order #${taskNumber} saved. Amount: $${taskAmount.toFixed(2)}, commission: $${commission.toFixed(2)}.`
-      );
+    // Manual orders aur Auto Slots dono ko ek hi loader se refresh karein.
+    await refreshConfiguredLuckyOrders(userId);
 
-    } catch (err: any) {
-      console.error('Lucky Order save failed:', err);
+    setSlotTaskNum('');
+    setSlotMinAmount('');
+    setSlotMaxAmount('');
+    setSlotCommPercent('');
 
-      const errorMsg =
-        err?.message ||
+    showToast(
+      `Lucky Order #${taskNumber} saved. Amount: $${taskAmount.toFixed(2)}, commission: $${commission.toFixed(2)}.`
+    );
+  } catch (err: any) {
+    console.error('Lucky Order save failed:', err);
+
+    showToast(
+      err?.message ||
         err?.details ||
         err?.hint ||
-        'Could not save the lucky order. Check the browser console.';
+        'Could not save the lucky order. Check the browser console.',
+      'error'
+    );
+  }
+};
 
-      showToast(errorMsg, 'error');
-    }
-  };
     const handleSaveFullPageTaskSettings = async () => {
       if (!selectedUserForModal) return;
       try {
@@ -3573,56 +4544,95 @@ const handlePublishLuckyOrderSlot = async () => {
         (p.store || '').toLowerCase().includes(q)
       );
     });
+// Live Support: Main Admin sees all customers.
+// Sub-admin sees only customers assigned to their invite code.
+const isSupportCustomerAllowed = (userId: string): boolean => {
+  if (!userId || userId === 'admin') return false;
 
-    const filteredChatUsers = chatUsers.filter((uId) => {
-      const cust = customers.find((c) => c.id === uId);
+  // Main Admin can access every customer conversation.
+  if (isMainAdmin) return true;
 
-      if (!cust) return false;
+  const customer = customers.find(
+    (item) => String(item.id) === String(userId)
+  );
 
-      if (
-        !isMainAdmin &&
-        !isCustomerOfSubAdmin(cust, subAdminInviteCode)
-      ) {
-        return false;
-      }
+  if (!customer) return false;
 
-      return filterByUniversalQuery(cust, searchQuery);
-    });
+  return isCustomerOfSubAdmin(customer, subAdminInviteCode);
+};
 
-    const handleSelectChatUser = async (userId: string) => {
-      setActiveChatUserId(userId);
+const filteredChatUsers = chatUsers.filter((userId) => {
+  const customer = customers.find(
+    (item) => String(item.id) === String(userId)
+  );
 
-      const { error } = await supabase
-        .from('chat_messages')
-        .update({ is_read: true })
-        .eq('sender_id', userId)
-        .eq('receiver_id', 'admin')
-        .eq('is_admin', false)
-        .eq('is_read', false);
+  if (!customer) return false;
 
-      if (error) {
-        showToast('Could not mark messages as read.', 'error');
-        return;
-      }
+  if (!isMainAdmin && !isSupportCustomerAllowed(userId)) {
+    return false;
+  }
 
-      setChatMessages((previous) =>
-        previous.map((m) =>
-          m.sender_id === userId &&
-            m.receiver_id === 'admin' &&
-            m.is_admin === false
-            ? { ...m, is_read: true }
-            : m
-        )
-      );
-    };
+  return filterByUniversalQuery(customer, searchQuery);
+});
 
-    const activeUserChatHistory = chatMessages.filter(
-      (m) =>
-        m.sender_id === activeChatUserId ||
-        m.receiver_id === activeChatUserId
+const supportVisibleChatUsers = filteredChatUsers.filter((userId) => {
+  const customer = getCustomerDetailsByUserId(userId);
+  const label = supportLabels[userId];
+  const search = supportSearch.trim().toLowerCase();
+
+  return (
+    !search ||
+    String(customer.customId ?? '').toLowerCase().includes(search) ||
+    String(customer.name ?? '').toLowerCase().includes(search) ||
+    String(label?.name ?? '').toLowerCase().includes(search) ||
+    String(label?.payment ?? '').toLowerCase().includes(search)
+  );
+});const handleSelectChatUser = async (userId: string) => {
+  // Do not open an unauthorized customer's conversation.
+  if (!isSupportCustomerAllowed(userId)) {
+    showToast(
+      'You do not have permission to access this conversation.',
+      'error'
     );
+    return;
+  }
 
-    return (
+  setActiveChatUserId(userId);
+
+  const { error } = await supabase
+    .from('chat_messages')
+    .update({ is_read: true })
+    .eq('sender_id', userId)
+    .eq('receiver_id', 'admin')
+    .eq('is_admin', false)
+    .eq('is_read', false);
+
+  if (error) {
+    console.error('Failed to mark support messages as read:', error);
+    showToast('Could not mark messages as read.', 'error');
+    return;
+  }
+
+  setChatMessages((previous) =>
+    previous.map((message) =>
+      message.sender_id === userId &&
+      message.receiver_id === 'admin' &&
+      message.is_admin === false
+        ? { ...message, is_read: true }
+        : message
+    )
+  );
+};
+const activeUserChatHistory =
+  activeChatUserId && isSupportCustomerAllowed(activeChatUserId)
+    ? chatMessages.filter(
+        (message) =>
+          message.sender_id === activeChatUserId ||
+          message.receiver_id === activeChatUserId
+      )
+    : [];
+    
+  return (
       <div className="min-h-screen bg-[#f1f3f9] text-slate-800 flex font-sans">
 
         {/* SIDEBAR NAVIGATION */}
@@ -3694,14 +4704,24 @@ const handlePublishLuckyOrderSlot = async () => {
                 <span>🛠️</span><span>Settings</span>
               </button>
 
-              {isMainAdmin && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('delete_users'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'delete_users' ? 'bg-red-600 text-white shadow-lg' : 'text-red-200 hover:bg-red-900/50'}`}
-                >
-                  <span>🗑️</span><span>Delete Customers</span>
-                </button>
-              )}
+            
+{isMainAdmin && (
+  <button
+    onClick={() => {
+      setIsFullPageTaskSettings(false);
+      setActiveTab('delete_users');
+    }}
+    className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+      activeTab === 'delete_users'
+        ? 'bg-blue-600 text-white shadow-lg'
+        : 'text-blue-200 hover:bg-blue-800'
+    }`}
+  >
+    <span>📊</span>
+    <span>Records & Reports</span>
+  </button>
+)}
+
             </nav>
           </div>
 
@@ -3746,35 +4766,33 @@ const handlePublishLuckyOrderSlot = async () => {
             </div>
           )}
 
+
           {/* FULL PAGE TASK SETTINGS VIEW */}
           {isFullPageTaskSettings && selectedUserForModal ? (
-            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-lg sm:p-4">
 
               {/* CUSTOMER HEADER */}
-              <div className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-slate-50 to-blue-50 shadow-md">
-                {/* Header Title */}
-                <div className="flex items-center gap-3 border-b border-blue-100 bg-white/80 px-4 py-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-900 text-xl text-white shadow-sm">
+              <div className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
+                <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-xl text-white shadow-sm">
                     ⚡
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-black text-blue-950">
+                    <h2 className="text-sm font-black text-slate-900">
                       Lucky Order Settings
                     </h2>
 
                     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-slate-500">
                       <span>
-                        ID:{" "}
-                        <span className="font-mono font-bold text-blue-800">
+                        ID:{' '}
+                        <span className="font-mono font-bold text-blue-700">
                           #{selectedUserForModal.custom_id}
                         </span>
                       </span>
-
                       <span className="text-slate-300">|</span>
-
                       <span>
-                        Phone:{" "}
+                        Phone:{' '}
                         <span className="font-bold text-slate-700">
                           {selectedUserForModal.phone || 'Not Set'}
                         </span>
@@ -3782,7 +4800,7 @@ const handlePublishLuckyOrderSlot = async () => {
                     </p>
 
                     <p className="mt-1 truncate text-xs text-slate-600">
-                      Name:{" "}
+                      Name:{' '}
                       <span className="font-bold text-slate-800">
                         {selectedUserForModal.full_name ||
                           selectedUserForModal.username ||
@@ -3792,64 +4810,60 @@ const handlePublishLuckyOrderSlot = async () => {
                     </p>
                   </div>
 
-                  <div className="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-center">
+                  <div className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-center">
                     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                       Tasks
                     </p>
-                    <p className="text-sm font-black text-blue-900">
+                    <p className="text-sm font-black text-blue-800">
                       {selectedUserForModal.completed_tasks || 0}/25
                     </p>
                   </div>
                 </div>
 
-                {/* Balance and Lucky Order Amount */}
-                <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-emerald-200 bg-white p-3">
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                       Current Balance
                     </p>
-
                     <p className="text-lg font-black text-emerald-700">
                       ${Number(selectedUserForModal.balance || 0).toFixed(2)}
                     </p>
 
-                    {/* Lucky Order negative amount */}
-                    <div className="mt-2 border-t border-slate-100 pt-2">
-                      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <div className="mt-3 border-t border-slate-100 pt-2">
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                         Lucky Order Negative Amount
                       </p>
-
                       <p className="text-base font-black text-rose-600">
                         {(() => {
                           const luckyAmount = Number(
-                            (selectedUserForModal as any).lucky_order_negative_amount ?? 0
+                            (selectedUserForModal as any)
+                              .lucky_order_negative_amount ?? 0
                           );
-
                           return `-$${Math.abs(luckyAmount).toFixed(2)}`;
                         })()}
                       </p>
                     </div>
                   </div>
 
-                  {/* Task Progress */}
-                  <div className="rounded-xl border border-indigo-100 bg-white p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <div className="rounded-xl border border-blue-200 bg-white p-3">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                         Daily Task Progress
                       </p>
-
-                      <p className="text-xs font-black text-indigo-800">
+                      <p className="text-xs font-black text-blue-800">
                         {selectedUserForModal.completed_tasks || 0} / 25
                       </p>
                     </div>
 
                     <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-blue-800 to-indigo-500 transition-all duration-300"
+                        className="h-full rounded-full bg-blue-600 transition-all duration-300"
                         style={{
                           width: `${Math.min(
                             100,
-                            (Number(selectedUserForModal.completed_tasks || 0) / 25) * 100
+                            (Number(selectedUserForModal.completed_tasks || 0) /
+                              25) *
+                              100
                           )}%`,
                         }}
                       />
@@ -3857,16 +4871,15 @@ const handlePublishLuckyOrderSlot = async () => {
                   </div>
                 </div>
 
-                {/* VIP Upgrade */}
-                <div className="border-t border-blue-100 bg-white/80 p-3">
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wider text-slate-500">
+                {/* VIP LEVEL */}
+                <div className="border-t border-slate-200 bg-slate-50 p-3">
+                  <label className="mb-2 block text-[10px] font-black uppercase tracking-wider text-slate-600">
                     Upgrade User VIP Level
                   </label>
-
                   <select
                     value={editVipLevel}
                     onChange={(e) => setEditVipLevel(e.target.value)}
-                    className="w-full rounded-xl border-2 border-blue-900/20 bg-white px-3 py-2.5 text-sm font-bold text-blue-950 outline-none transition focus:border-blue-800 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
                     <option value="VIP 0 - Regular">VIP 0 - Regular</option>
                     <option value="Amazon VIP 1 - $1000">
@@ -3882,30 +4895,28 @@ const handlePublishLuckyOrderSlot = async () => {
                 </div>
               </div>
 
-              {/* AUTO SLOTS + MANUAL ORDER SIDE BY SIDE */}
-              <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
+              {/* AUTO SLOTS + MANUAL ORDER */}
+              <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
 
                 {/* AUTO LUCKY ORDER SLOTS */}
-                <section className="min-w-0 overflow-hidden rounded-xl border border-emerald-200 bg-white">
-                  <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-800 px-3 py-2">
+                <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-blue-50 px-3 py-3">
                     <div>
-                      <h3 className="text-sm font-black text-white">
+                      <h3 className="text-sm font-black text-slate-900">
                         ↻ Auto Lucky Order Slots
                       </h3>
-                      <p className="text-[10px] text-emerald-100">
-                        Seven compact configurable slots
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Seven configurable slots
                       </p>
                     </div>
 
-                    {/* SELECTED CUSTOMER AUTO LUCKY ORDER TOGGLE */}
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold text-white">
-                      <span>
-                        Auto Lucky Order
-                      </span>
-
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-700">
+                      <span>Auto Lucky Order</span>
                       <input
                         type="checkbox"
-                        checked={Boolean(selectedUserForModal.auto_lucky_order_enabled)}
+                        checked={Boolean(
+                          selectedUserForModal.auto_lucky_order_enabled
+                        )}
                         onChange={(e) =>
                           handleAutoLuckyOrderToggle(
                             selectedUserForModal,
@@ -3915,22 +4926,13 @@ const handlePublishLuckyOrderSlot = async () => {
                         className="peer sr-only"
                         aria-label="Enable Auto Lucky Order for this customer"
                       />
-
-                      <span
-                        className="relative h-5 w-9 rounded-full bg-slate-400 transition-colors
-                after:absolute after:left-0.5 after:top-0.5
-                after:h-4 after:w-4 after:rounded-full
-                after:bg-white after:shadow after:transition-transform
-                peer-checked:bg-emerald-400
-                peer-checked:after:translate-x-4"
-                      />
+                      <span className="relative h-5 w-9 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:bg-emerald-500 peer-checked:after:translate-x-4" />
                     </label>
                   </div>
 
                   <div className="overflow-x-auto">
                     <div className="min-w-[600px]">
-                      {/* COLUMN HEADINGS */}
-                      <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-2">
+                      <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-3">
                         <span className="text-[9px] font-black text-slate-500">SLOT</span>
                         <span className="text-[9px] font-black text-slate-500">TASK NO.</span>
                         <span className="text-[9px] font-black text-slate-500">MIN USDT</span>
@@ -3950,25 +4952,31 @@ const handlePublishLuckyOrderSlot = async () => {
                         };
 
                         const updateSlot = (
-                          field: 'taskNum' | 'minAmount' | 'maxAmount' | 'comm' | 'active',
+                          field:
+                            | 'taskNum'
+                            | 'minAmount'
+                            | 'maxAmount'
+                            | 'comm'
+                            | 'active',
                           value: string | boolean
                         ) => {
                           setAutoSlots((prev) => {
-                            const next = Array.from({ length: 7 }, (_, i) => ({
-                              ...(prev[i] || {}),
-                              id: prev[i]?.id ?? i + 1,
-                              taskNum: prev[i]?.taskNum ?? '',
-                              minAmount: prev[i]?.minAmount ?? '',
-                              maxAmount: prev[i]?.maxAmount ?? '',
-                              comm: prev[i]?.comm ?? '',
-                              active: prev[i]?.active ?? false,
-                            }));
-
+                            const next = Array.from(
+                              { length: 7 },
+                              (_, i) => ({
+                                ...(prev[i] || {}),
+                                id: prev[i]?.id ?? i + 1,
+                                taskNum: prev[i]?.taskNum ?? '',
+                                minAmount: prev[i]?.minAmount ?? '',
+                                maxAmount: prev[i]?.maxAmount ?? '',
+                                comm: prev[i]?.comm ?? '',
+                                active: prev[i]?.active ?? false,
+                              })
+                            );
                             next[index] = {
                               ...next[index],
                               [field]: value,
                             };
-
                             return next;
                           });
                         };
@@ -3976,48 +4984,43 @@ const handlePublishLuckyOrderSlot = async () => {
                         return (
                           <div
                             key={index + 1}
-                            className={`border-b border-slate-100 last:border-b-0 ${slot.active ? 'bg-emerald-50/60' : 'bg-white'
-                              }`}
+                            className={`border-b border-slate-100 last:border-b-0 ${
+                              slot.active ? 'bg-emerald-50/50' : 'bg-white'
+                            }`}
                           >
-                            <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 px-2 py-1.5">
-                              <div className="flex items-center gap-1">
-                                <span
-                                  className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-black ${slot.active
+                            <div className="grid grid-cols-[42px_minmax(65px,1fr)_minmax(75px,1fr)_minmax(75px,1fr)_minmax(65px,0.8fr)_36px] items-center gap-1 px-2 py-2">
+                              <span
+                                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[10px] font-black ${
+                                  slot.active
                                     ? 'bg-emerald-600 text-white'
                                     : 'bg-slate-200 text-slate-600'
-                                    }`}
-                                >
-                                  {index + 1}
-                                </span>
-                              </div>
+                                }`}
+                              >
+                                {index + 1}
+                              </span>
 
                               <span className="truncate text-xs font-bold text-slate-800">
                                 {slot.taskNum || '—'}
                               </span>
-
                               <span className="truncate font-mono text-xs text-slate-700">
                                 {slot.minAmount || '—'}
                               </span>
-
                               <span className="truncate font-mono text-xs text-slate-700">
                                 {slot.maxAmount || '—'}
                               </span>
-
-                              <span className="truncate text-xs font-semibold text-indigo-700">
+                              <span className="truncate text-xs font-bold text-blue-700">
                                 {slot.comm ? `${slot.comm}%` : '—'}
                               </span>
 
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const editor = document.getElementById(
-                                    `auto-slot-editor-${index + 1}`
-                                  );
-                                  editor?.classList.toggle('hidden');
+                                  document
+                                    .getElementById(`auto-slot-editor-${index + 1}`)
+                                    ?.classList.toggle('hidden');
                                 }}
-                                className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-sm hover:bg-emerald-50"
+                                className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-sm text-blue-700 transition hover:bg-blue-100"
                                 aria-label={`Edit Auto Slot ${index + 1}`}
-                                title={`Edit Slot ${index + 1}`}
                               >
                                 ✏️
                               </button>
@@ -4025,13 +5028,12 @@ const handlePublishLuckyOrderSlot = async () => {
 
                             <div
                               id={`auto-slot-editor-${index + 1}`}
-                              className="hidden border-t border-emerald-100 bg-emerald-50/50 p-2"
+                              className="hidden border-t border-slate-200 bg-slate-50 p-3"
                             >
-                              <div className="mb-2 flex items-center justify-between">
-                                <span className="text-[10px] font-black text-emerald-900">
+                              <div className="mb-3 flex items-center justify-between">
+                                <span className="text-[10px] font-black text-blue-800">
                                   EDIT SLOT #{index + 1}
                                 </span>
-
                                 <label className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
                                   {slot.active ? 'Enabled' : 'Disabled'}
                                   <input
@@ -4041,68 +5043,30 @@ const handlePublishLuckyOrderSlot = async () => {
                                       updateSlot('active', e.target.checked)
                                     }
                                     className="h-4 w-4 accent-emerald-600"
-                                    aria-label={`Enable Auto Slot ${index + 1}`}
                                   />
                                 </label>
                               </div>
 
                               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                                <label className="text-[10px] font-bold text-slate-600">
-                                  Task Number
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max="25"
-                                    value={slot.taskNum ?? ''}
-                                    onChange={(e) =>
-                                      updateSlot('taskNum', e.target.value)
-                                    }
-                                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
-                                  />
-                                </label>
-
-                                <label className="text-[10px] font-bold text-slate-600">
-                                  Minimum
-                                  <input
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    value={slot.minAmount ?? ''}
-                                    onChange={(e) =>
-                                      updateSlot('minAmount', e.target.value)
-                                    }
-                                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
-                                  />
-                                </label>
-
-                                <label className="text-[10px] font-bold text-slate-600">
-                                  Maximum
-                                  <input
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    value={slot.maxAmount ?? ''}
-                                    onChange={(e) =>
-                                      updateSlot('maxAmount', e.target.value)
-                                    }
-                                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
-                                  />
-                                </label>
-
-                                <label className="text-[10px] font-bold text-slate-600">
-                                  Commission %
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="0.01"
-                                    value={slot.comm ?? ''}
-                                    onChange={(e) =>
-                                      updateSlot('comm', e.target.value)
-                                    }
-                                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
-                                  />
-                                </label>
+                                {[
+                                  { field: 'taskNum' as const, label: 'Task Number', min: '1', max: '25', step: '1' },
+                                  { field: 'minAmount' as const, label: 'Minimum USDT', min: '0.01', step: '0.01' },
+                                  { field: 'maxAmount' as const, label: 'Maximum USDT', min: '0.01', step: '0.01' },
+                                  { field: 'comm' as const, label: 'Commission %', min: '0', max: '100', step: '0.01' },
+                                ].map((field) => (
+                                  <label key={field.field} className="text-[10px] font-bold text-slate-600">
+                                    {field.label}
+                                    <input
+                                      type="number"
+                                      min={field.min}
+                                      max={field.max}
+                                      step={field.step}
+                                      value={slot[field.field] ?? ''}
+                                      onChange={(e) => updateSlot(field.field, e.target.value)}
+                                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                    />
+                                  </label>
+                                ))}
                               </div>
                             </div>
                           </div>
@@ -4111,21 +5075,20 @@ const handlePublishLuckyOrderSlot = async () => {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 border-t border-slate-200 bg-slate-50 p-2">
+                  <div className="flex gap-2 border-t border-slate-200 bg-slate-50 p-3">
                     <button
                       type="button"
                       onClick={handleResetAutoSlots}
                       disabled={autoSlotsSaving}
-                      className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50"
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2.5 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
                     >
                       Reset
                     </button>
-
                     <button
                       type="button"
                       onClick={handleSaveAutoSlots}
                       disabled={autoSlotsSaving}
-                      className="flex-[2] rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      className="flex-[2] rounded-lg bg-emerald-600 px-3 py-2.5 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
                     >
                       {autoSlotsSaving ? 'Saving...' : 'Save Auto Slots'}
                     </button>
@@ -4133,18 +5096,18 @@ const handlePublishLuckyOrderSlot = async () => {
                 </section>
 
                 {/* MANUAL LUCKY ORDER */}
-                <section className="min-w-0 overflow-hidden rounded-xl border border-indigo-200 bg-white">
-                  <div className="bg-indigo-900 px-3 py-3">
-                    <h3 className="text-sm font-black text-white">
+                <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-blue-50 px-3 py-3">
+                    <h3 className="text-sm font-black text-slate-900">
                       ⚡ Manual Lucky Order
                     </h3>
-                    <p className="mt-1 text-[10px] text-indigo-100">
-                      Publish an individual customer's order
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Configure an individual customer's order
                     </p>
                   </div>
 
                   <div className="space-y-3 p-3">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-3">
                       <label className="text-[10px] font-bold text-slate-600">
                         Task Number
                         <input
@@ -4154,7 +5117,7 @@ const handlePublishLuckyOrderSlot = async () => {
                           placeholder="e.g. 5"
                           value={slotTaskNum}
                           onChange={(e) => setSlotTaskNum(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                         />
                       </label>
 
@@ -4167,7 +5130,7 @@ const handlePublishLuckyOrderSlot = async () => {
                           step="0.01"
                           value={slotCommPercent}
                           onChange={(e) => setSlotCommPercent(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                         />
                       </label>
 
@@ -4179,7 +5142,7 @@ const handlePublishLuckyOrderSlot = async () => {
                           step="0.01"
                           value={slotMinAmount}
                           onChange={(e) => setSlotMinAmount(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                         />
                       </label>
 
@@ -4191,7 +5154,7 @@ const handlePublishLuckyOrderSlot = async () => {
                           step="0.01"
                           value={slotMaxAmount}
                           onChange={(e) => setSlotMaxAmount(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500"
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                         />
                       </label>
                     </div>
@@ -4199,27 +5162,27 @@ const handlePublishLuckyOrderSlot = async () => {
                     <button
                       type="button"
                       onClick={handlePublishLuckyOrderSlot}
-                      className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white transition hover:bg-indigo-700"
+                      className="w-full rounded-lg bg-emerald-600 px-3 py-3 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700"
                     >
                       ⚡ Publish Manual Order
                     </button>
 
-                    <p className="text-[10px] leading-4 text-slate-500">
-                      Existing manual order publish and funding workflow is preserved.
+                    <p className="rounded-lg bg-slate-50 p-2 text-[10px] leading-4 text-slate-500">
+                      Existing manual order publishing and funding workflow is preserved.
                     </p>
                   </div>
                 </section>
               </div>
 
-              {/* CONFIGURED MANUAL ORDERS */}
-              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+              {/* CONFIGURED LUCKY ORDERS */}
+              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-3">
                   <div>
-                    <h3 className="text-xs font-black text-slate-900">
+                    <h3 className="text-sm font-black text-slate-900">
                       Configured Lucky Orders
                     </h3>
-                    <p className="text-[10px] text-slate-500">
-                      Manage configured manual orders for this customer
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Manage saved manual orders for this customer
                     </p>
                   </div>
 
@@ -4227,51 +5190,224 @@ const handlePublishLuckyOrderSlot = async () => {
                     type="button"
                     disabled={customTasksList.length === 0}
                     onClick={handleClearLuckyOrderConfig}
-                    className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg bg-red-600 px-3 py-2 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Clear Completed
                   </button>
                 </div>
 
-                <div className="max-h-56 space-y-1.5 overflow-y-auto p-2">
+                <div className="max-h-[480px] space-y-2 overflow-y-auto p-3">
                   {customTasksList.length === 0 ? (
-                    <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-center text-[10px] text-slate-400">
+                    <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-6 text-center text-xs text-slate-500">
                       No configured Lucky Orders for this user.
                     </p>
                   ) : (
                     customTasksList.map((task) => (
                       <div
                         key={task.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                        className="overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-blue-300"
                       >
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-800">
-                            Task #{task.task_number}
-                            <span className="ml-2 font-mono text-indigo-600">
-                              ${task.min_amount} – ${task.max_amount} USDT
-                            </span>
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-black text-blue-800">
+                                Task #{task.task_number}
+                              </span>
+                              <span className="font-mono text-sm font-black text-slate-800">
+                                ${task.min_amount} – ${task.max_amount} USDT
+                              </span>
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                              <span>
+                                Commission:{' '}
+                                <strong className="text-blue-700">
+                                  {task.commission_rate ?? 10}%
+                                </strong>
+                              </span>
+                              <span>
+                                Funding:{' '}
+                                <strong className="text-slate-700">
+                                  {(task as any).funding_status || 'not set'}
+                                </strong>
+                              </span>
+                              <span className={task.is_active ? 'font-bold text-emerald-700' : 'font-bold text-slate-500'}>
+                                {task.is_active ? 'Active' : 'Saved / queued'}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="mt-1 text-[10px] text-slate-500">
-                            Commission: {task.commission_rate ?? 10}% · Configured
+                       
+<div className="flex flex-wrap items-center gap-2">
+  <button
+    type="button"
+    onClick={() => handleEditCustomTask(task)}
+    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-bold text-blue-800 transition hover:bg-blue-100"
+  >
+    ✏️ Edit
+  </button>
+
+  <button
+    type="button"
+    onClick={() => handleDeleteCustomTask(task.id)}
+    className="rounded-lg bg-red-600 px-3 py-2 text-[10px] font-extrabold text-white transition hover:bg-red-700"
+  >
+    Delete
+  </button>
+</div>
+</div>
+
+                        {/* INLINE EDITOR */}
+                        <div
+                          id={`manual-order-editor-${task.id}`}
+                          className="hidden border-t border-slate-200 bg-slate-50 p-3"
+                        >
+                          <h4 className="mb-3 text-xs font-black text-blue-900">
+                            Edit Lucky Order
+                          </h4>
+
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <label className="text-[10px] font-bold text-slate-600">
+                              Task Number
+                              <input
+                                id={`manual-edit-task-number-${task.id}`}
+                                type="number"
+                                min="1"
+                                max="25"
+                                defaultValue={task.task_number ?? ''}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              />
+                            </label>
+
+                            <label className="text-[10px] font-bold text-slate-600">
+                              Minimum USDT
+                              <input
+                                id={`manual-edit-min-amount-${task.id}`}
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                defaultValue={task.min_amount ?? ''}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              />
+                            </label>
+
+                            <label className="text-[10px] font-bold text-slate-600">
+                              Maximum USDT
+                              <input
+                                id={`manual-edit-max-amount-${task.id}`}
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                defaultValue={task.max_amount ?? ''}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              />
+                            </label>
+
+                            <label className="text-[10px] font-bold text-slate-600">
+                              Commission %
+                              <input
+                                id={`manual-edit-commission-${task.id}`}
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                defaultValue={task.commission_rate ?? 10}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              />
+                            </label>
                           </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleEditCustomTask(task)}
-                            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
-                          >
-                            Edit
-                          </button>
 
                           <button
                             type="button"
-                            onClick={() => handleDeleteCustomTask(task.id)}
-                            className="rounded-lg bg-rose-50 px-3 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100"
+                            onClick={async () => {
+                              const readValue = (elementId: string) =>
+                                (
+                                  document.getElementById(elementId) as
+                                    | HTMLInputElement
+                                    | null
+                                )?.value.trim() ?? '';
+
+                              const taskNumber = Number(
+                                readValue(`manual-edit-task-number-${task.id}`)
+                              );
+                              const minAmount = Number(
+                                readValue(`manual-edit-min-amount-${task.id}`)
+                              );
+                              const maxAmount = Number(
+                                readValue(`manual-edit-max-amount-${task.id}`)
+                              );
+                              const commission = Number(
+                                readValue(`manual-edit-commission-${task.id}`)
+                              );
+
+                              if (
+                                !Number.isInteger(taskNumber) ||
+                                taskNumber < 1 ||
+                                taskNumber > 25
+                              ) {
+                                showToast('Task Number must be between 1 and 25.', 'error');
+                                return;
+                              }
+
+                              if (
+                                !Number.isFinite(minAmount) ||
+                                !Number.isFinite(maxAmount) ||
+                                minAmount <= 0 ||
+                                maxAmount < minAmount
+                              ) {
+                                showToast('Enter valid amounts. Maximum must be greater than or equal to Minimum.', 'error');
+                                return;
+                              }
+
+                              if (
+                                !Number.isFinite(commission) ||
+                                commission < 0 ||
+                                commission > 100
+                              ) {
+                                showToast('Commission must be between 0 and 100%.', 'error');
+                                return;
+                              }
+
+                              try {
+                                const { data: updatedTask, error } = await supabase
+                                  .from('custom_tasks')
+                                  .update({
+                                    task_number: taskNumber,
+                                    min_amount: minAmount,
+                                    max_amount: maxAmount,
+                                    commission_rate: commission,
+                                  })
+                                  .eq('id', task.id)
+                                  .select('*')
+                                  .maybeSingle();
+
+                                if (error) throw error;
+
+                                if (!updatedTask) {
+                                  throw new Error(
+                                    'Order was not updated. Check database permissions.'
+                                  );
+                                }
+
+                                await refreshConfiguredLuckyOrders(
+                                  selectedUserForModal.id
+                                );
+
+                                document
+                                  .getElementById(`manual-order-editor-${task.id}`)
+                                  ?.classList.add('hidden');
+
+                                showToast('Lucky Order updated successfully.');
+                              } catch (err: any) {
+                                showToast(
+                                  err?.message || 'Could not update Lucky Order.',
+                                  'error'
+                                );
+                              }
+                            }}
+                            className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-3 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700"
                           >
-                            Delete
+                            Save Changes to This Order
                           </button>
                         </div>
                       </div>
@@ -4285,7 +5421,7 @@ const handlePublishLuckyOrderSlot = async () => {
                 <button
                   type="button"
                   onClick={() => setIsFullPageTaskSettings(false)}
-                  className="rounded-lg bg-slate-200 px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-300"
+                  className="rounded-lg bg-red-600 px-5 py-2.5 text-xs font-extrabold text-white transition hover:bg-red-700"
                 >
                   Back to User List
                 </button>
@@ -4293,13 +5429,16 @@ const handlePublishLuckyOrderSlot = async () => {
                 <button
                   type="button"
                   onClick={handleSaveFullPageTaskSettings}
-                  className="rounded-lg bg-blue-900 px-6 py-2.5 text-xs font-black text-white hover:bg-blue-800"
+                  className="rounded-lg bg-emerald-600 px-6 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-700"
                 >
                   Save VIP Settings
                 </button>
               </div>
             </div>
           ) : null}
+
+
+
 
           {/* TAB 1: USERS */}
           {!isFullPageTaskSettings && activeTab === 'users' && (
@@ -5154,7 +6293,7 @@ const handlePublishLuckyOrderSlot = async () => {
 
                           {/* Tasks */}
                           <td className="whitespace-nowrap px-4 py-4 text-center">
-                            <div className="font-mono text-sm font-black text-blue-950">
+                            <div className="font-mono text-sm font-black text-white">
                               {completedTasks} / 25
                             </div>
                             <div className="mx-auto mt-2 h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
@@ -6401,73 +7540,762 @@ const handlePublishLuckyOrderSlot = async () => {
             </div>
           )}
 
-          {/* TAB 6: LIVE SUPPORT & CHAT */}
-          {!isFullPageTaskSettings && activeTab === 'support' && (
-            <div className="space-y-6">
-              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden grid grid-cols-3 h-[420px]">
-                <div className="border-r border-slate-200 bg-slate-50 p-3 space-y-2 overflow-y-auto">
-                  <h4 className="font-bold text-xs text-slate-700">Customer Inbox</h4>
-                  {filteredChatUsers.map((uId) => {
-                    const custDetails = getCustomerDetailsByUserId(uId);
-                    return (
-                      <button
-                        key={uId}
-                        onClick={() => handleSelectChatUser(uId)}
-                        className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${activeChatUserId === uId
-                          ? 'bg-blue-900 text-white'
-                          : 'bg-white text-slate-800 border'
-                          }`}
-                      >
-                        <span className="font-mono flex-1 min-w-0 truncate">
-                          {custDetails.customId} - {custDetails.name}
-                        </span>
+{/* TAB 6: PROFESSIONAL LIVE SUPPORT & CHAT */}
+{!isFullPageTaskSettings && activeTab === 'support' && (
+  <div className="space-y-5 text-slate-800">
 
-                        {chatMessages.some(
-                          (m) =>
-                            m.sender_id === uId &&
-                            m.receiver_id === 'admin' &&
-                            m.is_admin === false &&
-                            m.is_read === false
-                        ) && (
+    {/* Page heading */}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 className="text-2xl font-black tracking-tight text-slate-900">
+          Live Support & Chat
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Manage customer conversations and support details in one place.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2 self-start rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+        <span className="text-xs font-bold text-emerald-700">
+          Support Inbox
+        </span>
+      </div>
+    </div>
+
+    {/* Welcome header */}
+    <div className="relative overflow-hidden rounded-2xl border border-teal-800 bg-gradient-to-br from-slate-950 via-teal-950 to-emerald-900 p-5 text-white shadow-xl shadow-teal-950/10 sm:p-6">
+      <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-16 left-1/3 h-40 w-40 rounded-full bg-amber-400/10 blur-3xl" />
+
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-200">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+            Support Center
+          </div>
+
+          <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
+            Welcome to Live Chat
+          </h2>
+
+          <p className="mt-2 max-w-xl text-xs leading-5 text-teal-100/80 sm:text-sm">
+            Manage customer conversations, respond to messages and review shared files in one place.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-400/15 text-xl">
+            💬
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-teal-100/70">
+              Unread messages
+            </p>
+            <p className="text-2xl font-black tabular-nums text-white">
+              {chatMessages.filter(
+                (m) =>
+                  m.sender_id !== 'admin' &&
+                  m.receiver_id === 'admin' &&
+                  m.is_read === false
+              ).length}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Summary cards */}
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-white to-teal-50 p-4 shadow-sm transition hover:shadow-md">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-slate-500">
+              Total Conversations
+            </p>
+            <p className="mt-1 text-2xl font-black text-slate-900">
+              {chatUsers.length}
+            </p>
+          </div>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-100 text-xl">
+            👥
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] font-semibold text-teal-700">
+          Customer support inbox
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-white to-amber-50 p-4 shadow-sm transition hover:shadow-md">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-slate-500">
+              Unread Conversations
+            </p>
+            <p className="mt-1 text-2xl font-black text-slate-900">
+              {new Set(
+                chatMessages
+                  .filter(
+                    (m) =>
+                      m.sender_id !== 'admin' &&
+                      m.receiver_id === 'admin' &&
+                      m.is_read === false
+                  )
+                  .map((m) => m.sender_id)
+              ).size}
+            </p>
+          </div>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-xl">
+            🔔
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] font-semibold text-amber-700">
+          Customers waiting for a reply
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-white to-emerald-50 p-4 shadow-sm transition hover:shadow-md">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-slate-500">
+              Selected Customer
+            </p>
+            <p className="mt-1 truncate text-lg font-black text-slate-900">
+              {activeChatUserId || 'None selected'}
+            </p>
+          </div>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-xl">
+            💚
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] font-semibold text-emerald-700">
+          {activeChatUserId
+            ? 'Conversation selected'
+            : 'Choose a customer from the inbox'}
+        </p>
+      </div>
+    </div>
+
+    {/* Main messenger panel */}
+    <div className="grid h-[min(760px,calc(100vh-180px))] min-h-[500px] grid-cols-1 overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-xl shadow-slate-900/5 lg:grid-cols-[310px_minmax(0,1fr)]">
+
+      {/* LEFT: Customer inbox */}
+      <aside className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
+
+        <div className="border-b border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Customer Inbox
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Search by customer ID, username or support label.
+              </p>
+            </div>
+
+            <span className="rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-xs font-extrabold text-teal-700">
+              {supportVisibleChatUsers.length}
+            </span>
+          </div>
+
+          {/* Customer search */}
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              🔎
+            </span>
+
+            <input
+              type="search"
+              value={supportSearch}
+              onChange={(e) => setSupportSearch(e.target.value)}
+              placeholder="Search ID or customer name..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-9 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-100"
+            />
+          </div>
+        </div>
+
+        {/* Inbox customer list */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {supportVisibleChatUsers.length === 0 ? (
+            <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 text-center">
+              <span className="text-2xl">💬</span>
+              <p className="mt-2 text-sm font-bold text-slate-700">
+                No customers found
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Try another ID or name.
+              </p>
+            </div>
+          ) : (
+            [...supportVisibleChatUsers]
+              .map((uId) => {
+                const customerMessages = chatMessages.filter(
+                  (m) =>
+                    (m.sender_id === uId && m.receiver_id === 'admin') ||
+                    (m.sender_id === 'admin' && m.receiver_id === uId)
+                );
+
+                const latestMessage =
+                  customerMessages.length > 0
+                    ? customerMessages.reduce((latest, message) =>
+                        new Date(message.created_at).getTime() >=
+                        new Date(latest.created_at).getTime()
+                          ? message
+                          : latest
+                      )
+                    : null;
+
+                const unreadCount = chatMessages.filter(
+                  (m) =>
+                    m.sender_id === uId &&
+                    m.receiver_id === 'admin' &&
+                    m.is_admin === false &&
+                    m.is_read === false
+                ).length;
+
+                return { uId, latestMessage, unreadCount };
+              })
+              .sort((a, b) => {
+                if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+                if (a.unreadCount === 0 && b.unreadCount > 0) return 1;
+
+                const timeA = a.latestMessage
+                  ? new Date(a.latestMessage.created_at).getTime()
+                  : 0;
+                const timeB = b.latestMessage
+                  ? new Date(b.latestMessage.created_at).getTime()
+                  : 0;
+
+                return timeB - timeA;
+              })
+              .map(({ uId, latestMessage, unreadCount }) => {
+                const customer = getCustomerDetailsByUserId(uId);
+                const label = supportLabels[uId];
+                const isSelected = activeChatUserId === uId;
+
+                const latestText = latestMessage
+                  ? String(latestMessage.message ?? '')
+                  : 'No messages yet';
+
+                return (
+                  <button
+                    key={uId}
+                    type="button"
+                    onClick={() => {
+                      handleSelectChatUser(uId);
+                      setSupportLabelEditorOpen(false);
+                      setSupportLabelDraft({
+                        name: label?.name ?? '',
+                        payment: label?.payment ?? '',
+                      });
+                    }}
+                    className={`mb-1.5 w-full rounded-xl border px-2.5 py-2 text-left transition duration-200 ${
+                      isSelected
+                        ? 'border-teal-700 bg-gradient-to-r from-teal-800 to-emerald-800 text-white shadow-md'
+                        : unreadCount > 0
+                          ? 'border-emerald-200 bg-emerald-50 text-slate-800 hover:border-emerald-400'
+                          : 'border-slate-200 bg-white text-slate-800 hover:border-teal-300 hover:bg-teal-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                          isSelected
+                            ? 'bg-white/15 text-white'
+                            : unreadCount > 0
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-teal-100 text-teal-800'
+                        }`}
+                      >
+                        {String(label?.name || customer.name || 'C')
+                          .trim()
+                          .charAt(0)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-extrabold">
+                            {label?.name || customer.name || 'Customer'}
+                          </p>
+
+                          {unreadCount > 0 && (
                             <span
-                              className="ml-2 h-2.5 w-2.5 rounded-full bg-green-500 shrink-0"
-                              title="Unread message"
-                            />
+                              className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white"
+                              title={`${unreadCount} unread message(s)`}
+                            >
+                              {unreadCount}
+                            </span>
                           )}
-                      </button>
-                    );
-                  })}
+                        </div>
+
+                        <p
+                          className={`truncate text-[10px] ${
+                            isSelected ? 'text-teal-100' : 'text-slate-500'
+                          }`}
+                        >
+                          ID: {customer.customId || 'N/A'}
+                          {' · '}
+                          {customer.name || 'N/A'}
+                        </p>
+
+                        <p
+                          className={`mt-1 truncate text-[11px] ${
+                            isSelected
+                              ? 'text-teal-100'
+                              : unreadCount > 0
+                                ? 'font-bold text-emerald-800'
+                                : 'text-slate-600'
+                          }`}
+                          title={latestText}
+                        >
+                          {unreadCount > 0 ? '● ' : ''}
+                          {latestText}
+                        </p>
+
+                        {label?.payment && (
+                          <p
+                            className={`mt-1 truncate text-[10px] font-bold ${
+                              isSelected ? 'text-amber-200' : 'text-amber-700'
+                            }`}
+                          >
+                            Payment: {label.payment}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+          )}
+        </div>
+      </aside>
+
+      {/* RIGHT: Chat window */}
+      <section className="flex min-h-0 min-w-0 flex-col bg-white">
+        {activeChatUserId ? (
+          <>
+            {/* Chat header */}
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-emerald-800 text-lg text-white shadow-sm">
+                  💬
                 </div>
 
-                <div className="col-span-2 flex flex-col justify-between p-4 bg-white">
-                  <div className="border-b pb-2 font-bold text-xs text-blue-900">
-                    Live Chat: <span className="font-mono text-blue-700">{activeChatUserId ? getCustomerDetailsByUserId(activeChatUserId).customId : 'Select user'}</span>
-                  </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-extrabold text-slate-900">
+                    {supportLabels[activeChatUserId]?.name ||
+                      getCustomerDetailsByUserId(activeChatUserId).name ||
+                      'Customer'}
+                  </h3>
 
-                  <div className="flex-1 overflow-y-auto my-3 space-y-2 pr-1 text-xs">
-                    {activeUserChatHistory.map((m) => (
-                      <div key={m.id} className={`flex ${m.is_admin ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[75%] p-2.5 rounded-xl ${m.is_admin ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-800 border'}`}>
-                          <p>{m.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="mt-1 truncate font-mono text-[11px] text-slate-500">
+                    ID: {getCustomerDetailsByUserId(activeChatUserId).customId || 'N/A'}
+                    {' · '}
+                    Username: {getCustomerDetailsByUserId(activeChatUserId).name || 'N/A'}
+                  </p>
 
-                  <form onSubmit={handleSendAdminReply} className="flex gap-2 border-t pt-2">
-                    <input
-                      type="text"
-                      placeholder="Type reply..."
-                      value={replyMessage}
-                      onChange={(e) => setReplyMessage(e.target.value)}
-                      className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none"
-                    />
-                    <button type="submit" className="px-5 py-2 bg-blue-900 text-white font-black text-xs rounded-xl">Send</button>
-                  </form>
+                  {supportLabels[activeChatUserId]?.payment && (
+                    <p className="mt-1 truncate text-xs font-semibold text-amber-700">
+                      Payment: {supportLabels[activeChatUserId].payment}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const label = supportLabels[activeChatUserId];
+
+                  setSupportLabelDraft({
+                    name: label?.name ?? '',
+                    payment: label?.payment ?? '',
+                  });
+
+                  setSupportLabelEditorOpen((open) => !open);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100"
+              >
+                <span>✎</span>
+                {supportLabelEditorOpen ? 'Close Edit' : 'Edit Support Label'}
+              </button>
+            </header>
+
+            {/* Support label editor */}
+            {supportLabelEditorOpen && (
+              <div className="border-b border-teal-100 bg-gradient-to-r from-teal-50 to-amber-50/50 p-4">
+                <div className="mx-auto max-w-3xl">
+                  <div className="mb-3">
+                    <h4 className="text-sm font-extrabold text-slate-900">
+                      Support Display Details
+                    </h4>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      These labels are displayed only in this Live Support
+                      interface. The customer's original ID and username remain
+                      visible above.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-700">
+                        Support Display Name
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={80}
+                        value={supportLabelDraft.name}
+                        onChange={(e) =>
+                          setSupportLabelDraft((previous) => ({
+                            ...previous,
+                            name: e.target.value,
+                          }))
+                        }
+                        placeholder="e.g. VIP Customer"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-700">
+                        Payment Note
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={160}
+                        value={supportLabelDraft.payment}
+                        onChange={(e) =>
+                          setSupportLabelDraft((previous) => ({
+                            ...previous,
+                            payment: e.target.value,
+                          }))
+                        }
+                        placeholder="e.g. Deposit pending verification"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={saveSupportLabelDraft}
+                      className="rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:from-teal-800 hover:to-emerald-800"
+                    >
+                      Save Support Label
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSupportLabelDraft({ name: '', payment: '' });
+                        setSupportLabels((previous) => {
+                          const next = { ...previous };
+                          delete next[activeChatUserId];
+                          return next;
+                        });
+                        setSupportLabelEditorOpen(false);
+                      }}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                    >
+                      Reset Label
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Message history */}
+            <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
+              <div className="flex items-center justify-between border-b border-slate-200/80 bg-white px-4 py-2.5 sm:px-6">
+                <p className="text-xs font-bold text-slate-700">
+                  Conversation
+                </p>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-700">
+                  Customer Support
+                </span>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
+                {activeUserChatHistory.length === 0 ? (
+                  <div className="flex h-full min-h-40 flex-col items-center justify-center text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm ring-1 ring-slate-200">
+                      💬
+                    </div>
+                    <p className="mt-3 text-sm font-extrabold text-slate-700">
+                      No messages yet
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Your replies will appear in this conversation.
+                    </p>
+                  </div>
+                ) : (
+                  activeUserChatHistory.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`flex ${
+                        m.is_admin ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      <div
+                        className={`flex max-w-[88%] flex-col sm:max-w-[75%] ${
+                          m.is_admin ? 'items-end' : 'items-start'
+                        }`}
+                      >
+                        <span className="mb-1 px-1 text-[10px] font-bold text-slate-400">
+                          {m.is_admin ? 'Support Team' : 'Customer'}
+                        </span>
+
+                        <div
+                          className={`break-words rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                            m.is_admin
+                              ? 'rounded-br-md bg-gradient-to-br from-teal-700 to-emerald-800 text-white shadow-emerald-900/10'
+                              : 'rounded-bl-md border border-slate-200 bg-white text-slate-800'
+                          }`}
+                        >
+                          {m.message && (
+                            <p className="whitespace-pre-wrap">
+                              {m.message}
+                            </p>
+                          )}
+
+                          {(chatAttachments[m.id] || []).map((attachment) => (
+                            <div
+                              key={attachment.id}
+                              className="mt-3 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-2 text-slate-800"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAttachment(attachment)}
+                                className="block w-full text-left"
+                                title="Preview attachment in chat"
+                              >
+                                {attachment.signedUrl &&
+                                attachment.mime_type.startsWith('image/') ? (
+                                  <img
+                                    src={attachment.signedUrl}
+                                    alt={attachment.file_name}
+                                    className="max-h-64 max-w-full cursor-zoom-in rounded-lg object-contain"
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-3 rounded-lg bg-slate-50 p-3 transition hover:bg-teal-50">
+                                    <span className="text-3xl">
+                                      {attachment.mime_type === 'application/pdf'
+                                        ? '📕'
+                                        : '📎'}
+                                    </span>
+
+                                    <div className="min-w-0 flex-1">
+                                      <p className="break-all text-xs font-bold">
+                                        {attachment.file_name}
+                                      </p>
+                                      <p className="mt-1 text-[10px] text-slate-500">
+                                        {(Number(attachment.file_size) / 1024).toFixed(1)} KB
+                                      </p>
+                                      <p className="mt-1 text-[10px] font-bold text-teal-700">
+                                        Click to preview
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </button>
+
+                              {!attachment.signedUrl && (
+                                <p className="mt-2 text-[10px] text-amber-700">
+                                  Attachment link unavailable. Refresh the conversation and try again.
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Reply composer */}
+              <div className="border-t border-slate-200 bg-white p-3 sm:p-4">
+                <form
+                  onSubmit={handleSendAdminReply}
+                  className="flex items-end gap-2"
+                >
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    onChange={handleSendAdminAttachment}
+                    disabled={attachmentUploading || !activeChatUserId}
+                  />
+
+                  <button
+                    type="button"
+                    title="Attach image or document"
+                    aria-label="Attach image or document"
+                    disabled={attachmentUploading || !activeChatUserId}
+                    onClick={() => attachmentInputRef.current?.click()}
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 text-xl text-teal-700 transition hover:bg-teal-100 disabled:opacity-50"
+                  >
+                    {attachmentUploading ? '…' : '📎'}
+                  </button>
+
+                  <div className="min-w-0 flex-1">
+                    <label
+                      htmlFor="admin-support-reply"
+                      className="mb-1.5 block text-[11px] font-bold text-slate-500"
+                    >
+                      Your reply
+                    </label>
+
+                    <input
+                      id="admin-support-reply"
+                      type="text"
+                      autoComplete="off"
+                      maxLength={4000}
+                      placeholder="Write a message to the customer..."
+                      value={replyMessage}
+                      onChange={(e) => setReplyMessage(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-100"
+                    />
+
+                    {attachmentError && (
+                      <p className="mt-1 break-words text-[11px] text-red-600">
+                        {attachmentError}
+                      </p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!replyMessage.trim() || attachmentUploading}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-teal-700 to-emerald-800 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition hover:from-teal-800 hover:to-emerald-900 disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
+                  >
+                    <span>Send</span>
+                    <span aria-hidden="true">➤</span>
+                  </button>
+                </form>
+
+                {attachmentError && (
+                  <p className="mt-2 text-[11px] text-red-600">
+                    {attachmentError}
+                  </p>
+                )}
+
+                <p className="mt-2 px-1 text-[10px] text-slate-400">
+                  Attach images, PDF, Word, Excel or TXT files (maximum 10 MB).
+                  Do not share passwords or verification codes.
+                </p>
+              </div>
             </div>
-          )}
+          </>
+        ) : (
+          /* No customer selected */
+          <div className="flex min-h-[400px] flex-1 flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-teal-50/60 px-6 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-white text-4xl shadow-sm ring-1 ring-teal-100">
+              💬
+            </div>
+            <h3 className="mt-5 text-lg font-extrabold text-slate-900">
+              Welcome to Live Support
+            </h3>
+            <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
+              Select a customer from the inbox to read messages and respond directly.
+            </p>
+          </div>
+        )}
+      </section>
+    </div>
+
+    {/* Attachment preview modal: stays on the same page */}
+    {previewAttachment && (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6"
+        onClick={() => setPreviewAttachment(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Attachment preview"
+          className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-teal-200/30 bg-white shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {/* Modal header */}
+          <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-slate-950 via-teal-950 to-emerald-900 px-4 py-3 text-white">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-teal-200">
+                Attachment Preview
+              </p>
+              <p className="truncate text-sm font-bold">
+                {previewAttachment.file_name}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setPreviewAttachment(null)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-xl hover:bg-white/20"
+              aria-label="Close preview"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Modal content */}
+          <div className="min-h-[240px] flex-1 overflow-auto bg-slate-100 p-2 sm:p-4">
+            {!previewAttachment.signedUrl ? (
+              <div className="p-8 text-center text-sm text-red-600">
+                Preview unavailable. Refresh the conversation and try again.
+              </div>
+            ) : previewAttachment.mime_type.startsWith('image/') ? (
+              <div className="flex min-h-[240px] items-center justify-center">
+                <img
+                  src={previewAttachment.signedUrl}
+                  alt={previewAttachment.file_name}
+                  className="max-h-[72vh] max-w-full rounded-lg object-contain shadow-sm"
+                />
+              </div>
+            ) : previewAttachment.mime_type === 'application/pdf' ? (
+              <iframe
+                src={previewAttachment.signedUrl}
+                title={previewAttachment.file_name}
+                className="h-[72vh] min-h-[400px] w-full rounded-lg border border-slate-200 bg-white"
+              />
+            ) : (
+              <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 text-center">
+                <span className="text-5xl">📄</span>
+                <p className="break-all text-sm font-bold text-slate-800">
+                  {previewAttachment.file_name}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Inline preview is not supported for this file type.
+                </p>
+                <a
+                  href={previewAttachment.signedUrl}
+                  download={previewAttachment.file_name}
+                  className="rounded-xl bg-gradient-to-r from-teal-700 to-emerald-800 px-4 py-2 text-sm font-bold text-white"
+                >
+                  Download file
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* Modal footer */}
+          <div className="flex justify-end border-t border-slate-200 bg-white px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setPreviewAttachment(null)}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+            >
+              Close preview
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
           {/* TAB 8: ADMIN SETTINGS & SUB-ADMIN NOTIFICATIONS */}
           {!isFullPageTaskSettings && activeTab === 'settings' && (

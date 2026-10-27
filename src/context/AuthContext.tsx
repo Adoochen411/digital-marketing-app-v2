@@ -182,8 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     setUser(null);
-    window.location.href = '/';
-  };
+window.location.href = '/digital-marketing-app-v2/';  };
 
   return (
     <AuthContext.Provider

@@ -10,8 +10,7 @@ import { CustomerDashboard } from './pages/CustomerDashboard';
 export default function App() {
   return (
     <AuthProvider>
-<BrowserRouter basename="/digital-marketing-app-v2">
-        <Routes>
+<BrowserRouter>        <Routes>
           {/* Customer Routes */}
           <Route path="/" element={<AuthPage />} />
           <Route path="/dashboard" element={<CustomerDashboard />} />

@@ -10,7 +10,7 @@ import { CustomerDashboard } from './pages/CustomerDashboard';
 export default function App() {
   return (
     <AuthProvider>
-<BrowserRouter basename="/digital-marketing-app-v2">git add src/App.tsx
+<BrowserRouter basename="/digital-marketing-app-v2">
         <Routes>
           {/* Customer Routes */}
           <Route path="/" element={<AuthPage />} />

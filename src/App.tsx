@@ -10,7 +10,8 @@ import { CustomerDashboard } from './pages/CustomerDashboard';
 export default function App() {
   return (
     <AuthProvider>
-<BrowserRouter>        <Routes>
+<BrowserRouter basename={import.meta.env.BASE_URL}>
+        <Routes>
           {/* Customer Routes */}
           <Route path="/" element={<AuthPage />} />
           <Route path="/dashboard" element={<CustomerDashboard />} />

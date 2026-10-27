@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-
+import { useNavigate } from 'react-router-dom';
 export const AuthPage: React.FC = () => {
   const { signIn } = useAuth();
-
+const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -57,8 +57,7 @@ export const AuthPage: React.FC = () => {
       // LOGIN
       if (isLogin) {
         await signIn(cleanUsername, password);
-        window.location.href = '/dashboard';
-        return;
+navigate('/dashboard', { replace: true });        return;
       }
 
       // REGISTRATION VALIDATION
@@ -294,8 +293,7 @@ export const AuthPage: React.FC = () => {
 
       // SIGN IN AFTER REGISTRATION
       await signIn(userEmail, password);
-      window.location.href = '/dashboard';
-    } catch (err: unknown) {
+navigate('/dashboard', { replace: true });    } catch (err: unknown) {
       console.error('Authentication error:', err);
 
       const message =

@@ -5,12 +5,13 @@ import { AdminRoute } from './components/AdminRoute';
 import { AdminDashboard } from './pages/AdminDashboard';
 
 // Customer pages
-import { AuthPage } from './pages/AuthPage';
+import AuthPage from './pages/AuthPage';
 import { CustomerDashboard } from './pages/CustomerDashboard';
 export default function App() {
   return (
     <AuthProvider>
-<BrowserRouter basename="/digital-marketing-app-v2">        <Routes>
+<BrowserRouter basename="/digital-marketing-app-v2">git add src/App.tsx
+        <Routes>
           {/* Customer Routes */}
           <Route path="/" element={<AuthPage />} />
           <Route path="/dashboard" element={<CustomerDashboard />} />

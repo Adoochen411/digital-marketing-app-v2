@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-
+import { useLocation } from 'react-router-dom';
 
 interface ProductTask {
   id: number;
@@ -49,7 +49,24 @@ export const CustomerDashboard: React.FC = () => {
   const { user, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'home' | 'support' | 'grabbing' | 'records' | 'vip' | 'mine'>('mine');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+const location = useLocation();
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    const navState = location.state as { notification?: string } | null;
+
+    if (navState?.notification === 'welcome_register') {
+      setToastMsg('Welcome! New user registration completed successfully.');
+    } else if (navState?.notification === 'welcome_login') {
+      setToastMsg('Welcome back! Login successful.');
+    }
+
+    if (navState?.notification) {
+      window.history.replaceState({}, document.title);
+      const timer = setTimeout(() => setToastMsg(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [location]);
   const [userEmail, setUserEmail] = useState(user?.email || '');
   const [userPhone, setUserPhone] = useState('');
   const [myInviteCode, setMyInviteCode] = useState('');
@@ -1366,7 +1383,6 @@ const autoSlot = autoLuckyEnabled
     )
   : null;
 
-
     let customTaskData: any = null;
 
     // 3. AUTO slot trigger: find or create this customer's Auto order
@@ -1393,58 +1409,21 @@ const autoSlot = autoLuckyEnabled
       if (existingAutoOrder) {
         customTaskData = existingAutoOrder;
       } else {
-        const minAmount = Number(autoSlot.minAmount);
-        const maxAmount = Number(autoSlot.maxAmount);
-        const commissionRate = Number(autoSlot.comm);
-
-        if (
-          !Number.isFinite(minAmount) ||
-          !Number.isFinite(maxAmount) ||
-          minAmount <= 0 ||
-          maxAmount < minAmount ||
-          !Number.isFinite(commissionRate) ||
-          commissionRate < 0 ||
-          commissionRate > 100
-        ) {
-          showToast('Auto Lucky Order settings are invalid.', 'error');
-          return;
-        }
-
-        const orderAmount = Number(
-          (minAmount + Math.random() * (maxAmount - minAmount)).toFixed(2)
-        );
-
-        const orderCommission = Number(
-          (orderAmount * commissionRate / 100).toFixed(2)
-        );
-
+        // Create Auto Lucky Order through the secure database function.
         const {
           data: newAutoOrder,
           error: createAutoError,
         } = await supabase
-          .from('custom_tasks')
-          .insert({
-            user_id: user.id,
-            task_number: nextTaskNum,
-            task_amount: orderAmount,
-            min_amount: minAmount,
-            max_amount: maxAmount,
-            commission_rate: commissionRate,
-            commission: orderCommission,
-            locked_price: orderAmount,
-            locked_commission: orderCommission,
-            vip_level: activeVipLevel,
-            status: 'pending',
-            is_active: true,
-            is_lucky_order: true,
-            funding_status: 'pending',
-            order_source: 'auto',
-          })
-          .select('*')
-          .single();
+          .rpc('create_customer_auto_lucky_order', {
+            p_task_number: nextTaskNum,
+          });
 
         if (createAutoError || !newAutoOrder) {
-          console.error('Auto Lucky Order creation:', createAutoError);
+          console.error(
+            'Auto Lucky Order creation:',
+            createAutoError
+          );
+
           showToast(
             createAutoError?.message ||
               'Auto Lucky Order could not be created.',
@@ -1453,6 +1432,7 @@ const autoSlot = autoLuckyEnabled
           return;
         }
 
+        // Use the order returned by the database function.
         customTaskData = newAutoOrder;
       }
     } else {
@@ -1472,13 +1452,15 @@ const autoSlot = autoLuckyEnabled
 
       if (manualTaskError) {
         console.error('Manual Lucky Order lookup:', manualTaskError);
-        showToast('Could not load your task. Please try again.', 'error');
+        showToast(
+          'Could not load your task. Please try again.',
+          'error'
+        );
         return;
       }
 
       customTaskData = manualTaskData;
     }
-
 
     let grabbedProduct: ProductTask;
     let displayNegativeAmt = 0;
@@ -2269,8 +2251,17 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
   }
 };
   return (
+    
     <div className="min-h-screen w-full bg-[#050508] text-amber-100 pb-28 relative font-sans overflow-x-hidden">
-      
+      {/* PROFESSIONAL GREEN ALERT NOTIFICATION */}
+{toastMsg && (
+  <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-emerald-600/95 border border-emerald-400 text-white px-6 py-3.5 rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center space-x-3 backdrop-blur-md transition-all duration-500 animate-bounce">
+    <div className="w-6 h-6 rounded-full bg-emerald-900/80 border border-emerald-300 flex items-center justify-center font-bold text-emerald-200 text-xs">
+      ✓
+    </div>
+    <span className="text-xs font-bold tracking-wide">{toastMsg}</span>
+  </div>
+)}
       {/* GLOBAL HEADER LOGO */}
       <div className="pt-4 pb-2 px-4 text-center border-b border-[#d4af37]/30 bg-gradient-to-b from-[#181408] to-transparent">
         <div className="inline-flex items-center space-x-2">

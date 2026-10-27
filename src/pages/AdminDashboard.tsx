@@ -3239,7 +3239,7 @@ const handleDeleteCustomTask = async (taskId: string) => {
   };
 const handleResetUserTasks = async (customer: any) => {
   const confirmed = window.confirm(
-    `Customer #${customer.custom_id} ke 25 tasks aur Lucky Order settings reset karni hain?`
+    `Customer #${customer.custom_id} Do you want to reset all 25 tasks now?`
   );
 
   if (!confirmed) return;
@@ -3272,7 +3272,7 @@ const handleResetUserTasks = async (customer: any) => {
     setCustomTasksList([]);
 
     showToast(
-      'Tasks reset ho gaye. Manual Lucky Orders clear aur Auto Slots OFF ho gaye.'
+      'Tasks reset successfully.'
     );
   } catch (err: unknown) {
     console.error('Reset tasks and Lucky Orders failed:', err);

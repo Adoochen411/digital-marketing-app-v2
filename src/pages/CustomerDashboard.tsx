@@ -1323,10 +1323,10 @@ const handleGrabTask = async () => {
   }
 
   if (isAutoTaskLocked || (balance < 30 && completedTasks === 0)) {
-    showToast(
-      'Task grabbing is locked for new accounts. Minimum $30 recharge required to auto-unlock tasks.',
-      'error'
-    );
+  showToast(
+  'A minimum deposit of $30 is required to activate task grabbing.',
+  'error'
+);
     setShowDepositModal(true);
     return;
   }
@@ -1477,30 +1477,43 @@ const autoSlot = autoLuckyEnabled
       .eq('id', user.id)
       .single();
 
-    if (batchReadError || !batchProfile) {
-      showToast('Could not load batch progress. Please try again.', 'error');
-      return;
-    }
+   if (batchReadError || !batchProfile) {
+  console.error('Batch progress read failed:', {
+    error: batchReadError,
+    userId: user.id,
+    batchProfile,
+  });
 
-    const currentBatchNumber = Math.min(
-      6,
-      Math.max(1, Number(batchProfile.batch_number) || 1)
-    );
+  showToast(
+    batchReadError?.message ||
+      'Batch progress profile not found. Please contact support.',
+    'error'
+  );
+  return;
+}
+ const currentBatchNumber = Math.min(
+  10,
+  Math.max(1, Number(batchProfile.batch_number) || 1)
+);
 
-    let assignedBatchProducts = dbProducts.filter(
-      (product: any) =>
-        Number(product.rotation_batch) === currentBatchNumber &&
-        product.is_active !== false
-    );
+const assignedBatchProducts = dbProducts
+  .filter(
+    (product: any) =>
+      Number(product.rotation_batch) === currentBatchNumber &&
+      product.is_active !== false
+  )
+  .sort((a: any, b: any) => Number(a.id) - Number(b.id));
 
-    if (assignedBatchProducts.length === 0) {
-      assignedBatchProducts = dbProducts.filter(
-        (product: any) =>
-          Number(product.rotation_batch) >= 1 &&
-          Number(product.rotation_batch) <= 6 &&
-          product.is_active !== false
-      );
-    }
+if (assignedBatchProducts.length === 0) {
+  showToast(
+    `Batch ${currentBatchNumber} mein active products nahi hain.`,
+    'error'
+  );
+  return;
+}
+
+
+
 
     // 6. Lucky Order task
     if (customTaskData) {
@@ -1540,7 +1553,8 @@ const autoSlot = autoLuckyEnabled
       displayNegativeAmt = -Math.abs(targetLuckyAmount);
 
   
-      // Lucky Order product sirf Lucky Products gallery se select karein.
+      // Lucky Order product sirf Lucky Gallery se select karein.
+      // Database mein saved lucky_product_id ko priority dein.
       const {
         data: luckyGalleryProducts,
         error: luckyGalleryError,
@@ -1550,15 +1564,11 @@ const autoSlot = autoLuckyEnabled
           'id, name, store, price, image_url, rating, is_active, in_lucky_gallery'
         )
         .eq('in_lucky_gallery', true)
-        .eq('is_active', true)
-        .order('id', { ascending: true });
+        .eq('is_active', true);
 
       if (luckyGalleryError) {
         console.error('Lucky gallery product lookup failed:', luckyGalleryError);
-        showToast(
-          'Could not load Lucky Products. Please try again.',
-          'error'
-        );
+        showToast('Could not load Lucky Products. Please try again.', 'error');
         return;
       }
 
@@ -1570,11 +1580,51 @@ const autoSlot = autoLuckyEnabled
         return;
       }
 
-      const luckyProdIndex =
-        (nextTaskNum - 1) % luckyGalleryProducts.length;
+      // Use the product assigned to this Lucky Order by SQL.
+      let selectedLuckyProd = luckyGalleryProducts.find(
+        (product: any) =>
+          Number(product.id) === Number(customTaskData.lucky_product_id)
+      );
 
-      const selectedLuckyProd = luckyGalleryProducts[luckyProdIndex];
+      // Fallback for older tasks without a saved product ID:
+      // prefer products priced at or above the task's minimum amount.
+      if (!selectedLuckyProd) {
+        const minimumLuckyPrice = Number(
+          customTaskData.min_amount ?? targetLuckyAmount
+        );
 
+        const eligibleLuckyProducts = luckyGalleryProducts.filter(
+          (product: any) =>
+            Number(product.price) >= minimumLuckyPrice
+        );
+
+        const productPool =
+          eligibleLuckyProducts.length > 0
+            ? eligibleLuckyProducts
+            : luckyGalleryProducts;
+
+        selectedLuckyProd =
+          productPool[Math.floor(Math.random() * productPool.length)];
+
+        // Save the selected gallery product ID to this Lucky Order.
+        const { error: saveLuckyProductError } = await supabase
+          .from('custom_tasks')
+          .update({ lucky_product_id: selectedLuckyProd.id })
+          .eq('id', customTaskData.id)
+          .eq('user_id', user.id);
+
+        if (saveLuckyProductError) {
+          console.error(
+            'Could not save Lucky Gallery product ID:',
+            saveLuckyProductError
+          );
+          showToast(
+            'Could not save the Lucky Order product. Please try again.',
+            'error'
+          );
+          return;
+        }
+      }
 
       grabbedProduct = {
         id: nextTaskNum,
@@ -1584,10 +1634,10 @@ const autoSlot = autoLuckyEnabled
         price: Number(selectedLuckyProd.price) || 0,
         luckyAmount: targetLuckyAmount,
         commission: taskComm,
-        rating: Number(selectedLuckyProd.rating) || 5,      
+        rating: Number(selectedLuckyProd.rating) || 5,
         imageUrl: selectedLuckyProd.image_url,
         isLucky: true,
-        };
+      };
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -1619,21 +1669,50 @@ const autoSlot = autoLuckyEnabled
         return;
       }
 
-      const batchPosition =
-        Number(batchProfile.batch_product_position) || 0;
 
-      const uniquePoolIndex =
-        batchPosition % assignedBatchProducts.length;
 
-      const selectedOfficialProd =
-        assignedBatchProducts[uniquePoolIndex];
+const allActiveBatchProducts = dbProducts
+  .filter(
+    (product: any) =>
+      Number(product.rotation_batch) >= 1 &&
+      Number(product.rotation_batch) <= 6 &&
+      product.is_active !== false
+  )
+  .sort(
+    (a: any, b: any) =>
+      Number(a.rotation_batch) - Number(b.rotation_batch) ||
+      Number(a.id) - Number(b.id)
+  );
 
-      const itemPrice = Number(selectedOfficialProd.price);
+if (allActiveBatchProducts.length === 0) {
+  showToast('No active normal products are available.', 'error');
+  return;
+}
 
-      if (!Number.isFinite(itemPrice) || itemPrice < 0) {
-        showToast('Product price is invalid. Please contact support.', 'error');
-        return;
-      }
+
+
+const {
+  data: rotatingProducts,
+  error: rotationError,
+} = await supabase.rpc('get_next_rotating_product');
+
+if (rotationError) {
+  console.error('Shared product rotation failed:', rotationError);
+  showToast(
+    'Could not select the next product. Please try again.',
+    'error'
+  );
+  return;
+}
+
+const selectedOfficialProd = Array.isArray(rotatingProducts)
+  ? rotatingProducts[0]
+  : rotatingProducts;
+
+if (!selectedOfficialProd) {
+  showToast('No active normal products are available.', 'error');
+  return;
+}
 
       const vipLevel = String(activeVipLevel);
 
@@ -1658,7 +1737,15 @@ const autoSlot = autoLuckyEnabled
               (maxCommissionCents - minCommissionCents + 1)
           ) + minCommissionCents
         ) / 100;
+const itemPrice = Number(selectedOfficialProd.price);
 
+if (!Number.isFinite(itemPrice) || itemPrice < 0) {
+  showToast(
+    'Product price is invalid. Please contact customer support.',
+    'error'
+  );
+  return;
+}
       grabbedProduct = {
         id: nextTaskNum,
         name: selectedOfficialProd.name,
@@ -1809,29 +1896,27 @@ if (
     // Har completed normal task ke baad agla batch select hoga.
     // Batch 1 product 1 -> Batch 2 product 1 -> ... -> Batch 6 product 1
     // Batch 6 ke baad Batch 1 product 2 shuru hoga.
+const safeBatchNumber =
+  Number.isInteger(currentBatchNumber) &&
+  currentBatchNumber >= 1 &&
+  currentBatchNumber <= 6
+    ? currentBatchNumber
+    : 1;
 
-    const safeBatchNumber =
-      Number.isInteger(currentBatchNumber) &&
-      currentBatchNumber >= 1 &&
-      currentBatchNumber <= 6
-        ? currentBatchNumber
-        : 1;
+const safeBatchPosition =
+  Number.isInteger(currentBatchPosition) &&
+  currentBatchPosition >= 0 &&
+  currentBatchPosition < 25
+    ? currentBatchPosition
+    : 0;
 
-    const safeBatchPosition =
-      Number.isInteger(currentBatchPosition) &&
-      currentBatchPosition >= 0 &&
-      currentBatchPosition < 25
-        ? currentBatchPosition
-        : 0;
+const nextBatchNumber =
+  safeBatchNumber >= 6 ? 1 : safeBatchNumber + 1;
 
-    const nextBatchNumber =
-      safeBatchNumber >= 6 ? 1 : safeBatchNumber + 1;
-
-    const savedBatchPosition =
-      safeBatchNumber >= 6
-        ? (safeBatchPosition + 1) % 25
-        : safeBatchPosition;
-
+const savedBatchPosition =
+  safeBatchNumber >= 6
+    ? (safeBatchPosition + 1) % 25
+    : safeBatchPosition;
 
     const newTotalProfits = Number(
       (Number(todayCommission) + earnedCommission).toFixed(2)

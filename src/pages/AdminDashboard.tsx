@@ -924,20 +924,20 @@ useEffect(() => {
 
   const fetchAdminData = async () => {
     // 1. Customer profiles load karein.
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: true });
+   
+const { data: profiles, error: profilesError } = await supabase
+  .from('profiles')
+  .select('*')
+  .order('created_at', { ascending: false });
 
     if (profilesError) {
       console.error('Failed to load profiles:', profilesError);
     } else if (profiles) {
-      const mappedProfiles = profiles.map((p, idx) => ({
-        ...p,
-        custom_id: idx + 1,
-        auto_task_lock: p.auto_task_lock ?? true,
-      }));
-
+     const mappedProfiles = profiles.map((p) => ({
+  ...p,
+  custom_id: p.custom_id,
+  auto_task_lock: p.auto_task_lock !== false,
+}));
       // 2. Sirf saved customer-specific Auto Lucky settings read karein.
       // Global template ko yahan copy/upsert nahi karna.
       const {
@@ -961,6 +961,7 @@ useEffect(() => {
 
             return {
               ...profile,
+              auto_task_lock: profile.auto_task_lock !== false,
               auto_lucky_order_enabled:
                 existing?.auto_lucky_order_enabled ?? false,
             };
@@ -982,6 +983,7 @@ useEffect(() => {
 
             return {
               ...profile,
+              auto_task_lock: profile.auto_task_lock !== false,
               auto_lucky_order_enabled: settingsMap.has(profile.id)
                 ? settingsMap.get(profile.id)!
                 : existing?.auto_lucky_order_enabled ?? false,
@@ -1227,7 +1229,6 @@ const refreshConfiguredLuckyOrders = async (userId: string) => {
     .select('*')
     .eq('user_id', userId)
     .eq('is_lucky_order', true)
-    .eq('is_active', true)
     .order('task_number', { ascending: true });
 
   if (manualError) throw manualError;
@@ -2147,8 +2148,8 @@ useEffect(() => {
 
         if (countError) throw countError;
 
-        if ((count ?? 0) >= 25) {
-          showToast(`Batch ${batch} already has 25 products.`, 'error');
+        if ((count ?? 0) >= 100) {
+          showToast(`Batch ${batch} already has 100products.`, 'error');
           return;
         }
       }
@@ -2792,6 +2793,8 @@ const handleEditCustomTask = async (task: any) => {
     );
   }
 };
+
+
 const handleDeleteCustomTask = async (taskId: string) => {
   const selectedUserId = selectedUserForModal?.id;
 
@@ -3237,54 +3240,91 @@ const handleDeleteCustomTask = async (taskId: string) => {
       );
     }
   };
+
+  
 const handleResetUserTasks = async (customer: any) => {
-  const confirmed = window.confirm(
-    `Customer #${customer.custom_id} Do you want to reset all 25 tasks now?`
-  );
+ 
+const confirmed = window.confirm(
+  `Customer #${customer.custom_id}: Do you want to reset tasks?`
+);
 
   if (!confirmed) return;
 
   try {
-    const { error } = await supabase.rpc(
+    // 1. Reset task counters and clear Lucky Order history in the database.
+    const { data, error } = await supabase.rpc(
       'admin_reset_customer_tasks_and_lucky_orders',
       { p_user_id: customer.id }
     );
 
     if (error) throw error;
 
-    // User Management table mein task count update karein
+    if (!data?.success) {
+      throw new Error('Reset failed. Database did not confirm success.');
+    }
+
+    // 2. Turn Lucky OFF without modifying or deleting saved slot settings.
+    // Only the enabled column is updated; slots remain unchanged.
+    const { error: luckyToggleError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .update({ enabled: false })
+      .eq('user_id', customer.id);
+
+    if (luckyToggleError) {
+      throw new Error(
+        `Tasks were reset, but Lucky could not be turned OFF: ${luckyToggleError.message}`
+      );
+    }
+
+    // 3. Update the User Management table immediately.
     setCustomers((prev) =>
       prev.map((item) =>
         item.id === customer.id
-          ? { ...item, completed_tasks: 0 }
+          ? {
+              ...item,
+              completed_tasks: 0,
+              running_tasks: 0,
+              pending_task: null,
+            }
           : item
       )
     );
 
-    // Selected customer modal mein count update karein
+    // 4. Update the selected customer's modal.
     setSelectedUserForModal((prev) =>
       prev && prev.id === customer.id
-        ? { ...prev, completed_tasks: 0 }
+        ? {
+            ...prev,
+            completed_tasks: 0,
+            running_tasks: 0,
+            pending_task: null,
+            lucky_order_negative_amount: 0,
+          }
         : prev
     );
 
-    // Configured Lucky Orders ki visible list foran clear karein
+    // 5. Clear the currently displayed Lucky Order history/configured-order list.
+    // Do not clear the saved Auto Slot settings or their amounts/commissions.
     setCustomTasksList([]);
 
-    showToast(
-      'Tasks reset successfully.'
-    );
+  showToast('Tasks reset successfully.');
   } catch (err: unknown) {
-    console.error('Reset tasks and Lucky Orders failed:', err);
+    console.error('Reset tasks and Lucky Order history failed:', err);
+
+    const errorMessage =
+      typeof err === 'object' &&
+      err !== null &&
+      'message' in err
+        ? String(err.message)
+        : String(err);
 
     showToast(
-      err instanceof Error
-        ? err.message
-        : 'Reset nahi hua. Please dobara try karein.',
+      errorMessage || 'Reset failed. Please try again.',
       'error'
     );
   }
 };
+
   const handleAutoTaskLockToggle = async (
     user: CustomerProfile,
     shouldLock: boolean
@@ -4185,9 +4225,9 @@ const handlePublishLuckyOrderSlot = async () => {
 
       if (
         luckyOrderEditingId === null &&
-        luckyOrderProducts.length >= 250) {
+        luckyOrderProducts.length >= 550) {
         showToast(
-          'Maximum 250 Lucky Order products allowed.',
+          'Maximum 550 Lucky Order products allowed.',
           'error'
         );
         return;
@@ -4829,20 +4869,41 @@ const activeUserChatHistory =
                       ${Number(selectedUserForModal.balance || 0).toFixed(2)}
                     </p>
 
-                    <div className="mt-3 border-t border-slate-100 pt-2">
-                      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        Lucky Order Negative Amount
-                      </p>
-                      <p className="text-base font-black text-rose-600">
-                        {(() => {
-                          const luckyAmount = Number(
-                            (selectedUserForModal as any)
-                              .lucky_order_negative_amount ?? 0
-                          );
-                          return `-$${Math.abs(luckyAmount).toFixed(2)}`;
-                        })()}
-                      </p>
-                    </div>
+
+<div className="mt-3 border-t border-slate-100 pt-2">
+  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+    Lucky Order Negative Amount
+  </p>
+
+  <p className="text-base font-black text-rose-600">
+    {(() => {
+      const activeTask = (selectedUserForModal as any)?.pending_task;
+
+      const grabbedOrderId = activeTask?.customTaskId;
+
+      const grabbedAmount = Number(activeTask?.luckyAmount);
+
+      const isActuallyGrabbed =
+        activeTask?.isLucky === true &&
+        grabbedOrderId != null &&
+        Number.isFinite(grabbedAmount) &&
+        grabbedAmount > 0 &&
+        customTasksList.some(
+          (task: any) =>
+            !task.is_auto_slot &&
+            String(task.id) === String(grabbedOrderId) &&
+            task.is_lucky_order === true
+        );
+
+      return isActuallyGrabbed
+        ? `-$${grabbedAmount.toFixed(2)}`
+        : '—';
+    })()}
+  </p>
+</div>
+
+
+
                   </div>
 
                   <div className="rounded-xl border border-blue-200 bg-white p-3">
@@ -5196,8 +5257,9 @@ const activeUserChatHistory =
                   </button>
                 </div>
 
-                <div className="max-h-[480px] space-y-2 overflow-y-auto p-3">
-                  {customTasksList.length === 0 ? (
+<div className="max-h-[600px] space-y-1 overflow-y-auto p-2">
+  
+                    {customTasksList.length === 0 ? (
                     <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-6 text-center text-xs text-slate-500">
                       No configured Lucky Orders for this user.
                     </p>
@@ -5218,26 +5280,72 @@ const activeUserChatHistory =
                               </span>
                             </div>
 
-                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
-                              <span>
-                                Commission:{' '}
-                                <strong className="text-blue-700">
-                                  {task.commission_rate ?? 10}%
-                                </strong>
-                              </span>
-                              <span>
-                                Funding:{' '}
-                                <strong className="text-slate-700">
-                                  {(task as any).funding_status || 'not set'}
-                                </strong>
-                              </span>
-                              <span className={task.is_active ? 'font-bold text-emerald-700' : 'font-bold text-slate-500'}>
-                                {task.is_active ? 'Active' : 'Saved / queued'}
-                              </span>
-                            </div>
-                          </div>
+<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+  <span>
+    Commission:{' '}
+    <strong className="text-blue-700">
+      {task.commission_rate ?? 10}%
+    </strong>
+  </span>
 
-                       
+  <span>
+    Funding:{' '}
+    <strong className="text-slate-700">
+      {(task as any).funding_status || 'not set'}
+    </strong>
+  </span>
+
+  <span>
+    Grabbed Amount:{' '}
+    {(() => {
+      const activeTask = (selectedUserForModal as any)?.pending_task;
+      const isThisGrabbedOrder =
+        activeTask?.isLucky === true &&
+        activeTask?.customTaskId != null &&
+        String(activeTask.customTaskId) === String(task.id) &&
+        !String(task.id).startsWith('auto-slot-');
+
+      const actualAmount = Number(activeTask?.luckyAmount);
+
+      return isThisGrabbedOrder &&
+        Number.isFinite(actualAmount) &&
+        actualAmount > 0 ? (
+        <strong className="font-black text-rose-600">
+          -${actualAmount.toFixed(2)} USDT
+        </strong>
+      ) : (
+        <strong className="text-slate-400">—</strong>
+      );
+    })()}
+  </span>
+
+  <span
+    className={
+      String(task.id).startsWith('auto-slot-')
+        ? 'font-bold text-blue-700'
+        : String((task as any).status ?? '').toLowerCase() === 'completed'
+          ? 'font-bold text-emerald-700'
+          : task.is_active
+            ? 'font-bold text-emerald-700'
+            : 'font-bold text-slate-500'
+    }
+  >
+    {String(task.id).startsWith('auto-slot-')
+      ? 'Configured'
+      : String((task as any).status ?? '').toLowerCase() === 'completed'
+        ? 'Completed'
+        : (task as any).status
+          ? String((task as any).status)
+              .replace(/[_-]/g, ' ')
+              .replace(/\b\w/g, (char: string) => char.toUpperCase())
+          : task.is_active
+            ? 'Active'
+            : 'Saved / queued'}
+  </span>
+</div>
+</div>
+
+                          
 <div className="flex flex-wrap items-center gap-2">
   <button
     type="button"
@@ -6306,31 +6414,46 @@ const activeUserChatHistory =
                             </div>
                           </td>
 
-                          {/* Existing Task Lock Handler */}
-                          <td className="px-4 py-4 text-center">
-                            <div className="flex flex-col items-center gap-1.5">
-                              <label className="relative inline-flex cursor-pointer items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(c.auto_task_lock)}
-                                  onChange={(e) =>
-                                    handleAutoTaskLockToggle(c, e.target.checked)
-                                  }
-                                  className="peer sr-only"
-                                />
-                                <div className="h-6 w-11 rounded-full bg-slate-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-transform after:content-[''] peer-checked:bg-emerald-600 peer-checked:after:translate-x-5 peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-100" />
-                              </label>
+{/* Auto Tasks Toggle */}
+<td className="px-4 py-4 text-center">
+  <div className="flex flex-col items-center gap-1.5">
+    <label className="relative inline-flex cursor-pointer items-center">
+      <input
+        type="checkbox"
+        checked={Boolean(c.auto_task_lock)}
+        onChange={(e) =>
+          handleAutoTaskLockToggle(c, e.target.checked)
+        }
+        className="peer sr-only"
+      />
 
-                              <span
-                                className={`text-[10px] font-bold ${c.auto_task_lock
-                                  ? 'text-rose-600'
-                                  : 'text-emerald-600'
-                                  }`}
-                              >
-                                {c.auto_task_lock ? 'Locked' : 'Unlocked'}
-                              </span>
-                            </div>
-                          </td>
+      <div
+        className="relative h-6 w-11 rounded-full bg-slate-300
+        transition-colors
+        after:absolute after:left-[2px] after:top-[2px]
+        after:h-5 after:w-5 after:rounded-full
+        after:border after:border-slate-300 after:bg-white
+        after:shadow-sm after:transition-transform
+        after:content-['']
+        peer-checked:bg-emerald-500
+        peer-checked:after:translate-x-5
+        peer-checked:after:border-white
+        peer-focus:outline-none
+        peer-focus:ring-4 peer-focus:ring-emerald-100"
+      />
+    </label>
+
+    <span
+      className={`text-[10px] font-bold ${
+        c.auto_task_lock
+          ? 'text-emerald-600'
+          : 'text-slate-500'
+      }`}
+    >
+      {c.auto_task_lock ? 'ON' : 'OFF'}
+    </span>
+  </div>
+</td>
 
                           {/* Existing Settings Handler */}
                           <td className="whitespace-nowrap px-4 py-4 text-right">
@@ -6421,14 +6544,14 @@ const activeUserChatHistory =
                         Lucky Order Products
                       </h3>
                       <p className="mt-1 text-xs text-slate-300">
-                        Separate inventory · Manage up to 250 products
+                        Separate inventory · Manage up to 550 products
                       </p>
                     </div>
                   </div>
 
                   <div className="relative flex shrink-0 items-center gap-3">
                     <span className="rounded-full border border-violet-300/30 bg-violet-400/10 px-3 py-1.5 text-xs font-black text-violet-200">
-                      {luckyOrderProducts.length}/250
+                      {luckyOrderProducts.length}/550
                     </span>
                     <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xl text-white">
                       {luckyOrderOpen ? '−' : '+'}
@@ -6611,7 +6734,7 @@ const activeUserChatHistory =
                             disabled={
                               luckyOrderSaving ||
                               (luckyOrderEditingId === null &&
-                                luckyOrderProducts.length >= 250)
+                                luckyOrderProducts.length >= 550)
                             }
                             className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3 text-xs font-black text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -6949,8 +7072,8 @@ const activeUserChatHistory =
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     Batch Capacity
                   </p>
-                  <p className="mt-2 text-3xl font-black text-indigo-700">150</p>
-                  <p className="mt-1 text-[10px] text-slate-500">6 batches × 25 products</p>
+                  <p className="mt-2 text-3xl font-black text-indigo-700">1000</p>
+                  <p className="mt-1 text-[10px] text-slate-500">10 batches × 1000 products</p>
                 </div>
               </div>
 
@@ -6961,18 +7084,18 @@ const activeUserChatHistory =
                     📁 Product Batches
                   </h3>
                   <p className="mt-1 text-xs text-slate-500">
-                    Select a batch to view its products. Each batch allows up to 25 products.
+                    Select a batch to view its products. Each batch allows up to 100 products.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                  {[1, 2, 3, 4, 5, 6].map((batch) => {
+                  {[1, 2, 3, 4, 5, 6,7,8,9,10].map((batch) => {
                     const batchCount = productsList.filter(
                       (p) => Number(p.rotation_batch) === batch
                     ).length;
 
                     const selected = batchManagerSelectedBatch === batch;
-                    const full = batchCount >= 25;
+                    const full = batchCount >= 100;
 
                     return (
                       <button
@@ -7001,7 +7124,7 @@ const activeUserChatHistory =
                         </p>
 
                         <p className="mt-1 text-xs font-bold text-blue-700">
-                          {batchCount}/25 products
+                          {batchCount}/100 products
                         </p>
 
                         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
@@ -7009,7 +7132,7 @@ const activeUserChatHistory =
                             className={`h-full rounded-full ${full ? 'bg-amber-500' : 'bg-blue-600'
                               }`}
                             style={{
-                              width: `${Math.min(100, (batchCount / 25) * 100)}%`,
+                              width: `${Math.min(100, (batchCount / 100) * 1000)}%`,
                             }}
                           />
                         </div>
@@ -7331,9 +7454,9 @@ const activeUserChatHistory =
                                     <option
                                       key={batch}
                                       value={batch}
-                                      disabled={count >= 25}
+                                      disabled={count >= 100}
                                     >
-                                      Batch {batch} ({count}/25)
+                                      Batch {batch} ({count}/100)
                                     </option>
                                   );
                                 })}

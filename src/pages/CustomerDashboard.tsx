@@ -76,7 +76,8 @@ const [paymentMethod, setPaymentMethod] = useState<'trc20' | 'bank'>('trc20');
 const [paymentReference, setPaymentReference] = useState('');
 const [receiptFile, setReceiptFile] = useState<File | null>(null);
 const [depositStep, setDepositStep] = useState<1 | 2>(1);
-
+const [selectedSupportImageUrl, setSelectedSupportImageUrl] =
+  useState<string | null>(null);
   const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
   const emailDisplay = userEmail.includes('@appuser.local') ? `${usernameDisplay} (Active)` : userEmail;
 
@@ -2778,22 +2779,22 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
                       : 'bg-black text-gray-200 border border-[#d4af37]/50 rounded-bl-none'
                   }`}
                 >
-                  {supportImageUrls[msg.id] && (
-                    <a
-                      href={supportImageUrls[msg.id]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block mb-2"
-                    >
-                      <img
-                        src={supportImageUrls[msg.id]}
-                        alt="Chat attachment"
-                        className="max-w-full max-h-64 rounded-xl object-contain border border-[#d4af37]/40"
-                      />
-                    </a>
-                  )}
-
-                
+                {supportImageUrls[msg.id] && (
+  <button
+    type="button"
+    onClick={() =>
+      setSelectedSupportImageUrl(supportImageUrls[msg.id])
+    }
+    className="block mb-2 cursor-zoom-in"
+    aria-label="Open image in chat gallery"
+  >
+    <img
+      src={supportImageUrls[msg.id]}
+      alt="Chat attachment"
+      className="max-w-full max-h-64 rounded-xl object-contain border border-[#d4af37]/40"
+    />
+  </button>
+)}
 {msg.message && msg.message !== '📷 Image attachment' && (
   <p className="leading-snug text-xs whitespace-pre-wrap break-words">
     {msg.message}
@@ -2845,7 +2846,33 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
             </p>
           </div>
         )}
+{/* CUSTOMER CHAT IMAGE GALLERY */}
+{selectedSupportImageUrl && (
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4"
+    onClick={() => setSelectedSupportImageUrl(null)}
+    role="dialog"
+    aria-modal="true"
+    aria-label="Chat image gallery"
+  >
+    <button
+      type="button"
+      onClick={() => setSelectedSupportImageUrl(null)}
+      className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[#d4af37]/60 bg-black text-3xl text-[#f3e5ab] hover:bg-[#d4af37]/20"
+      aria-label="Close image gallery"
+      title="Close"
+    >
+      ×
+    </button>
 
+    <img
+      src={selectedSupportImageUrl}
+      alt="Full-size chat attachment"
+      onClick={(event) => event.stopPropagation()}
+      className="max-h-[90vh] max-w-[95vw] rounded-xl border border-[#d4af37]/50 object-contain shadow-2xl"
+    />
+  </div>
+)}
         {/* MESSAGE INPUT + GALLERY */}
         <form
           onSubmit={handleSendSupportMessage}

@@ -420,64 +420,6 @@ const [isFullPageTaskSettings, setIsFullPageTaskSettings] = useState(() => {
   }
 });
 
-useEffect(() => {
-  try {
-    sessionStorage.setItem(
-      'admin_full_page_task_settings',
-      String(isFullPageTaskSettings)
-    );
-  } catch {
-    // Storage unavailable ho to dashboard normal chale.
-  }
-}, [isFullPageTaskSettings]);
-
-useEffect(() => {
-  const handleEscapeKey = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return;
-
-    if (isFullPageTaskSettings) {
-      setIsFullPageTaskSettings(false);
-      return;
-    }
-
-    if (modalType !== null || selectedUserForModal !== null) {
-      setModalType(null);
-      setSelectedUserForModal(null);
-      return;
-    }
-
-    if (luckyOrderOpen) {
-      setLuckyOrderOpen(false);
-      return;
-    }
-
-    if (selectedSubAdminForModal !== null) {
-      setSelectedSubAdminForModal(null);
-      return;
-    }
-
-    if (showNotificationsDropdown) {
-      setShowNotificationsDropdown(false);
-    }
-
-    // Browser ko Back nahi karna; website ke bahar nahi jana.
-  };
-
-  window.addEventListener('keydown', handleEscapeKey);
-
-  return () => {
-    window.removeEventListener('keydown', handleEscapeKey);
-  };
-}, [
-  isFullPageTaskSettings,
-  modalType,
-  selectedUserForModal,
-  luckyOrderOpen,
-  selectedSubAdminForModal,
-  showNotificationsDropdown,
-]);
-
-  
   const [fundInput, setFundInput] = useState('');
 
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -759,8 +701,74 @@ const handleSendAdminAttachment = async (
   }
 };
 
+useEffect(() => {
+  const handleEscapeKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
 
+    // 1. Attachment preview sab se pehle band ho.
+    if (previewAttachment) {
+      setPreviewAttachment(null);
+      return;
+    }
 
+    // 2. Live Support mein selected chat band ho.
+    if (
+      activeTab === 'support' &&
+      !isFullPageTaskSettings &&
+      activeChatUserId
+    ) {
+      setActiveChatUserId('');
+      setSupportLabelEditorOpen(false);
+      return;
+    }
+
+    // 3. Baqi dashboard panels ka existing behavior.
+    if (isFullPageTaskSettings) {
+      setIsFullPageTaskSettings(false);
+      return;
+    }
+
+    if (modalType !== null || selectedUserForModal !== null) {
+      setModalType(null);
+      setSelectedUserForModal(null);
+      return;
+    }
+
+    if (luckyOrderOpen) {
+      setLuckyOrderOpen(false);
+      return;
+    }
+
+    if (selectedSubAdminForModal !== null) {
+      setSelectedSubAdminForModal(null);
+      return;
+    }
+
+    if (showNotificationsDropdown) {
+      setShowNotificationsDropdown(false);
+    }
+
+    // Browser Back nahi hoga.
+  };
+
+  window.addEventListener('keydown', handleEscapeKey);
+
+  return () => {
+    window.removeEventListener('keydown', handleEscapeKey);
+  };
+}, [
+  previewAttachment,
+  activeTab,
+  activeChatUserId,
+  isFullPageTaskSettings,
+  modalType,
+  selectedUserForModal,
+  luckyOrderOpen,
+  selectedSubAdminForModal,
+  showNotificationsDropdown,
+]);
+
+  
 useEffect(() => {
   let cancelled = false;
 
@@ -929,251 +937,220 @@ useEffect(() => {
     }
   };
 
-  const fetchAdminData = async () => {
-    // 1. Customer profiles load karein.
-   
-const { data: profiles, error: profilesError } = await supabase
-  .from('profiles')
-  .select('*')
-  .order('created_at', { ascending: false });
+const fetchAdminData = async () => {
+  const runBackgroundTask = async (
+    name: string,
+    task: () => Promise<void>
+  ) => {
+    try {
+      await task();
+    } catch (error) {
+      console.error(`${name} load failed:`, error);
+    }
+  };
 
-    if (profilesError) {
-      console.error('Failed to load profiles:', profilesError);
-    } else if (profiles) {
-     const mappedProfiles = profiles.map((p) => ({
-  ...p,
-  custom_id: p.custom_id,
-  auto_task_lock: p.auto_task_lock !== false,
-}));
-      // 2. Sirf saved customer-specific Auto Lucky settings read karein.
-      // Global template ko yahan copy/upsert nahi karna.
-      const {
-        data: luckySettings,
-        error: luckySettingsError,
-      } = await supabase
+  const tasks: Promise<void>[] = [];
+
+  // 1. Customers: list ko baqi requests se independent load karein.
+  tasks.push(
+    runBackgroundTask('Customers', async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (!data) return;
+
+      setCustomers((previous) =>
+        data.map((profile) => {
+          const existing = previous.find(
+            (customer) => customer.id === profile.id
+          );
+
+          return {
+            ...profile,
+            auto_task_lock: profile.auto_task_lock !== false,
+            auto_lucky_order_enabled:
+              existing?.auto_lucky_order_enabled ?? false,
+          };
+        })
+      );
+    })
+  );
+
+  // 2. Auto Lucky settings: customers aane ka wait nahi karein.
+  tasks.push(
+    runBackgroundTask('Auto Lucky settings', async () => {
+      const { data, error } = await supabase
         .from('customer_auto_lucky_order_settings')
         .select('user_id, enabled');
 
-      if (luckySettingsError) {
-        console.error(
-          'Auto Lucky Order settings load failed:',
-          luckySettingsError
-        );
+      if (error) throw error;
+      if (!data) return;
 
-        setCustomers((prev) =>
-          mappedProfiles.map((profile) => {
-            const existing = prev.find(
-              (item) => item.id === profile.id
-            );
+      const settingsMap = new Map<string, boolean>(
+        data.map((setting) => [
+          setting.user_id,
+          setting.enabled === true,
+        ])
+      );
 
-            return {
-              ...profile,
-              auto_task_lock: profile.auto_task_lock !== false,
-              auto_lucky_order_enabled:
-                existing?.auto_lucky_order_enabled ?? false,
-            };
-          })
-        );
-      } else {
-        const settingsMap = new Map<string, boolean>(
-          (luckySettings ?? []).map((setting) => [
-            setting.user_id,
-            setting.enabled === true,
-          ])
-        );
+      setCustomers((previous) =>
+        previous.map((customer) => ({
+          ...customer,
+          auto_lucky_order_enabled: settingsMap.has(customer.id)
+            ? settingsMap.get(customer.id)!
+            : customer.auto_lucky_order_enabled ?? false,
+        }))
+      );
+    })
+  );
 
-        setCustomers((prev) =>
-          mappedProfiles.map((profile) => {
-            const existing = prev.find(
-              (item) => item.id === profile.id
-            );
+  // 3. Deposits: apni request complete hote hi UI update.
+  tasks.push(
+    runBackgroundTask('Deposits', async () => {
+      const { data, error } = await supabase
+        .from('deposits')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-            return {
-              ...profile,
-              auto_task_lock: profile.auto_task_lock !== false,
-              auto_lucky_order_enabled: settingsMap.has(profile.id)
-                ? settingsMap.get(profile.id)!
-                : existing?.auto_lucky_order_enabled ?? false,
-            };
-          })
-        );
-      }
-    }
+      if (error) throw error;
+      if (data) setDeposits(data);
+    })
+  );
 
-    // 3. Deposits.
-    const { data: depList, error: depositsError } = await supabase
-      .from('deposits')
-      .select('*')
-      .order('created_at', { ascending: false });
+  // 4. Withdrawals.
+  tasks.push(
+    runBackgroundTask('Withdrawals', async () => {
+      const { data, error } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (depositsError) {
-      console.error('Failed to load deposits:', depositsError);
-    } else if (depList) {
-      setDeposits(depList);
-    }
+      if (error) throw error;
+      if (data) setWithdrawals(data);
+    })
+  );
 
-    // 4. Withdrawals.
-    const { data: witList, error: withdrawalsError } = await supabase
-      .from('withdrawals')
-      .select('*')
-      .order('created_at', { ascending: false });
+  // 5. Products.
+  tasks.push(
+    runBackgroundTask('Products', async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (withdrawalsError) {
-      console.error('Failed to load withdrawals:', withdrawalsError);
-    } else if (witList) {
-      setWithdrawals(witList);
-    }
+      if (error) throw error;
+      if (data) setProductsList(data);
+    })
+  );
 
-    // 5. Products.
-    const { data: prodList, error: productsError } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
+  // 6. Sub-admins: sirf main admin.
+  if (isMainAdmin) {
+    tasks.push(
+      runBackgroundTask('Sub-admins', async () => {
+        const { data, error } = await supabase
+          .from('sub_admins')
+          .select(
+            'id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at'
+          );
 
-    if (productsError) {
-      console.error('Failed to load products:', productsError);
-    } else if (prodList) {
-      setProductsList(prodList);
-    }
+        if (error) throw error;
+        if (data) setSubAdmins(data);
+      })
+    );
 
-    // 6. Sub-admins.
-    if (isMainAdmin) {
-      const { data: subList, error: subListError } = await supabase
-        .from('sub_admins')
-        .select(
-          'id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at'
-        );
-
-      if (subListError) {
-        console.error('Failed to load Sub-Admins:', subListError.message);
-      } else if (subList) {
-        setSubAdmins(subList);
-      }
-    }
-
-    // 7. Admin notifications.
-    const { data: notifList, error: notifError } = await supabase
-      .from('admin_notifications')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (notifError) {
-      console.error('Failed to load admin notifications:', notifError);
-    } else if (notifList) {
-      setNotifications(notifList);
-    }
-
-    // 8. Credential requests.
-    if (isMainAdmin) {
-      setCredentialRequestsLoading(true);
-
-      try {
+    // 7. Credential requests: background mein.
+    tasks.push(
+      runBackgroundTask('Credential requests', async () => {
         const { data, error } = await supabase.functions.invoke(
           'sub-admin-credential-requests',
-          {
-            body: { action: 'list_requests' },
-          }
+          { body: { action: 'list_requests' } }
         );
 
         if (error) throw error;
 
-        if (data?.success) {
-          setCredentialRequests(
-            Array.isArray(data.requests) ? data.requests : []
+        if (!data?.success) {
+          throw new Error(
+            data?.message || 'Could not load credential requests.'
           );
-        } else {
-          console.error('Credential requests error:', data?.message);
         }
-      } catch (error) {
-        console.error('Credential requests load failed:', error);
-      } finally {
-        setCredentialRequestsLoading(false);
-      }
-    }
 
-    // 9. System settings.
-    const {
-      data: settingsData,
-      error: settingsError,
-    } = await supabase
-      .from('system_settings')
-      .select(
-        'id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url'
-      )
-      .eq('id', 1)
-      .maybeSingle();
+        setCredentialRequests(
+          Array.isArray(data.requests) ? data.requests : []
+        );
+      })
+    );
+  }
 
-    if (settingsError) {
-      console.error('Failed to load system settings:', settingsError);
-    } else if (settingsData) {
-      setDepositTrc20(settingsData.deposit_trc20_address ?? '');
-      setMainInviteCode(settingsData.main_invite_code ?? '');
-      setQrCodeUrl(settingsData.qr_code_url ?? '');
+  // 8. Notifications.
+  tasks.push(
+    runBackgroundTask('Admin notifications', async () => {
+      const { data, error } = await supabase
+        .from('admin_notifications')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      if (settingsData.deposit_trc20_address) {
+      if (error) throw error;
+      if (data) setNotifications(data);
+    })
+  );
+
+  // 9. System settings.
+  tasks.push(
+    runBackgroundTask('System settings', async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select(
+          'id, deposit_trc20_address, main_invite_code, qr_code_url, telegram_url, whatsapp_url'
+        )
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return;
+
+      setDepositTrc20(data.deposit_trc20_address ?? '');
+      setMainInviteCode(data.main_invite_code ?? '');
+      setQrCodeUrl(data.qr_code_url ?? '');
+
+      if (data.deposit_trc20_address) {
         localStorage.setItem(
           'global_trc20',
-          settingsData.deposit_trc20_address
+          data.deposit_trc20_address
         );
       } else {
         localStorage.removeItem('global_trc20');
       }
 
-      if (settingsData.main_invite_code) {
+      if (data.main_invite_code) {
         localStorage.setItem(
           'global_invite',
-          settingsData.main_invite_code
+          data.main_invite_code
         );
       } else {
         localStorage.removeItem('global_invite');
       }
 
-      if (settingsData.telegram_url !== null) {
+      if (data.telegram_url !== null) {
         setTelegramUrl((current) =>
-          current === '' ? (settingsData.telegram_url ?? '') : current
+          current === '' ? (data.telegram_url ?? '') : current
         );
       }
 
-      if (settingsData.whatsapp_url !== null) {
+      if (data.whatsapp_url !== null) {
         setWhatsappUrl((current) =>
-          current === '' ? (settingsData.whatsapp_url ?? '') : current
+          current === '' ? (data.whatsapp_url ?? '') : current
         );
       }
-    }
+    })
+  );
 
-    // 10. Chat messages.
-    const { data: allChats, error: chatsError } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (chatsError) {
-      console.error('Failed to load chat messages:', chatsError);
-    } else if (allChats) {
-      setChatMessages(allChats);
-
-      const uniqueUserIds = Array.from(
-        new Set(
-          allChats
-            .map((c) =>
-              c.sender_id === 'admin' ? c.receiver_id : c.sender_id
-            )
-            .filter((id) => id && id !== 'admin')
-        )
-      );
-
-      setChatUsers(uniqueUserIds);
-
-      if (uniqueUserIds.length > 0) {
-        setActiveChatUserId((currentId) =>
-          currentId && uniqueUserIds.includes(currentId)
-            ? currentId
-            : uniqueUserIds[0]
-        );
-      }
-    }
-  };
-
+  // Har section apna UI update kar sakta hai;
+  // kisi ek request ki failure doosri requests ko nahi rokti.
+  await Promise.allSettled(tasks);
+};
 
   useEffect(() => {
     const loadAutoSlots = async () => {
@@ -1402,21 +1379,32 @@ useEffect(() => {
   let disposed = false;
   let chatRefreshInProgress = false;
   let adminRefreshInProgress = false;
-
+  let adminRefreshQueued = false;
   const refreshAdminData = async () => {
-    if (disposed || adminRefreshInProgress) return;
+  if (disposed) return;
 
-    adminRefreshInProgress = true;
+  // Agar refresh pehle se chal raha hai, next refresh queue karein.
+  if (adminRefreshInProgress) {
+    adminRefreshQueued = true;
+    return;
+  }
 
-    try {
-      await checkAdminRoleAndFetchData();
-    } catch (err) {
-      console.error('Admin live data refresh failed:', err);
-    } finally {
-      adminRefreshInProgress = false;
+  adminRefreshInProgress = true;
+
+  try {
+    await checkAdminRoleAndFetchData();
+  } catch (err) {
+    console.error('Admin live data refresh failed:', err);
+  } finally {
+    adminRefreshInProgress = false;
+
+    // Refresh ke dauran koi naya event aaya tha to dobara refresh karein.
+    if (!disposed && adminRefreshQueued) {
+      adminRefreshQueued = false;
+      void refreshAdminData();
     }
-  };
-
+  }
+};
   
   const refreshAdminChat = async () => {
     if (disposed || chatRefreshInProgress) return;
@@ -1468,13 +1456,14 @@ useEffect(() => {
 
       setChatUsers(uniqueUserIds);
 
-      setActiveChatUserId((currentId) => {
-        if (currentId && uniqueUserIds.includes(currentId)) {
-          return currentId;
-        }
+    setActiveChatUserId((currentId) => {
+  if (currentId && uniqueUserIds.includes(currentId)) {
+    return currentId;
+  }
 
-        return uniqueUserIds[0] || '';
-      });
+  // Koi chat automatically select nahi hogi.
+  return '';
+});
     } catch (err) {
       console.error('Admin chat refresh failed:', err);
     } finally {
@@ -2387,11 +2376,17 @@ const handleAssignProductBatch = async (
       );
     }
   };
-
 const handleOpenFullPageTaskSettings = async (
   user: CustomerProfile
 ) => {
-  // Refresh ke baad isi customer ki settings dobara kholne ke liye
+  // Customer ko foran select karein.
+  setSelectedUserForModal(user);
+  setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
+
+  // Page ko database requests se pehle open karein.
+  setIsFullPageTaskSettings(true);
+
+  // Refresh ke baad isi customer ki settings restore ho sakein.
   try {
     sessionStorage.setItem(
       'admin_full_page_task_user_id',
@@ -2406,32 +2401,32 @@ const handleOpenFullPageTaskSettings = async (
     // Storage unavailable ho to dashboard normal chale.
   }
 
-  setSelectedUserForModal(user);
-  setEditVipLevel(user.vip_level || 'VIP 0 - Regular');
-
   try {
-    await fetchUserCustomTasks(user.id);
+    // Manual tasks aur Auto Slots ki requests parallel mein shuru karein.
+    const [_, autoResult] = await Promise.all([
+      fetchUserCustomTasks(user.id),
+      supabase
+        .from('customer_auto_lucky_order_settings')
+        .select('user_id, enabled, slots')
+        .eq('user_id', user.id)
+        .maybeSingle(),
+    ]);
 
-    // Customer ki Auto Slots database se load karein.
-    const { data: autoSettings, error: autoError } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .select('user_id, enabled, slots')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data: autoSettings, error: autoError } = autoResult;
 
     if (autoError) throw autoError;
 
+    const defaults = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      active: false,
+      taskNum: '',
+      minAmount: '',
+      maxAmount: '',
+      comm: '',
+    }));
+
     if (autoSettings) {
       setAutoSlotsEnabled(autoSettings.enabled === true);
-
-      const defaults = Array.from({ length: 7 }, (_, index) => ({
-        id: index + 1,
-        active: false,
-        taskNum: '',
-        minAmount: '',
-        maxAmount: '',
-        comm: '',
-      }));
 
       const savedSlots = Array.isArray(autoSettings.slots)
         ? autoSettings.slots
@@ -2457,23 +2452,11 @@ const handleOpenFullPageTaskSettings = async (
       );
     } else {
       setAutoSlotsEnabled(false);
-      setAutoSlots(
-        Array.from({ length: 7 }, (_, index) => ({
-          id: index + 1,
-          active: false,
-          taskNum: '',
-          minAmount: '',
-          maxAmount: '',
-          comm: '',
-        }))
-      );
+      setAutoSlots(defaults);
     }
 
-    // Manual aur configured Lucky Orders ki existing loading.
+    // Existing configured Lucky Orders refresh preserve karein.
     await refreshConfiguredLuckyOrders(user.id);
-
-    // Wohi full-page settings screen khuli rakhein.
-    setIsFullPageTaskSettings(true);
   } catch (err: any) {
     showToast(
       err?.message || 'Could not load Lucky Orders.',
@@ -3184,55 +3167,97 @@ const handleDeleteCustomTask = async (taskId: string) => {
       : date.toLocaleString();
   };
 
+const handleManualTaskLockToggle = async (
+  customer: CustomerProfile,
+  locked: boolean
+) => {
+  const previousValue = customer.manual_task_lock === true;
 
-  const handleManualTaskLockToggle = async (
-    customer: any,
-    locked: boolean
-  ) => {
+  // UI foran ON/OFF
+  setCustomers((prev) =>
+    prev.map((item) =>
+      item.id === customer.id
+        ? { ...item, manual_task_lock: locked }
+        : item
+    )
+  );
+
+  setSelectedUserForModal((prev) =>
+    prev && prev.id === customer.id
+      ? { ...prev, manual_task_lock: locked }
+      : prev
+  );
+
+  try {
     const { error } = await supabase
       .from('profiles')
       .update({ manual_task_lock: locked })
       .eq('id', customer.id);
 
-    if (error) {
-      console.error('Manual task lock update failed:', error);
-      alert('Manual Tasks setting save nahi hui. Please try again.');
-      return;
-    }
+    if (error) throw error;
 
-    // Existing customer list ko refresh karne ke liye
+    showToast(
+      locked
+        ? 'Customer manual tasks locked.'
+        : 'Customer manual tasks unlocked.'
+    );
+  } catch (err: unknown) {
+    // Database save fail ho to rollback
+    setCustomers((prev) =>
+      prev.map((item) =>
+        item.id === customer.id
+          ? { ...item, manual_task_lock: previousValue }
+          : item
+      )
+    );
 
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? { ...prev, manual_task_lock: previousValue }
+        : prev
+    );
 
-  };
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Manual Tasks setting save nahi hui.',
+      'error'
+    );
+  }
+};
 
 const handleAutoLuckyOrderToggle = async (
   customer: CustomerProfile,
   enabled: boolean
 ) => {
+  const subAdminId = customer.sub_admin_id;
+
+  if (!subAdminId) {
+    showToast(
+      'Yeh customer kisi Sub-admin ke saath linked nahi hai.',
+      'error'
+    );
+    return;
+  }
+
+  const previousValue =
+    customer.auto_lucky_order_enabled === true;
+
+  let optimisticUpdateApplied = false;
+
   try {
-    // 1. Sirf Sub-admin ke customers allow karein.
-    // Main Admin ke customers ko touch nahi karna.
-    const subAdminId = (customer as any).sub_admin_id;
-
-    if (!subAdminId) {
-      showToast(
-        'Yeh customer kisi Sub-admin ke saath linked nahi hai.',
-        'error'
-      );
-      return;
-    }
-
-    // 2. Database se customer ki Sub-admin ownership verify karein.
+    // 1. Customer ki ownership verify karein.
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id, role, sub_admin_id')
       .eq('id', customer.id)
       .eq('role', 'user')
+      .eq('sub_admin_id', subAdminId)
       .maybeSingle();
 
     if (profileError) throw profileError;
 
-    if (!profile || profile.sub_admin_id !== subAdminId) {
+    if (!profile) {
       showToast(
         'Customer Sub-admin verification failed.',
         'error'
@@ -3240,11 +3265,11 @@ const handleAutoLuckyOrderToggle = async (
       return;
     }
 
-    // 3. Sub-admin ki Lucky Auto Slots permission check karein.
+    // 2. Sub-admin ki permission verify karein.
     const { data: subAdmin, error: subAdminError } = await supabase
       .from('sub_admins')
       .select('permissions')
-      .eq('id', profile.sub_admin_id)
+      .eq('id', subAdminId)
       .maybeSingle();
 
     if (subAdminError) throw subAdminError;
@@ -3261,66 +3286,25 @@ const handleAutoLuckyOrderToggle = async (
       return;
     }
 
-    // 4. Existing customer settings check karein.
-    const { data: existingSettings, error: readError } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .select('user_id')
-      .eq('user_id', customer.id)
-      .maybeSingle();
+    // 3. Existing customer setting read karein.
+    const { data: existingSettings, error: readError } =
+      await supabase
+        .from('customer_auto_lucky_order_settings')
+        .select('user_id, enabled')
+        .eq('user_id', customer.id)
+        .maybeSingle();
 
     if (readError) throw readError;
 
-    // 5. Settings missing hon to global slots ki copy initialize karein.
     if (!existingSettings) {
-      const { data: globalSettings, error: globalError } = await supabase
-        .from('auto_lucky_order_settings')
-        .select('slots')
-        .eq('id', 1)
-        .single();
-
-      if (globalError) throw globalError;
-
-      const { error: insertError } = await supabase
-        .from('customer_auto_lucky_order_settings')
-        .upsert(
-          {
-            user_id: customer.id,
-            enabled: false,
-            slots: globalSettings.slots ?? [],
-          },
-          {
-            onConflict: 'user_id',
-            ignoreDuplicates: true,
-          }
-        );
-
-      if (insertError) throw insertError;
-    }
-
-    // 6. Sirf isi Sub-admin customer ki enabled value update karein.
-    const { error: updateError } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .update({ enabled })
-      .eq('user_id', customer.id);
-
-    if (updateError) throw updateError;
-
-    // 7. Database se actual saved value verify karein.
-    const { data: verified, error: verifyError } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .select('enabled')
-      .eq('user_id', customer.id)
-      .maybeSingle();
-
-    if (verifyError) throw verifyError;
-
-    if (!verified || verified.enabled !== enabled) {
-      throw new Error(
-        'Setting save nahi hui. Supabase RLS policy ya database permissions check karein.'
+      showToast(
+        'Customer ki Lucky Auto Slots setting maujood nahi. Pehle setting initialize karein.',
+        'error'
       );
+      return;
     }
 
-    // 8. UI update karein.
+    // 4. Sirf UI update karein; slots ko touch nahi karein.
     setCustomers((prev) =>
       prev.map((item) =>
         item.id === customer.id
@@ -3335,13 +3319,62 @@ const handleAutoLuckyOrderToggle = async (
         : prev
     );
 
+    optimisticUpdateApplied = true;
+
+    // 5. Sirf isi customer ki enabled value update karein.
+    // slots, global settings aur doosre customers unchanged rahenge.
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .update({ enabled })
+      .eq('user_id', customer.id)
+      .select('user_id, enabled');
+
+    if (updateError) throw updateError;
+
+    if (
+      !updatedRows ||
+      updatedRows.length !== 1 ||
+      updatedRows[0].user_id !== customer.id ||
+      updatedRows[0].enabled !== enabled
+    ) {
+      throw new Error(
+        'Setting save verify nahi hui. Supabase RLS policy ya database permissions check karein.'
+      );
+    }
+
     showToast(
       enabled
         ? 'Sub-admin customer Lucky Auto Slots enabled.'
         : 'Sub-admin customer Lucky Auto Slots disabled.'
     );
   } catch (err: unknown) {
-    console.error('Sub-admin Auto Lucky Order update failed:', err);
+    console.error(
+      'Sub-admin Auto Lucky Order update failed:',
+      err
+    );
+
+    // Save fail ho to UI purani value par wapas.
+    if (optimisticUpdateApplied) {
+      setCustomers((prev) =>
+        prev.map((item) =>
+          item.id === customer.id
+            ? {
+                ...item,
+                auto_lucky_order_enabled: previousValue,
+              }
+            : item
+        )
+      );
+
+      setSelectedUserForModal((prev) =>
+        prev && prev.id === customer.id
+          ? {
+              ...prev,
+              auto_lucky_order_enabled: previousValue,
+            }
+          : prev
+      );
+    }
 
     showToast(
       err instanceof Error
@@ -3434,47 +3467,64 @@ const confirmed = window.confirm(
     );
   }
 };
+const handleAutoTaskLockToggle = async (
+  user: CustomerProfile,
+  shouldLock: boolean
+) => {
+  const previousValue = user.auto_task_lock !== false;
 
-  const handleAutoTaskLockToggle = async (
-    user: CustomerProfile,
-    shouldLock: boolean
-  ) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ auto_task_lock: shouldLock })
-        .eq('id', user.id);
+  // UI foran update — database ka wait nahi
+  setCustomers((prev) =>
+    prev.map((customer) =>
+      customer.id === user.id
+        ? { ...customer, auto_task_lock: shouldLock }
+        : customer
+    )
+  );
 
-      if (error) throw error;
+  setSelectedUserForModal((prev) =>
+    prev && prev.id === user.id
+      ? { ...prev, auto_task_lock: shouldLock }
+      : prev
+  );
 
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === user.id
-            ? { ...customer, auto_task_lock: shouldLock }
-            : customer
-        )
-      );
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ auto_task_lock: shouldLock })
+      .eq('id', user.id);
 
-      setSelectedUserForModal((prev) =>
-        prev && prev.id === user.id
-          ? { ...prev, auto_task_lock: shouldLock }
-          : prev
-      );
+    if (error) throw error;
 
-      showToast(
-        shouldLock
-          ? 'Customer auto tasks locked.'
-          : 'Customer auto tasks unlocked.'
-      );
-    } catch (err: unknown) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : 'Could not update auto task lock.',
-        'error'
-      );
-    }
-  };
+    showToast(
+      shouldLock
+        ? 'Customer auto tasks locked.'
+        : 'Customer auto tasks unlocked.'
+    );
+  } catch (err: unknown) {
+    // Save fail ho to purani value restore
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === user.id
+          ? { ...customer, auto_task_lock: previousValue }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === user.id
+        ? { ...prev, auto_task_lock: previousValue }
+        : prev
+    );
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Could not update auto task lock.',
+      'error'
+    );
+  }
+};
 
   const handleClearLuckyOrderConfig = async () => {
     if (!selectedUserForModal) {
@@ -4696,6 +4746,9 @@ const handlePublishLuckyOrderSlot = async () => {
         (p.store || '').toLowerCase().includes(q)
       );
     });
+
+
+
 // Live Support: Main Admin sees all customers.
 // Sub-admin sees only customers assigned to their invite code.
 const isSupportCustomerAllowed = (userId: string): boolean => {
@@ -4739,8 +4792,9 @@ const supportVisibleChatUsers = filteredChatUsers.filter((userId) => {
     String(label?.name ?? '').toLowerCase().includes(search) ||
     String(label?.payment ?? '').toLowerCase().includes(search)
   );
-});const handleSelectChatUser = async (userId: string) => {
-  // Do not open an unauthorized customer's conversation.
+});
+
+const handleSelectChatUser = async (userId: string) => {
   if (!isSupportCustomerAllowed(userId)) {
     showToast(
       'You do not have permission to access this conversation.',
@@ -4749,7 +4803,9 @@ const supportVisibleChatUsers = filteredChatUsers.filter((userId) => {
     return;
   }
 
+  // Sirf sidebar click par chat open hogi.
   setActiveChatUserId(userId);
+  setSupportLabelEditorOpen(false);
 
   const { error } = await supabase
     .from('chat_messages')
@@ -4785,113 +4841,181 @@ const activeUserChatHistory =
     : [];
     
   return (
-      <div className="min-h-screen bg-[#f1f3f9] text-slate-800 flex font-sans">
 
-        {/* SIDEBAR NAVIGATION */}
-        <div className="w-64 bg-[#1e3a8a] text-white flex flex-col justify-between p-4 shadow-2xl">
-          <div className="space-y-6">
-            <div className="text-xl font-black tracking-wider text-cyan-300 border-b border-blue-800 pb-3 flex items-center gap-2">
-              <span>⚙️</span> {isMainAdmin ? 'Admin Portal' : 'Sub-Admin Portal'}
-            </div>
+<div className="min-h-screen bg-[#f1f3f9] text-slate-800 flex font-sans">
 
-            <nav className="space-y-1.5 text-xs font-bold">
-              {(isMainAdmin || subAdminPermissions.users) && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('users'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'users' && !isFullPageTaskSettings ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>👥</span><span>Users</span>
-                </button>
-              )}
+  {/* SIDEBAR NAVIGATION */}
+  <div className="w-64 bg-[#1e3a8a] text-white flex flex-col justify-between p-4 shadow-2xl">
+    <div className="space-y-6">
+      <div className="text-xl font-black tracking-wider text-cyan-300 border-b border-blue-800 pb-3 flex items-center gap-2">
+        <span>⚙️</span>
+        {isMainAdmin ? 'Admin Portal' : 'Sub-Admin Portal'}
+      </div>
 
-              {(isMainAdmin || subAdminPermissions.deposits) && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('deposits'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'deposits' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>📥</span><span>Deposit Records</span>
-                </button>
-              )}
+      <nav className="space-y-1.5 text-xs font-bold">
+        {(isMainAdmin || subAdminPermissions.users) && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('users');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'users' && !isFullPageTaskSettings
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>👥</span>
+            <span>Users</span>
+          </button>
+        )}
 
-              {(isMainAdmin || subAdminPermissions.withdrawals) && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('withdrawals'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>📤</span><span>Withdrawal Requests</span>
-                </button>
-              )}
+        {(isMainAdmin || subAdminPermissions.deposits) && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('deposits');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'deposits'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>📥</span>
+            <span>Deposit Records</span>
+          </button>
+        )}
 
-              {(isMainAdmin || subAdminPermissions.tasks) && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('tasks'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'tasks' || isFullPageTaskSettings ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>⚡</span><span>Task Management</span>
-                </button>
-              )}
+        {(isMainAdmin || subAdminPermissions.withdrawals) && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('withdrawals');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'withdrawals'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>📤</span>
+            <span>Withdrawal Requests</span>
+          </button>
+        )}
 
-              {isMainAdmin && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('products'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'products' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>🛍️</span><span>Products Management</span>
-                </button>
-              )}
+        {(isMainAdmin || subAdminPermissions.tasks) && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('tasks');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'tasks' || isFullPageTaskSettings
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>⚡</span>
+            <span>Task Management</span>
+          </button>
+        )}
 
-              {(isMainAdmin || subAdminPermissions.support) && (
-                <button
-                  onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('support'); }}
-                  className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'support' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-                >
-                  <span>🎧</span><span>Live Support & Chat</span>
-                </button>
-              )}
+        {isMainAdmin && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('products');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'products'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>🛍️</span>
+            <span>Products Management</span>
+          </button>
+        )}
 
-              <button
-                onClick={() => { setIsFullPageTaskSettings(false); setActiveTab('settings'); }}
-                className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-200 hover:bg-blue-800'}`}
-              >
-                <span>🛠️</span><span>Settings</span>
-              </button>
+        {(isMainAdmin || subAdminPermissions.support) && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('support');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'support'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>🎧</span>
+            <span>Live Support & Chat</span>
+          </button>
+        )}
 
-            
-{isMainAdmin && (
-  <button
-    onClick={() => {
-      setIsFullPageTaskSettings(false);
-      setActiveTab('delete_users');
-    }}
-    className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
-      activeTab === 'delete_users'
-        ? 'bg-blue-600 text-white shadow-lg'
-        : 'text-blue-200 hover:bg-blue-800'
-    }`}
-  >
-    <span>📊</span>
-    <span>Records & Reports</span>
-  </button>
-)}
+        <button
+          onClick={() => {
+            setIsFullPageTaskSettings(false);
+            setActiveTab('settings');
+          }}
+          className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+            activeTab === 'settings'
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'text-blue-200 hover:bg-blue-800'
+          }`}
+        >
+          <span>🛠️</span>
+          <span>Settings</span>
+        </button>
 
-            </nav>
-          </div>
+        {isMainAdmin && (
+          <button
+            onClick={() => {
+              setIsFullPageTaskSettings(false);
+              setActiveTab('delete_users');
+            }}
+            className={`w-full text-left p-3 rounded-xl flex items-center space-x-2 transition ${
+              activeTab === 'delete_users'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-blue-200 hover:bg-blue-800'
+            }`}
+          >
+            <span>📊</span>
+            <span>Records & Reports</span>
+          </button>
+        )}
 
-          <div className="border-t border-blue-800 pt-3 space-y-2">
-            <div className="text-xs text-blue-200">
-              Logged in: <span className="font-bold text-white">{currentAdminEmail}</span>
-              {!isMainAdmin && (
-                <div className="text-[10px] text-cyan-300 mt-0.5">Code: {subAdminInviteCode || 'NO CODE SET'}</div>
-              )}
-            </div>
-            <button
-              onClick={handleAdminLogout}
-              className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-lg transition flex items-center justify-center space-x-1"
-            >
-              <span>🚪</span><span>Logout Portal</span>
-            </button>
-          </div>
+        {/* LOGOUT — Records & Reports ke neeche */}
+        <div className="pt-2">
+          <button
+            onClick={handleAdminLogout}
+            className="w-full text-left p-3 rounded-xl flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white font-bold transition"
+          >
+            <span>🚪</span>
+            <span>Logout Portal</span>
+          </button>
         </div>
+      </nav>
+    </div>
+
+    {/* ACCOUNT DETAILS — logout button yahan nahi hai */}
+    <div className="border-t border-blue-800 pt-3 space-y-2">
+      <div className="text-xs text-blue-200">
+        Logged in:{' '}
+        <span className="font-bold text-white">
+          {currentAdminEmail}
+        </span>
+
+        {!isMainAdmin && (
+          <div className="text-[10px] text-cyan-300 mt-0.5">
+            Code: {subAdminInviteCode || 'NO CODE SET'}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
 
         {/* MAIN CONTENT AREA */}
         <div className="flex-1 p-6 overflow-y-auto">

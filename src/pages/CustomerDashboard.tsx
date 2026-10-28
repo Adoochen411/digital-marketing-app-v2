@@ -1670,12 +1670,11 @@ if (assignedBatchProducts.length === 0) {
       }
 
 
-
 const allActiveBatchProducts = dbProducts
   .filter(
     (product: any) =>
       Number(product.rotation_batch) >= 1 &&
-      Number(product.rotation_batch) <= 6 &&
+      Number(product.rotation_batch) <= 10 &&
       product.is_active !== false
   )
   .sort(
@@ -1688,8 +1687,6 @@ if (allActiveBatchProducts.length === 0) {
   showToast('No active normal products are available.', 'error');
   return;
 }
-
-
 
 const {
   data: rotatingProducts,
@@ -1714,29 +1711,30 @@ if (!selectedOfficialProd) {
   return;
 }
 
-      const vipLevel = String(activeVipLevel);
+const vipLevel = String(activeVipLevel);
 
-      let minCommissionCents = 50;
-      let maxCommissionCents = 75;
+let minCommissionCents = 50;
+let maxCommissionCents = 75;
 
-      if (vipLevel.includes('VIP 3')) {
-        minCommissionCents = 100;
-        maxCommissionCents = 1200;
-      } else if (vipLevel.includes('VIP 2')) {
-        minCommissionCents = 100;
-        maxCommissionCents = 1000;
-      } else if (vipLevel.includes('VIP 1')) {
-        minCommissionCents = 100;
-        maxCommissionCents = 500;
-      }
+if (vipLevel.includes('VIP 3')) {
+  minCommissionCents = 100;
+  maxCommissionCents = 1200;
+} else if (vipLevel.includes('VIP 2')) {
+  minCommissionCents = 100;
+  maxCommissionCents = 1000;
+} else if (vipLevel.includes('VIP 1')) {
+  minCommissionCents = 100;
+  maxCommissionCents = 500;
+}
 
-      const calculatedCommission =
-        (
-          Math.floor(
-            Math.random() *
-              (maxCommissionCents - minCommissionCents + 1)
-          ) + minCommissionCents
-        ) / 100;
+const calculatedCommission =
+  (
+    Math.floor(
+      Math.random() *
+        (maxCommissionCents - minCommissionCents + 1)
+    ) + minCommissionCents
+  ) / 100;
+
 const itemPrice = Number(selectedOfficialProd.price);
 
 if (!Number.isFinite(itemPrice) || itemPrice < 0) {
@@ -1746,6 +1744,7 @@ if (!Number.isFinite(itemPrice) || itemPrice < 0) {
   );
   return;
 }
+
       grabbedProduct = {
         id: nextTaskNum,
         name: selectedOfficialProd.name,
@@ -1896,26 +1895,29 @@ if (
     // Har completed normal task ke baad agla batch select hoga.
     // Batch 1 product 1 -> Batch 2 product 1 -> ... -> Batch 6 product 1
     // Batch 6 ke baad Batch 1 product 2 shuru hoga.
+
 const safeBatchNumber =
   Number.isInteger(currentBatchNumber) &&
   currentBatchNumber >= 1 &&
-  currentBatchNumber <= 6
+  currentBatchNumber <= 10
     ? currentBatchNumber
     : 1;
 
 const safeBatchPosition =
   Number.isInteger(currentBatchPosition) &&
   currentBatchPosition >= 0 &&
-  currentBatchPosition < 25
+  currentBatchPosition < 100
     ? currentBatchPosition
     : 0;
 
+// Batch 1 -> 2 -> ... -> 10 -> 1
 const nextBatchNumber =
-  safeBatchNumber >= 6 ? 1 : safeBatchNumber + 1;
+  safeBatchNumber >= 10 ? 1 : safeBatchNumber + 1;
 
+// Har 10th batch ke baad product position agay barhegi
 const savedBatchPosition =
-  safeBatchNumber >= 6
-    ? (safeBatchPosition + 1) % 25
+  safeBatchNumber >= 10
+    ? (safeBatchPosition + 1) % 100
     : safeBatchPosition;
 
     const newTotalProfits = Number(

@@ -91,9 +91,12 @@ interface SubAdminUser {
     tasks: boolean;
     support: boolean;
     products: boolean;
-    invitationCode?: boolean;
+      invitationCode?: boolean;
     telegram?: boolean;
     whatsapp?: boolean;
+    auto_task_lock?: boolean;
+    auto_lucky_order_enabled?: boolean;
+    manual_task_lock?: boolean;
   };
 }
 
@@ -139,7 +142,6 @@ interface AdminNotification {
   message: string;
   created_at: string;
 }
-
 type SubAdminPermissions = {
   users: boolean;
   deposits: boolean;
@@ -150,6 +152,9 @@ type SubAdminPermissions = {
   invitationCode: boolean;
   telegram: boolean;
   whatsapp: boolean;
+  auto_task_lock?: boolean;
+  auto_lucky_order_enabled?: boolean;
+  manual_task_lock?: boolean;
 };
 
 const defaultSubAdminPermissions: SubAdminPermissions = {
@@ -162,8 +167,10 @@ const defaultSubAdminPermissions: SubAdminPermissions = {
   invitationCode: true,
   telegram: true,
   whatsapp: true,
+  auto_task_lock: true,
+  auto_lucky_order_enabled: true,
+  manual_task_lock: true,
 };
-
 
 export const AdminDashboard: React.FC = () => {
  const validAdminTabs = [
@@ -2124,62 +2131,77 @@ useEffect(() => {
     }
   };
 
-  const handleAssignProductBatch = async (
-    productId: string,
-    batchValue: string
-  ) => {
-    try {
-      const batch = batchValue === '' ? null : Number(batchValue);
+const handleAssignProductBatch = async (
+  productId: string,
+  batchValue: string
+) => {
+  try {
+    const batch = batchValue === '' ? null : Number(batchValue);
 
-      if (
-        batch !== null &&
-        (!Number.isInteger(batch) || batch < 1 || batch > 6)
-      ) {
-        showToast('Please select Batch 1 to Batch 6.', 'error');
+    if (
+      batch !== null &&
+      (!Number.isInteger(batch) || batch < 1 || batch > 10)
+    ) {
+      showToast('Please select Batch 1 to Batch 10.', 'error');
+      return;
+    }
+
+    if (batch !== null) {
+      const { count, error: countError } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('rotation_batch', batch)
+        .neq('id', productId);
+
+      if (countError) throw countError;
+
+      if ((count ?? 0) >= 100) {
+        showToast(`Batch ${batch} already has 100 products.`, 'error');
         return;
       }
-
-      if (batch !== null) {
-        const { count, error: countError } = await supabase
-          .from('products')
-          .select('id', { count: 'exact', head: true })
-          .eq('rotation_batch', batch)
-          .neq('id', productId);
-
-        if (countError) throw countError;
-
-        if ((count ?? 0) >= 100) {
-          showToast(`Batch ${batch} already has 100products.`, 'error');
-          return;
-        }
-      }
-
-      const { data, error } = await supabase
-        .from('products')
-        .update({ rotation_batch: batch })
-        .eq('id', productId)
-        .select('id, rotation_batch')
-        .single();
-
-      if (error) throw error;
-
-      setProductsList((prev) =>
-        prev.map((product) =>
-          String(product.id) === String(productId)
-            ? { ...product, rotation_batch: data.rotation_batch }
-            : product
-        )
-      );
-
-      showToast(
-        batch === null
-          ? 'Product moved to Unassigned.'
-          : `Product assigned to Batch ${batch}.`
-      );
-    } catch (err: any) {
-      showToast(err?.message || 'Could not assign product batch.', 'error');
     }
-  };
+
+    const { data, error } = await supabase
+      .from('products')
+      .update({ rotation_batch: batch })
+      .eq('id', productId)
+      .select('id, rotation_batch')
+      .single();
+
+    if (error) throw error;
+
+    console.log('Batch assignment successful:', {
+      productId,
+      requestedBatch: batch,
+      savedBatch: data.rotation_batch,
+    });
+
+    setProductsList((prev) =>
+      prev.map((product) =>
+        String(product.id) === String(productId)
+          ? { ...product, rotation_batch: data.rotation_batch }
+          : product
+      )
+    );
+
+    showToast(
+      batch === null
+        ? 'Product moved to Unassigned.'
+        : `Product assigned to Batch ${batch}.`
+    );
+  } catch (err: any) {
+    console.error('Batch assignment failed:', {
+      productId,
+      batchValue,
+      error: err,
+    });
+
+    showToast(
+      err?.message || 'Could not assign product batch.',
+      'error'
+    );
+  }
+};
 
   const openBatchManagerEdit = (product: ProductItem) => {
     setBatchManagerEditingProduct(product);
@@ -3183,65 +3205,153 @@ const handleDeleteCustomTask = async (taskId: string) => {
 
   };
 
-  const handleAutoLuckyOrderToggle = async (
-    customer: CustomerProfile,
-    enabled: boolean
-  ) => {
-    try {
-      const { data: existingSettings, error: readError } = await supabase
-        .from('customer_auto_lucky_order_settings')
-        .select('user_id')
-        .eq('user_id', customer.id)
-        .maybeSingle();
+const handleAutoLuckyOrderToggle = async (
+  customer: CustomerProfile,
+  enabled: boolean
+) => {
+  try {
+    // 1. Sirf Sub-admin ke customers allow karein.
+    // Main Admin ke customers ko touch nahi karna.
+    const subAdminId = (customer as any).sub_admin_id;
 
-      if (readError) throw readError;
-
-      if (!existingSettings) {
-        showToast(
-          'Customer Auto Lucky Order settings nahi milin. Is customer ki settings pehle initialize karein.',
-          'error'
-        );
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from('customer_auto_lucky_order_settings')
-        .update({ enabled })
-        .eq('user_id', customer.id);
-
-      if (updateError) throw updateError;
-
-      setCustomers((prev) =>
-        prev.map((item) =>
-          item.id === customer.id
-            ? { ...item, auto_lucky_order_enabled: enabled }
-            : item
-        )
-      );
-
-      setSelectedUserForModal((prev) =>
-        prev && prev.id === customer.id
-          ? { ...prev, auto_lucky_order_enabled: enabled }
-          : prev
-      );
-
+    if (!subAdminId) {
       showToast(
-        enabled
-          ? 'Customer Auto Lucky Order enabled.'
-          : 'Customer Auto Lucky Order disabled.'
-      );
-    } catch (err: unknown) {
-      console.error('Auto Lucky Order update failed:', err);
-      showToast(
-        err instanceof Error
-          ? err.message
-          : 'Auto Lucky Order setting save nahi hui.',
+        'Yeh customer kisi Sub-admin ke saath linked nahi hai.',
         'error'
       );
+      return;
     }
-  };
 
-  
+    // 2. Database se customer ki Sub-admin ownership verify karein.
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role, sub_admin_id')
+      .eq('id', customer.id)
+      .eq('role', 'user')
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    if (!profile || profile.sub_admin_id !== subAdminId) {
+      showToast(
+        'Customer Sub-admin verification failed.',
+        'error'
+      );
+      return;
+    }
+
+    // 3. Sub-admin ki Lucky Auto Slots permission check karein.
+    const { data: subAdmin, error: subAdminError } = await supabase
+      .from('sub_admins')
+      .select('permissions')
+      .eq('id', profile.sub_admin_id)
+      .maybeSingle();
+
+    if (subAdminError) throw subAdminError;
+
+    const permissions = subAdmin?.permissions as
+      | Record<string, boolean>
+      | null;
+
+    if (permissions?.auto_lucky_order_enabled !== true) {
+      showToast(
+        'Sub-admin ki Lucky Auto Slots permission OFF hai.',
+        'error'
+      );
+      return;
+    }
+
+    // 4. Existing customer settings check karein.
+    const { data: existingSettings, error: readError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id')
+      .eq('user_id', customer.id)
+      .maybeSingle();
+
+    if (readError) throw readError;
+
+    // 5. Settings missing hon to global slots ki copy initialize karein.
+    if (!existingSettings) {
+      const { data: globalSettings, error: globalError } = await supabase
+        .from('auto_lucky_order_settings')
+        .select('slots')
+        .eq('id', 1)
+        .single();
+
+      if (globalError) throw globalError;
+
+      const { error: insertError } = await supabase
+        .from('customer_auto_lucky_order_settings')
+        .upsert(
+          {
+            user_id: customer.id,
+            enabled: false,
+            slots: globalSettings.slots ?? [],
+          },
+          {
+            onConflict: 'user_id',
+            ignoreDuplicates: true,
+          }
+        );
+
+      if (insertError) throw insertError;
+    }
+
+    // 6. Sirf isi Sub-admin customer ki enabled value update karein.
+    const { error: updateError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .update({ enabled })
+      .eq('user_id', customer.id);
+
+    if (updateError) throw updateError;
+
+    // 7. Database se actual saved value verify karein.
+    const { data: verified, error: verifyError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('enabled')
+      .eq('user_id', customer.id)
+      .maybeSingle();
+
+    if (verifyError) throw verifyError;
+
+    if (!verified || verified.enabled !== enabled) {
+      throw new Error(
+        'Setting save nahi hui. Supabase RLS policy ya database permissions check karein.'
+      );
+    }
+
+    // 8. UI update karein.
+    setCustomers((prev) =>
+      prev.map((item) =>
+        item.id === customer.id
+          ? { ...item, auto_lucky_order_enabled: enabled }
+          : item
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === customer.id
+        ? { ...prev, auto_lucky_order_enabled: enabled }
+        : prev
+    );
+
+    showToast(
+      enabled
+        ? 'Sub-admin customer Lucky Auto Slots enabled.'
+        : 'Sub-admin customer Lucky Auto Slots disabled.'
+    );
+  } catch (err: unknown) {
+    console.error('Sub-admin Auto Lucky Order update failed:', err);
+
+    showToast(
+      err instanceof Error
+        ? err.message
+        : 'Sub-admin Lucky Auto Order setting save nahi hui.',
+      'error'
+    );
+  }
+};
+
 const handleResetUserTasks = async (customer: any) => {
  
 const confirmed = window.confirm(
@@ -4032,18 +4142,20 @@ const handlePublishLuckyOrderSlot = async () => {
       }
 
       try {
-        const permissions: SubAdminPermissions = {
-          users: true,
-          deposits: true,
-          withdrawals: true,
-          support: true,
-          tasks: false,
-          products: false,
-          invitationCode: true,
-          telegram: true,
-          whatsapp: true
-        };
-
+       const permissions: SubAdminPermissions = {
+  users: true,
+  deposits: true,
+  withdrawals: true,
+  support: true,
+  tasks: false,
+  products: false,
+  invitationCode: true,
+  telegram: true,
+  whatsapp: true,
+  auto_task_lock: true,
+  auto_lucky_order_enabled: true,
+  manual_task_lock: true,
+};
         const { data: insertedData, error } = await supabase
           .from('sub_admins')
           .insert([{
@@ -7324,16 +7436,24 @@ const activeUserChatHistory =
 
                   {/* FILTER BUTTONS */}
                   <div className="mt-5 flex flex-wrap gap-2">
-                    {[
-                      { value: 'all' as const, label: 'All Products' },
-                      { value: 'unassigned' as const, label: 'Unassigned' },
-                      { value: 1 as const, label: 'Batch 1' },
-                      { value: 2 as const, label: 'Batch 2' },
-                      { value: 3 as const, label: 'Batch 3' },
-                      { value: 4 as const, label: 'Batch 4' },
-                      { value: 5 as const, label: 'Batch 5' },
-                      { value: 6 as const, label: 'Batch 6' },
-                    ].map((filter) => (
+                    {
+                   
+[
+  { value: 'all' as const, label: 'All Products' },
+  { value: 'unassigned' as const, label: 'Unassigned' },
+  { value: 1 as const, label: 'Batch 1' },
+  { value: 2 as const, label: 'Batch 2' },
+  { value: 3 as const, label: 'Batch 3' },
+  { value: 4 as const, label: 'Batch 4' },
+  { value: 5 as const, label: 'Batch 5' },
+  { value: 6 as const, label: 'Batch 6' },
+  { value: 7 as const, label: 'Batch 7' },
+  { value: 8 as const, label: 'Batch 8' },
+  { value: 9 as const, label: 'Batch 9' },
+  { value: 10 as const, label: 'Batch 10' },
+]
+
+                    .map((filter) => (
                       <button
                         key={String(filter.value)}
                         type="button"
@@ -7443,7 +7563,7 @@ const activeUserChatHistory =
                                 className="min-w-32 rounded-xl border border-slate-300 bg-white p-2.5 font-bold text-blue-900 outline-none focus:border-blue-600"
                               >
                                 <option value="">Unassigned</option>
-                                {[1, 2, 3, 4, 5, 6].map((batch) => {
+                                {[1, 2, 3, 4, 5, 6,7,8,9,10].map((batch) => {
                                   const count = productsList.filter(
                                     (item) =>
                                       Number(item.rotation_batch) === batch &&

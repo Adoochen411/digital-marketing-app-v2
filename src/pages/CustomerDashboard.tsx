@@ -1078,11 +1078,17 @@ setChatMessages((previous) => {
         })();
       }
     )
-    .subscribe((status) => {
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        console.error('Customer chat realtime status:', status);
-      }
-    });
+   .subscribe((status, err) => {
+  console.log('Customer chat realtime status:', status);
+
+  if (err) {
+    console.error('Customer chat realtime error details:', err);
+  }
+
+  if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+    console.error('Customer chat realtime failed:', status, err);
+  }
+});
 
   return () => {
     isMounted = false;
@@ -3661,205 +3667,379 @@ readOnly={isLuckyOrderDeposit}
         </div>
       )}
 
-      {/* FULL PAGE TASK MODAL */}
-      {showFullPageTask && currentTask && (
-        <div className="fixed inset-0 bg-[#06060a] z-50 flex flex-col justify-between p-4 overflow-y-auto font-sans text-white border-4 border-[#d4af37]/30 shadow-2xl">
-          <div className="flex justify-between items-center py-2 border-b border-[#332a15]">
-            <button
-              onClick={() => setShowFullPageTask(false)}
-              className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1"
-            >
-              <span>← Back</span>
-            </button>
-            <h2 className="text-base font-extrabold text-[#f3e5ab] tracking-wider">
-              Product Task #{currentTask.id}
-            </h2>
-            <button
-              onClick={() => setShowFullPageTask(false)}
-              className="text-xs bg-[#18150a] border border-[#d4af37]/50 text-[#f3e5ab] font-bold px-3 py-1 rounded-xl"
-            >
-              ✕
-            </button>
+{/* FULL PAGE TASK MODAL */}
+{showFullPageTask && currentTask && (
+  <div className="fixed inset-0 bg-black z-50 flex flex-col gap-2 p-2 sm:p-3 overflow-y-auto font-sans text-white border-2 border-amber-400/30 shadow-2xl">
+
+    {/* HEADER */}
+    <div className="flex justify-between items-center py-2 border-b border-amber-400/20 shrink-0">
+
+      <button
+        onClick={() => setShowFullPageTask(false)}
+        className="text-xs bg-black border border-amber-400/50 text-amber-300 font-bold px-3 py-1.5 rounded-lg"
+      >
+        ← Back
+      </button>
+
+      <h2 className="text-sm sm:text-base font-extrabold text-amber-300 tracking-wider">
+        Product Task #{currentTask.id}
+      </h2>
+
+      <button
+        onClick={() => setShowFullPageTask(false)}
+        className="text-xs bg-black border border-amber-400/50 text-amber-300 font-bold px-3 py-1.5 rounded-lg"
+      >
+        ✕
+      </button>
+
+    </div>
+
+    {/* FULL PAGE CONTENT */}
+    <div className="w-full max-w-5xl mx-auto flex-1 flex flex-col justify-center gap-2 py-1">
+
+      <style>{`
+        .task-blue-card {
+          background: #000000;
+          animation: none;
+        }
+
+        .task-blue-stage {
+          background: radial-gradient(
+            circle at 50% 45%,
+            #123354 0%,
+            #071426 48%,
+            #020617 100%
+          );
+        }
+      `}</style>
+
+      {/* ONE COMPLETE BLACK DIGITAL PRODUCT CARD */}
+      <div className="task-blue-card relative w-full overflow-hidden rounded-xl border border-amber-400/40 p-2 sm:p-3 shadow-[0_0_20px_rgba(212,175,55,0.12)]">
+
+        {/* SUBTLE DIGITAL BACKGROUND */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-10"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(56,189,248,0.25) 1px, transparent 1px), linear-gradient(90deg, rgba(56,189,248,0.25) 1px, transparent 1px)',
+            backgroundSize: '20px 20px',
+          }}
+        />
+
+        <div className="relative z-10 space-y-2">
+
+          {/* 1. DIGITAL MARKETING ICONS */}
+          <div className="grid grid-cols-3 divide-x divide-amber-400/20 border-b border-amber-400/20 pb-1 text-center">
+
+            <div className="px-1 py-1">
+              <div className="text-lg">📈</div>
+              <p className="text-[9px] font-bold text-amber-300">
+                Brand Growth
+              </p>
+            </div>
+
+            <div className="px-1 py-1">
+              <div className="text-lg">📣</div>
+              <p className="text-[9px] font-bold text-amber-300">
+                Digital Marketing
+              </p>
+            </div>
+
+            <div className="px-1 py-1">
+              <div className="text-lg">🎯</div>
+              <p className="text-[9px] font-bold text-amber-300">
+                Product Promotion
+              </p>
+            </div>
+
           </div>
 
-          <div className="space-y-3 my-auto max-w-md mx-auto w-full">
-            <div className="bg-[#0b0c10] border-2 border-[#d4af37] rounded-2xl p-3 flex gap-3 shadow-[0_0_20px_rgba(212,175,55,0.15)] relative overflow-hidden">
-           
-<div className="w-1/2 aspect-square rounded-xl bg-white border border-[#332a15] overflow-hidden flex items-center justify-center shrink-0 p-3">
+{/* 2. FULL WIDTH PRODUCT IMAGE + DETAILS */}
+
+<div className="w-full space-y-2">
+{/* FULL WIDTH ORIGINAL PRODUCT IMAGE */}
+<div className="relative w-full min-h-0 overflow-hidden rounded-lg border border-amber-400/20 bg-black flex items-center justify-center">
+
   <img
     src={currentTask.imageUrl}
     alt={currentTask.name}
     loading="eager"
     decoding="async"
     fetchPriority="high"
-    className="w-full h-full object-contain"
+    className="block w-full h-auto max-h-[70vh] object-contain object-center"
   />
+
 </div>
+  {/* FULL WIDTH PRODUCT NAME AND PRICE */}
+  <div className="w-full flex items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-[#080d16] px-3 py-2">
 
-              <div className="w-1/2 flex flex-col justify-between py-1">
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold flex items-center gap-1">
-                    {currentTask.store === "AI Generated Catalogue" ? "Amazon" : (currentTask.store || "Amazon")}
-                  </div>
-                  <h3 className="text-sm font-bold text-white leading-tight line-clamp-2 mt-0.5">
-                    {currentTask.name}
-                  </h3>
-                  <p className="text-[9px] text-gray-400 mt-0.5">
-                    Verified Digital Item | Premium Quality
-                  </p>
-                </div>
+    <div className="min-w-0 flex-1">
+      <p className="text-[9px] font-black uppercase tracking-wider text-amber-300">
+        👑 Premium Product
+      </p>
 
-                <div>
-                  <div className="flex items-center gap-1 text-amber-400 text-xs mt-1">
-                    ⭐⭐⭐⭐⭐ <span className="text-[9px] text-gray-300 font-bold">4.9 (1,248 reviews)</span>
-                  </div>
-                  
-                  <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-base font-black text-[#f3e5ab] font-mono">
-                      ${currentTask.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
+      <h3 className="mt-0.5 text-sm sm:text-base font-extrabold text-amber-100 leading-snug break-words">
+        {currentTask.name}
+      </h3>
+    </div>
 
-                  <div className="mt-1 inline-flex items-center gap-1 bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-black font-black text-[9px] px-2 py-0.5 rounded-md shadow">
-                    👑 Premium Product
-                  </div>
-                </div>
-              </div>
-            </div>
+    <div className="shrink-0 text-right">
+      <p className="text-[9px] font-bold text-amber-300">
+        Product Price
+      </p>
 
-            {currentTask.isLucky && (
-              <div className="bg-gradient-to-r from-[#1a1508] via-[#332a15] to-[#1a1508] border-2 border-[#f3e5ab] rounded-2xl p-3 flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(243,229,171,0.3)] animate-pulse">
-                <div className="text-3xl">🎁</div>
-                <div className="text-center">
-                  <div className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-[#f3e5ab] via-white to-[#d4af37] tracking-wide uppercase">
-                    Congratulationsss                  </div>
-                  <div className="text-sm font-bold text-[#f3e5ab]">
-                    You have got a lucky order!
-                  </div>
-               <div className="text-xs text-amber-200/90 font-medium">
-  Please complete your high commission lucky order and earn commission
-</div>
-                </div>
-              </div>
-            )}
+      <p className="text-base sm:text-xl font-black text-amber-200 font-mono">
+        ${Number(currentTask.price || 0).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+        })}
+      </p>
+    </div>
 
-            <div className="bg-[#0b0c10] border border-[#d4af37]/60 rounded-2xl p-3 grid grid-cols-3 gap-2 text-center shadow-lg">
-              <div className="border-r border-[#332a15] pr-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">⭐</div>
-                <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">High Commission Rating</div>
-                <div className="text-[10px] font-black text-amber-400 mt-0.5">⭐⭐⭐⭐⭐ 4.9/5</div>
-              </div>
+  </div>
+{/* FULL WIDTH LUCKY ORDER NOTIFICATION */}
+{currentTask.isLucky && (
+  <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-3 shadow-[0_0_22px_rgba(245,158,11,0.18)]">
 
-              <div className="border-r border-[#332a15] px-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">📋</div>
-                <div className="text-[9px] font-bold text-gray-300 leading-tight mt-1">With Digital Marketing</div>
-                <div className="text-amber-400 text-xs mt-0.5">📈</div>
-              </div>
+    {/* Decorative Background */}
+    <div
+      className="absolute inset-0 pointer-events-none opacity-20"
+      style={{
+        backgroundImage:
+          'linear-gradient(45deg, rgba(251,191,36,0.15) 1px, transparent 1px), linear-gradient(-45deg, rgba(251,191,36,0.15) 1px, transparent 1px)',
+        backgroundSize: '18px 18px',
+      }}
+    />
 
-              <div className="pl-1 flex flex-col items-center justify-center">
-                <div className="text-amber-400 text-lg">👑</div>
-                <div className="text-[9px] font-bold text-gray-300 leading-tight">Commission Earned</div>
-                <div className="text-xs font-black text-[#50e3c2] font-mono mt-0.5">
-                  +${currentTask.commission.toLocaleString('en-US', { minimumFractionDigits: 2 })} →
-                </div>
-              </div>
-            </div>
+    <div className="relative z-10">
 
-            {currentTask.isLucky && runningTasksVal < 0 && (
-              <div className="bg-gradient-to-r from-[#2a0808] via-[#4a0e0e] to-[#2a0808] border-2 border-red-600/80 rounded-2xl p-3 flex justify-between items-center shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                <div className="flex items-center gap-2">
-                  <div className="text-2xl">👛</div>
-                  <div>
-                    <div className="text-xs font-bold text-red-400">Recharge Amount</div>
-                    <div className="text-[9px] text-red-300/80 font-medium">(Negative Balance Locked)</div>
-                  </div>
-                </div>
-                <div className="text-xl font-black text-red-500 font-mono tracking-tight">
-                  - ${Math.abs(runningTasksVal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-            )}
-<button
-  onClick={async () => {
-    if (!currentTask) return;
+      {/* Notification Header */}
+      <div className="flex items-center justify-between mb-2 border-b border-amber-300/20 pb-2">
 
-    // Normal task: existing completion flow
-    if (!currentTask.isLucky) {
-      await handleConfirmTask();
-      return;
-    }
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🔔</span>
 
-    // Lucky Order must have its exact database ID
-    if (!user || !currentTask.customTaskId) {
-      showToast('Lucky Order ID missing. Please refresh and try again.', 'error');
-      return;
-    }
-
-    // Fetch the latest status and required amount for this exact order
-    const { data: luckyOrder, error } = await supabase
-      .from('custom_tasks')
-      .select('id, funding_status, locked_price, task_amount, user_id')
-      .eq('id', currentTask.customTaskId)
-      .eq('user_id', user.id)
-      .eq('is_lucky_order', true)
-      .maybeSingle();
-
-   
-if (error || !luckyOrder) {
-  console.error('Lucky Order lookup failed:', {
-    customTaskId: currentTask.customTaskId,
-    customerId: user.id,
-    luckyOrder,
-    error,
-  });
-
-  showToast(
-    error
-      ? `Lucky Order query failed: ${error.message}`
-      : 'Lucky Order record not found for this customer. Check Console.',
-    'error'
-  );
-  return;
-}
-
-    // If verified funding already exists, use the existing completion handler
-    if (luckyOrder.funding_status === 'funded') {
-      await handleConfirmTask();
-      return;
-    }
-
-    const requiredAmount = Number(
-      luckyOrder.locked_price ?? luckyOrder.task_amount
-    );
-
-    if (!Number.isFinite(requiredAmount) || requiredAmount <= 0) {
-      showToast('Lucky Order amount is invalid. Please contact support.', 'error');
-      return;
-    }
-
-   // Open Deposit specifically for this Lucky Order
-setIsLuckyOrderDeposit(true);
-setDepositAmount(requiredAmount.toFixed(2));
-setPaymentReference('');
-setReceiptFile(null);
-setDepositStep(1);
-setShowFullPageTask(false);
-setShowDepositModal(true);
-  }}
-  className="w-full py-4 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 font-black text-sm rounded-2xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
->
-  <span>📋</span>
-  <span>CONTINUE TASKS →</span>
-</button>
-          </div>
-
-          <div className="text-center py-2 border-t border-[#332a15]">
-            <p className="text-[10px] text-gray-400 font-medium">
-              Keep going! More orders = More commission!
-            </p>
-          </div>
+          <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">
+            Lucky Order Notification
+          </span>
         </div>
-      )}
+
+        <span className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[8px] font-black text-emerald-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          ACTIVE
+        </span>
+
+      </div>
+
+      {/* Three Notification Lines */}
+      <div className="flex items-start gap-3">
+
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-300/30 bg-amber-400/10 text-3xl">
+          🎁
+        </div>
+
+        <div className="min-w-0 flex-1">
+
+          {/* First Line */}
+          <p className="text-sm font-black text-amber-300">
+            Congratulations!
+          </p>
+
+          {/* Second Line */}
+          <p className="mt-1 text-xs font-extrabold text-white">
+            You have got a Lucky Order!
+          </p>
+
+          {/* Third Line */}
+          <p className="mt-1 text-[10px] leading-relaxed font-medium text-amber-100/80">
+            Please complete your high commission Lucky Order and get your reward commission.
+          </p>
+
+        </div>
+
+      </div>
+
+      {/* Lucky Order Amount */}
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-amber-300/30 bg-black/30 px-3 py-2">
+
+        <div className="flex items-center gap-2">
+          <span className="text-lg">💰</span>
+
+          <span className="text-[10px] font-bold text-amber-200">
+            Lucky Order Amount
+          </span>
+        </div>
+
+        <span className="text-sm font-black text-amber-300 font-mono">
+          ${Number(currentTask.luckyAmount || 0).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+          })}
+        </span>
+
+      </div>
+
+    </div>
+  </div>
+)}
+
+</div>
+          {/* 3. RATING + COMMISSION */}
+          <div className="grid grid-cols-2 divide-x divide-amber-400/20 border-y border-amber-400/20 py-1.5 text-center">
+
+            <div className="px-1">
+
+              <div className="text-base">⭐</div>
+
+              <p className="text-[9px] font-bold text-amber-300">
+                High Commission Rating
+              </p>
+
+              <p className="mt-0.5 text-[10px] font-black text-amber-300">
+                ⭐⭐⭐⭐⭐ 4.9/5
+              </p>
+
+            </div>
+
+            <div className="px-1">
+
+              <div className="text-base">👑</div>
+
+              <p className="text-[9px] font-bold text-amber-300">
+                Commission Earned
+              </p>
+
+              <p className="mt-0.5 text-xs font-black text-emerald-400 font-mono">
+                +${Number(currentTask.commission || 0).toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                })}
+              </p>
+
+            </div>
+
+          </div>
+
+          {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
+          {currentTask.isLucky && runningTasksVal < 0 && (
+            <div className="rounded-lg border border-red-500/80 bg-gradient-to-r from-[#260000] via-[#690b0b] to-[#260000] p-2 shadow-[0_0_15px_rgba(220,38,38,0.2)]">
+
+              <div className="flex justify-between items-center gap-2">
+
+                <div className="flex items-center gap-2">
+
+                  <span className="text-xl">👛</span>
+
+                  <div>
+
+                    <p className="text-[10px] font-black text-red-300">
+                      Recharge Amount
+                    </p>
+
+                    <p className="text-[9px] font-semibold text-red-200">
+                      Negative Balance Locked
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <p className="text-sm font-black text-red-400 font-mono">
+                  - ${Math.abs(runningTasksVal).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                  })}
+                </p>
+
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* CONTINUE TASK BUTTON */}
+      <button
+        onClick={async () => {
+          if (!currentTask) return;
+
+          // Normal task: existing completion flow
+          if (!currentTask.isLucky) {
+            await handleConfirmTask();
+            return;
+          }
+
+          // Lucky Order must have its exact database ID
+          if (!user || !currentTask.customTaskId) {
+            showToast('Lucky Order ID missing. Please refresh and try again.', 'error');
+            return;
+          }
+
+          // Fetch latest status for this exact Lucky Order
+          const { data: luckyOrder, error } = await supabase
+            .from('custom_tasks')
+            .select('id, funding_status, locked_price, task_amount, user_id')
+            .eq('id', currentTask.customTaskId)
+            .eq('user_id', user.id)
+            .eq('is_lucky_order', true)
+            .maybeSingle();
+
+          if (error || !luckyOrder) {
+            console.error('Lucky Order lookup failed:', {
+              customTaskId: currentTask.customTaskId,
+              customerId: user.id,
+              luckyOrder,
+              error,
+            });
+
+            showToast(
+              error
+                ? `Lucky Order query failed: ${error.message}`
+                : 'Lucky Order record not found for this customer. Check Console.',
+              'error'
+            );
+            return;
+          }
+
+          // Already funded: use existing completion handler
+          if (luckyOrder.funding_status === 'funded') {
+            await handleConfirmTask();
+            return;
+          }
+
+          const requiredAmount = Number(
+            luckyOrder.locked_price ?? luckyOrder.task_amount
+          );
+
+          if (!Number.isFinite(requiredAmount) || requiredAmount <= 0) {
+            showToast('Lucky Order amount is invalid. Please contact support.', 'error');
+            return;
+          }
+
+          // Open deposit for this exact Lucky Order
+          setIsLuckyOrderDeposit(true);
+          setDepositAmount(requiredAmount.toFixed(2));
+          setPaymentReference('');
+          setReceiptFile(null);
+          setDepositStep(1);
+          setShowFullPageTask(false);
+          setShowDepositModal(true);
+        }}
+        className="w-full py-3 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:brightness-110 text-black font-black text-sm rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)] transition flex items-center justify-center gap-2 cursor-pointer"
+      >
+        <span>📋</span>
+        <span>CONTINUE TASKS →</span>
+      </button>
+
+    </div>
+
+    {/* FOOTER */}
+    <div className="text-center py-1 border-t border-amber-400/20 shrink-0">
+      <p className="text-[9px] text-amber-300/70 font-medium">
+        Keep going! More orders = More commission!
+      </p>
+    </div>
+
+  </div>
+)}
+
 
       {/* SETTINGS MODAL */}
       {showSettingsModal && (

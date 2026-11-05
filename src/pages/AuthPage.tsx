@@ -299,6 +299,28 @@ export const AuthPage: React.FC = () => {
 
       // SIGN IN AFTER REGISTRATION
       await signIn(userEmail, password);
+     
+     // SAVE CUSTOMER REGISTRATION LOCATION
+try {
+  const { data: locationData, error: locationError } =
+    await supabase.functions.invoke(
+      'capture-registration-location',
+      {
+        body: {},
+      }
+    );
+
+  if (locationError) {
+    console.error('Location capture error:', locationError.message);
+  } else {
+    console.log('Location capture result:', locationData);
+  }
+} catch (locationError) {
+  console.error('Location capture failed:', locationError);
+}
+     
+     
+     
       // Registration notification flag
       localStorage.setItem('auth_notification', 'welcome_register');
       navigate('/dashboard', { 

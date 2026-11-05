@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+
 interface CustomerProfile {
   id: string;
   custom_id: number;
@@ -30,6 +31,9 @@ interface CustomerProfile {
   auto_lucky_order_enabled?: boolean;
   manual_task_lock?: boolean;
   withdraw_locked?: boolean;
+ip_address?: string | null;
+country?: string | null;
+region?: string | null;
 }
 
 interface CustomTaskSlot {
@@ -84,6 +88,8 @@ interface SubAdminUser {
   invite_code: string;
   telegram_url?: string;
   whatsapp_url?: string;
+  is_active?: boolean;
+
   permissions?: {
     users: boolean;
     deposits: boolean;
@@ -91,7 +97,7 @@ interface SubAdminUser {
     tasks: boolean;
     support: boolean;
     products: boolean;
-      invitationCode?: boolean;
+    invitationCode?: boolean;
     telegram?: boolean;
     whatsapp?: boolean;
     auto_task_lock?: boolean;
@@ -223,7 +229,7 @@ useEffect(() => {
   const [subAdminDbId, setSubAdminDbId] = useState('');
   const [subAdminInviteCode, setSubAdminInviteCode] = useState('');
   const [subAdminPermissions, setSubAdminPermissions] = useState<SubAdminPermissions>(defaultSubAdminPermissions);
-
+const [expandedLocationId, setExpandedLocationId] = useState<string | null>(null);
   const [mainAdminEmail, setMainAdminEmail] = useState('admin@gmail.com');
   const [mainAdminPassword, setMainAdminPassword] = useState('');
   const [depositTrc20, setDepositTrc20] = useState(() => localStorage.getItem('global_trc20') || 'TYA83kNx9XmR2pQz1L7W4sV6B0c9e5F8dH');
@@ -248,6 +254,7 @@ const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [reportEndDate, setReportEndDate] = useState('');
   const [reportCategory, setReportCategory] = useState('all');
   const [reportTasks, setReportTasks] = useState<any[]>([]);
+ const [reportManualAdjustments, setReportManualAdjustments] = useState<any[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
 
@@ -3039,35 +3046,81 @@ const handleDeleteCustomTask = async (taskId: string) => {
     }
   };
 
+const handleLoadCustomerReport = async (customerId: string) => {
+  setReportCustomerId(customerId);
+  setReportError('');
+  setReportLoading(true);
+  setReportTasks([]);
+  setReportManualAdjustments([]);
 
-  const handleLoadCustomerReport = async (customerId: string) => {
-    setReportCustomerId(customerId);
-    setReportError('');
-    setReportLoading(true);
-    setReportTasks([]);
+  try {
+    // Existing customer task history
+    const { data: taskData, error: taskError } = await supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', customerId)
+      .order('created_at', { ascending: false });
 
-    try {
-      const { data, error } = await supabase
-        .from('custom_tasks')
-        .select('*')
-        .eq('user_id', customerId)
-        .order('created_at', { ascending: false });
+    if (taskError) throw taskError;
 
-      if (error) throw error;
+    setReportTasks(taskData ?? []);
 
-      setReportTasks(data ?? []);
-    } catch (err: unknown) {
-      console.error('Customer report loading failed:', err);
+    // New: selected customer's manual Add / Deduct history
+    const { data: adjustmentRows, error: adjustmentError } = await supabase
+      .from('admin_balance_adjustments')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
 
-      setReportError(
-        err instanceof Error
-          ? err.message
-          : 'Customer task history could not be loaded.'
-      );
-    } finally {
-      setReportLoading(false);
+    if (adjustmentError) throw adjustmentError;
+
+    // Find the Admin / Sub-admin who performed each adjustment
+    const actorIds = Array.from(
+      new Set(
+        (adjustmentRows ?? [])
+          .map((row: any) => row.admin_id)
+          .filter(Boolean)
+      )
+    );
+
+    let actorProfiles: any[] = [];
+
+    if (actorIds.length > 0) {
+      const { data: actorData, error: actorError } = await supabase
+        .from('profiles')
+        .select('id, email, role, is_subadmin, full_name, username')
+        .in('id', actorIds);
+
+      if (actorError) {
+        console.error('Funds history actor lookup failed:', actorError);
+      } else {
+        actorProfiles = actorData ?? [];
+      }
     }
-  };
+
+    const actorMap = new Map(
+      actorProfiles.map((profile: any) => [profile.id, profile])
+    );
+
+    setReportManualAdjustments(
+      (adjustmentRows ?? []).map((row: any) => ({
+        ...row,
+        actor: actorMap.get(row.admin_id) ?? null,
+      }))
+    );
+
+  } catch (err: unknown) {
+    console.error('Customer report loading failed:', err);
+
+    setReportError(
+      err instanceof Error
+        ? err.message
+        : 'Customer history could not be loaded.'
+    );
+  } finally {
+    setReportLoading(false);
+  }
+};
 
   const handleDownloadCustomerReport = () => {
     if (!reportCustomer) {
@@ -3123,6 +3176,7 @@ const handleDeleteCustomTask = async (taskId: string) => {
       )
       .join('');
 
+  
     const rows =
       depositRows +
       withdrawalRows +
@@ -3256,6 +3310,9 @@ const handleDeleteCustomTask = async (taskId: string) => {
 
   const filteredReportTasks =
     reportTasks.filter(reportDateMatches);
+
+const filteredReportManualAdjustments =
+  reportManualAdjustments.filter(reportDateMatches);
 
   const reportMoney = (value: unknown): string => {
     const amount = Number(value ?? 0);
@@ -4411,9 +4468,23 @@ const handleCreateSubAdmin = async (e: React.FormEvent) => {
     setNewSubInviteCode('');
 
     showToast('Sub-Admin created successfully!');
-  } catch (err: any) {
-    showToast(err.message || 'Error creating Sub-Admin', 'error');
+ } catch (err: any) {
+  console.error('Create Sub-admin error:', err);
+
+  let errorMessage = err?.message || 'Error creating Sub-Admin';
+
+  try {
+    const response = await err?.context?.json?.();
+    if (response?.message) {
+      errorMessage = response.message;
+    }
+  } catch {
+    // Keep the original error message
   }
+
+  console.error('Create Sub-admin server response:', errorMessage);
+  showToast(errorMessage, 'error');
+}
 };
 
     const handleDeleteSubAdmin = async (subId: string) => {
@@ -6181,21 +6252,60 @@ onChange={(e) => {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
+                   
                     {filteredCustomers.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="transition-colors hover:bg-blue-50/50"
-                      >
-                        {/* User */}
-                        <td className="whitespace-nowrap px-4 py-4">
-                          <div className="font-mono text-sm font-black text-blue-950">
-                            #{c.custom_id}
-                          </div>
-                          <div className="mt-1 font-semibold text-slate-700">
-                            👤 {c.full_name || c.username || c.name || 'No Name'}
-                          </div>
-                        </td>
+                     <tr
+  key={c.id}
+  className="transition-colors hover:bg-blue-50/50"
+>
+  {/* User */}
+<td className="px-4 py-4">
+  <div className="font-mono text-sm font-black text-blue-950">
+    #{c.custom_id}
+  </div>
 
+  <div className="mt-1 flex items-center gap-2 font-semibold text-slate-700">
+    <button
+      type="button"
+      onClick={() =>
+        setExpandedLocationId(
+          expandedLocationId === String(c.id) ? null : String(c.id)
+        )
+      }
+      className="cursor-pointer"
+      title="Show customer location"
+    >
+      👤
+    </button>
+
+    <span>
+      {c.full_name || c.username || c.name || 'No Name'}
+    </span>
+  </div>
+
+ {expandedLocationId === String(c.id) && (
+  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-2 text-[10px] font-semibold text-slate-600">
+    <div>
+      IP: {c.ip_address || 'N/A'}
+      <span className="mx-1">|</span>
+      Country: {c.country || 'N/A'}
+      <span className="mx-1">|</span>
+      Region: {c.region || 'N/A'}
+    </div>
+
+    <div className="mt-2 border-t border-blue-200 pt-2">
+      Registration Date & Time:{' '}
+      {c.created_at
+        ? new Date(c.created_at).toLocaleString()
+        : 'N/A'}
+    </div>
+  </div>
+)}
+</td>       
+               
+               
+               
+               
                         {/* Invitation Code */}
                         <td className="whitespace-nowrap px-4 py-4">
                           <div className="font-mono text-xs font-bold text-slate-700">
@@ -6958,10 +7068,28 @@ onChange={(e) => {
                             <div className="font-mono text-sm font-black text-blue-950">
                               #{c.custom_id}
                             </div>
-                            <div className="mt-1 font-semibold text-slate-700">
-                              <span className="mr-1">👤</span>
-                              {c.full_name || c.username || c.name || 'No Name'}
-                            </div>
+                           
+<div className="mt-1 flex flex-wrap items-center gap-2 font-semibold text-slate-700">
+  <button
+    type="button"
+    onClick={() =>
+      setExpandedLocationId(
+        expandedLocationId === String(c.id) ? null : String(c.id)
+      )
+    }
+    className="cursor-pointer hover:text-blue-700"
+    title="Show IP and Location"
+  >
+    👤 {c.full_name || c.username || c.name || 'No Name'}
+  </button>
+
+  {expandedLocationId === String(c.id) && (
+    <span className="text-[10px] font-semibold text-slate-500">
+      IP: {c.ip_address || 'N/A'} | {c.country || 'N/A'} | {c.region || 'N/A'}
+    </span>
+  )}
+</div>
+
                           </td>
 
                           {/* Invitation Codes */}
@@ -9513,8 +9641,8 @@ onChange={(e) => {
   setEditSubEmail(sub.email || '');
   setEditSubPassword('');
   setEditSubInviteCode(sub.invite_code || '');
-  setEditSubWhatsApp(sub.whatsapp_link || '');
-  setEditSubTelegram(sub.telegram_link || '');
+setEditSubWhatsApp(sub.whatsapp_url || '');
+setEditSubTelegram(sub.telegram_url || '');
   setEditSubActive(sub.is_active !== false);
   setEditSubPerms({
     ...defaultSubAdminPermissions,
@@ -9610,12 +9738,13 @@ onChange={(e) => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {[
+                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      {[
                       { id: 'all', title: 'All Records', icon: '📚', color: 'slate' },
                       { id: 'deposits', title: 'Deposits & Funds', icon: '💰', color: 'emerald' },
                       { id: 'withdrawals', title: 'Withdrawals', icon: '🏦', color: 'blue' },
                       { id: 'lucky', title: 'Lucky Orders', icon: '🍀', color: 'amber' },
+                       { id: 'delete_customers', title: 'Delete Customers', icon: '🗑️', color: 'rose' },
                     ].map((item) => (
                       <button
                         key={item.id}
@@ -9635,8 +9764,9 @@ onChange={(e) => {
                     ))}
                   </div>
 
-                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                    <table className="w-full min-w-[700px] text-left text-xs">
+                   {deleteSearchQuery.trim() && (
+                   <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                        <table className="w-full min-w-[700px] text-left text-xs">
                       <thead className="bg-slate-900 text-white">
                         <tr>
                           <th className="p-3">Customer</th>
@@ -9688,8 +9818,8 @@ onChange={(e) => {
                         )}
                       </tbody>
                     </table>
-                  </div>
-
+                   </div>
+)}
                   {reportError && (
                     <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
                       {reportError}
@@ -9753,6 +9883,93 @@ onChange={(e) => {
                               </table>
                             </div>
                           )}
+
+{reportCategory === 'deposits' && (
+  <div className="overflow-x-auto rounded-2xl border border-purple-200">
+    <h4 className="bg-purple-50 p-4 font-black text-purple-900">
+      🧾 Manual Funds History ({filteredReportManualAdjustments.length})
+    </h4>
+
+    <table className="w-full min-w-[900px] text-left text-xs">
+      <thead className="bg-purple-800 text-white">
+        <tr>
+          <th className="p-3">Date</th>
+          <th className="p-3">Action</th>
+          <th className="p-3">Amount</th>
+          <th className="p-3">Balance Before</th>
+          <th className="p-3">Balance After</th>
+          <th className="p-3">Performed By</th>
+          <th className="p-3">Note</th>
+        </tr>
+      </thead>
+
+      <tbody className="divide-y divide-slate-100">
+        {filteredReportManualAdjustments.map((item: any) => (
+          <tr key={item.id} className="hover:bg-purple-50">
+            <td className="p-3">
+              {reportDate(item.created_at)}
+            </td>
+
+            <td className="p-3 font-bold">
+              {item.action === 'add'
+                ? 'Manual Funds Added'
+                : item.action === 'deduct'
+                  ? 'Manual Funds Deducted'
+                  : item.action}
+            </td>
+
+            <td className={`p-3 font-black ${
+              item.action === 'add'
+                ? 'text-emerald-700'
+                : 'text-red-700'
+            }`}>
+              {item.action === 'add' ? '+ ' : '- '}
+              {reportMoney(item.amount)}
+            </td>
+
+            <td className="p-3">
+              {reportMoney(item.balance_before)}
+            </td>
+
+            <td className="p-3 font-bold">
+              {reportMoney(item.balance_after)}
+            </td>
+
+            <td className="p-3">
+              <p className="font-bold text-slate-800">
+                {item.actor?.full_name ||
+                  item.actor?.username ||
+                  item.actor?.email ||
+                  (item.admin_id
+                    ? `Account ${String(item.admin_id).slice(0, 8)}`
+                    : 'Unknown')}
+              </p>
+              <p className="text-slate-500">
+                {item.actor?.is_subadmin
+                  ? 'Sub-admin'
+                  : item.actor?.role === 'admin'
+                    ? 'Admin'
+                    : 'Admin account'}
+              </p>
+            </td>
+
+            <td className="p-3">
+              {item.note || '—'}
+            </td>
+          </tr>
+        ))}
+
+        {filteredReportManualAdjustments.length === 0 && (
+          <tr>
+            <td colSpan={7} className="p-5 text-center text-slate-500">
+              No manual funds adjustments in this date range.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+)}
 
                           {(reportCategory === 'all' || reportCategory === 'withdrawals') && (
                             <div className="overflow-x-auto rounded-2xl border border-blue-200">
@@ -9834,8 +10051,9 @@ onChange={(e) => {
                 </div>
               </div>
 
-              {/* Existing customer deletion feature remains separate */}
-              <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-lg">
+            {reportCategory === 'delete_customers' && (
+  <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-lg">
+               
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-100 bg-red-50 p-5">
                   <div>
                     <h3 className="font-black text-red-800">🗑️ Delete Customer</h3>
@@ -9934,10 +10152,12 @@ onChange={(e) => {
                       {!permanentDeleteCustomers.length && (
                           <tr><td colSpan={5} className="p-6 text-center text-slate-500">No customers found.</td></tr>
                       )}
-                    </tbody>
+                                     </tbody>
                   </table>
                 </div>
               </div>
+              )}
+
             </div>
           )}
 

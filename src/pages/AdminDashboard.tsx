@@ -212,6 +212,7 @@ useEffect(() => {
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'zh' | 'ur' | 'ar'>('en');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteSearchQuery, setDeleteSearchQuery] = useState('');
+  const [permanentDeleteSearch, setPermanentDeleteSearch] = useState('');
   const [depositSearchQuery, setDepositSearchQuery] = useState('');
   const [withdrawSearchQuery, setWithdrawSearchQuery] = useState('');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
@@ -228,6 +229,10 @@ useEffect(() => {
   const [depositTrc20, setDepositTrc20] = useState(() => localStorage.getItem('global_trc20') || 'TYA83kNx9XmR2pQz1L7W4sV6B0c9e5F8dH');
   const [mainInviteCode, setMainInviteCode] = useState(() => localStorage.getItem('global_invite') || 'MAIN2026');
   const [reportCustomerId, setReportCustomerId] = useState<string>('');
+const [editSubWhatsApp, setEditSubWhatsApp] = useState('');
+const [editSubActive, setEditSubActive] = useState(true);
+const [editSubTelegram, setEditSubTelegram] = useState('');
+
 
 const [chatAttachments, setChatAttachments] = useState<
   Record<string, ChatAttachmentView[]>
@@ -259,7 +264,15 @@ const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [credentialRequests, setCredentialRequests] =
     useState<SubAdminCredentialRequest[]>([]);
+const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+const [creatingUser, setCreatingUser] = useState(false);
 
+const [newUserForm, setNewUserForm] = useState({
+  username: '',
+  email: '',
+  password: '',
+  invitation_code: '',
+});
 const [supportSearch, setSupportSearch] = useState('');
 const [supportLabels, setSupportLabels] = useState<
   Record<string, { name: string; payment: string }>
@@ -419,7 +432,16 @@ const [isFullPageTaskSettings, setIsFullPageTaskSettings] = useState(() => {
     return false;
   }
 });
-
+useEffect(() => {
+  try {
+    sessionStorage.setItem(
+      'admin_full_page_task_settings',
+      String(isFullPageTaskSettings)
+    );
+  } catch {
+    // Storage unavailable ho to dashboard normal chale.
+  }
+}, [isFullPageTaskSettings]);
   const [fundInput, setFundInput] = useState('');
 
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -979,6 +1001,7 @@ const fetchAdminData = async () => {
     })
   );
 
+
   // 2. Auto Lucky settings: customers aane ka wait nahi karein.
   tasks.push(
     runBackgroundTask('Auto Lucky settings', async () => {
@@ -996,7 +1019,7 @@ const fetchAdminData = async () => {
         ])
       );
 
-      setCustomers((previous) =>
+          setCustomers((previous) =>
         previous.map((customer) => ({
           ...customer,
           auto_lucky_order_enabled: settingsMap.has(customer.id)
@@ -1004,6 +1027,17 @@ const fetchAdminData = async () => {
             : customer.auto_lucky_order_enabled ?? false,
         }))
       );
+
+      setSelectedUserForModal((previous) => {
+        if (!previous || !settingsMap.has(previous.id)) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          auto_lucky_order_enabled: settingsMap.get(previous.id)!,
+        };
+      });
     })
   );
 
@@ -1052,9 +1086,9 @@ const fetchAdminData = async () => {
       runBackgroundTask('Sub-admins', async () => {
         const { data, error } = await supabase
           .from('sub_admins')
-          .select(
-            'id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at'
-          );
+         .select(
+  'id, email, invite_code, telegram_url, whatsapp_url, permissions, created_at, is_active'
+);
 
         if (error) throw error;
         if (data) setSubAdmins(data);
@@ -1207,26 +1241,29 @@ const fetchAdminData = async () => {
   }, []);
 
 const refreshConfiguredLuckyOrders = async (userId: string) => {
-  // 1. Manual Lucky Orders hamesha database se load hon.
-  const { data: manualOrders, error: manualError } = await supabase
-    .from('custom_tasks')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('is_lucky_order', true)
-    .order('task_number', { ascending: true });
+  // Dono database requests ek saath chalayein.
+  const [
+    { data: manualOrders, error: manualError },
+    { data: autoSettings, error: autoError },
+  ] = await Promise.all([
+    supabase
+      .from('custom_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_lucky_order', true)
+      .order('task_number', { ascending: true }),
+
+    supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id, enabled, slots')
+      .eq('user_id', userId)
+      .maybeSingle(),
+  ]);
 
   if (manualError) throw manualError;
-
-  // 2. Customer ke Auto Slots load karein.
-  const { data: autoSettings, error: autoError } = await supabase
-    .from('customer_auto_lucky_order_settings')
-    .select('user_id, enabled, slots')
-    .eq('user_id', userId)
-    .maybeSingle();
-
   if (autoError) throw autoError;
 
-  // 3. Auto Slots sirf master toggle ON aur slot active hone par show hon.
+  // Auto Slots sirf enabled hone par show hon.
   const autoSlotRows =
     autoSettings?.enabled === true &&
     Array.isArray(autoSettings.slots)
@@ -1267,7 +1304,7 @@ const refreshConfiguredLuckyOrders = async (userId: string) => {
           }))
       : [];
 
-  // 4. Manual Orders ko kabhi Auto Slots se replace na karein.
+  // Manual orders preserve rahenge.
   const combinedOrders: any[] = [
     ...(manualOrders ?? []),
     ...autoSlotRows,
@@ -1487,6 +1524,15 @@ useEffect(() => {
       { event: '*', schema: 'public', table: 'profiles' },
       () => void refreshAdminData()
     )
+    .on(
+  'postgres_changes',
+  {
+    event: '*',
+    schema: 'public',
+    table: 'customer_auto_lucky_order_settings',
+  },
+  () => void refreshAdminData()
+)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'admin_notifications' },
@@ -1714,20 +1760,21 @@ useEffect(() => {
       setQrUploading(false);
     }
   };
+const handleResetAutoSlots = () => {
+  setAutoSlots(
+    Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      active: false,
+      taskNum: '',
+      minAmount: '',
+      maxAmount: '',
+      comm: '',
+    }))
+  );
 
-  const handleResetAutoSlots = () => {
-    setAutoSlots([
-      { id: 1, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
-      { id: 2, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
-      { id: 3, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
-      { id: 4, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
-      { id: 5, active: false, taskNum: '', minAmount: '', maxAmount: '', comm: '' },
-    ]);
-
-    setAutoSlotsEnabled(false);
-    showToast('Auto Slots reset locally. Save settings to apply the reset.');
-  };
-
+  setAutoSlotsEnabled(false);
+  showToast('Auto Slots reset locally. Save settings to apply the reset.');
+};
   const handleSaveAutoSlots = async () => {
     if (autoSlotsSaving) return;
 
@@ -2332,13 +2379,20 @@ const handleAssignProductBatch = async (
           }
         );
 
-        if (error) {
-          throw new Error(
-            'Profile saved, but login password update failed: ' +
-            error.message
-          );
-        }
+      if (error) {
+  console.error('Password Edge Function error:', error);
 
+  const response = await (error as any).context?.json?.()
+    .catch(() => null);
+
+  console.error('Password Edge Function response:', response);
+
+  throw new Error(
+    response?.message ||
+    error.message ||
+    'Login password update failed.'
+  );
+}
         if (!data?.success) {
           throw new Error(
             data?.message || 'The login password was not updated.'
@@ -2376,6 +2430,9 @@ const handleAssignProductBatch = async (
       );
     }
   };
+
+
+
 const handleOpenFullPageTaskSettings = async (
   user: CustomerProfile
 ) => {
@@ -2799,6 +2856,55 @@ const handleEditCustomTask = async (task: any) => {
   }
 };
 
+const handleCreateNewUser = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (creatingUser) return;
+
+  try {
+    setCreatingUser(true);
+
+    const { data, error } = await supabase.functions.invoke(
+      'admin-create-user',
+      {
+        body: {
+          username: newUserForm.username.trim(),
+          email: newUserForm.email.trim(),
+          password: newUserForm.password,
+          invitation_code: newUserForm.invitation_code.trim(),
+        },
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error(data?.message || 'Could not create user.');
+    }
+
+    showToast('New customer created successfully!', 'success');
+
+    setNewUserForm({
+      username: '',
+      email: '',
+      password: '',
+      invitation_code: '',
+    });
+
+    setShowCreateUserModal(false);
+
+    await fetchAdminData();
+  } catch (error) {
+    console.error('Create user error:', error);
+
+    showToast(
+      error instanceof Error ? error.message : 'Failed to create customer.',
+      'error'
+    );
+  } finally {
+    setCreatingUser(false);
+  }
+};
 
 const handleDeleteCustomTask = async (taskId: string) => {
   const selectedUserId = selectedUserForModal?.id;
@@ -3230,81 +3336,106 @@ const handleAutoLuckyOrderToggle = async (
   customer: CustomerProfile,
   enabled: boolean
 ) => {
-  const subAdminId = customer.sub_admin_id;
-
-  if (!subAdminId) {
-    showToast(
-      'Yeh customer kisi Sub-admin ke saath linked nahi hai.',
-      'error'
-    );
-    return;
-  }
-
   const previousValue =
     customer.auto_lucky_order_enabled === true;
 
   let optimisticUpdateApplied = false;
 
   try {
-    // 1. Customer ki ownership verify karein.
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, role, sub_admin_id')
-      .eq('id', customer.id)
-      .eq('role', 'user')
-      .eq('sub_admin_id', subAdminId)
-      .maybeSingle();
+    // 1. Current logged-in user verify karein.
+    const { data: authData, error: authError } =
+      await supabase.auth.getUser();
+
+    if (authError) throw authError;
+
+    const currentUser = authData.user;
+
+    if (!currentUser) {
+      throw new Error('Login session expire ho gaya hai.');
+    }
+
+    const currentEmail =
+      currentUser.email?.trim().toLowerCase() || '';
+
+    const isMainAdmin =
+      currentEmail === 'adoochen64@gmail.com';
+console.log('AUTO LUCKY ADMIN CHECK:', {
+  currentEmail,
+  isMainAdmin,
+  customerId: customer.id,
+  customerSubAdminId: customer.sub_admin_id,
+});
+    // 2. Customer ki ownership verify karein.
+    const { data: profile, error: profileError } =
+      await supabase
+        .from('profiles')
+        .select('id, role, sub_admin_id')
+        .eq('id', customer.id)
+        .eq('role', 'user')
+        .maybeSingle();
 
     if (profileError) throw profileError;
 
     if (!profile) {
-      showToast(
-        'Customer Sub-admin verification failed.',
-        'error'
-      );
-      return;
+      throw new Error('Customer verification failed.');
     }
 
-    // 2. Sub-admin ki permission verify karein.
-    const { data: subAdmin, error: subAdminError } = await supabase
-      .from('sub_admins')
-      .select('permissions')
-      .eq('id', subAdminId)
-      .maybeSingle();
+    // 3. Main Admin sab customers control kar sakta hai.
+    // Sub-admin sirf apne assigned customers control karega.
+    if (!isMainAdmin) {
+      if (
+        !profile.sub_admin_id ||
+        profile.sub_admin_id !== customer.sub_admin_id
+      ) {
+        throw new Error(
+          'Aap sirf apne assigned customers ki setting change kar sakte hain.'
+        );
+      }
 
-    if (subAdminError) throw subAdminError;
+      const { data: subAdmin, error: subAdminError } =
+        await supabase
+          .from('sub_admins')
+          .select('permissions')
+          .eq('id', profile.sub_admin_id)
+          .ilike('email', currentEmail)
+          .maybeSingle();
 
-    const permissions = subAdmin?.permissions as
-      | Record<string, boolean>
-      | null;
+      if (subAdminError) throw subAdminError;
 
-    if (permissions?.auto_lucky_order_enabled !== true) {
-      showToast(
-        'Sub-admin ki Lucky Auto Slots permission OFF hai.',
-        'error'
-      );
-      return;
+      if (!subAdmin) {
+        throw new Error('Sub-admin verification failed.');
+      }
+
+      const permissions = subAdmin.permissions as
+        | Record<string, boolean>
+        | null;
+
+      if (
+        permissions?.auto_lucky_order_enabled !== true
+      ) {
+        throw new Error(
+          'Sub-admin ki Auto Lucky Slots permission OFF hai.'
+        );
+      }
     }
 
-    // 3. Existing customer setting read karein.
+    // 4. Existing customer setting read karein.
     const { data: existingSettings, error: readError } =
       await supabase
         .from('customer_auto_lucky_order_settings')
-        .select('user_id, enabled')
+        .select('user_id, enabled, slots')
         .eq('user_id', customer.id)
         .maybeSingle();
 
     if (readError) throw readError;
 
     if (!existingSettings) {
-      showToast(
-        'Customer ki Lucky Auto Slots setting maujood nahi. Pehle setting initialize karein.',
-        'error'
+      throw new Error(
+        'Customer ki saved Auto Lucky Slots setting nahi mili. Existing slots initialize kiye baghair setting change nahi ki ja sakti.'
       );
-      return;
     }
 
-    // 4. Sirf UI update karein; slots ko touch nahi karein.
+    // 5. Sirf selected customer ka UI update karein.
     setCustomers((prev) =>
       prev.map((item) =>
         item.id === customer.id
@@ -3321,13 +3452,14 @@ const handleAutoLuckyOrderToggle = async (
 
     optimisticUpdateApplied = true;
 
-    // 5. Sirf isi customer ki enabled value update karein.
-    // slots, global settings aur doosre customers unchanged rahenge.
-    const { data: updatedRows, error: updateError } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .update({ enabled })
-      .eq('user_id', customer.id)
-      .select('user_id, enabled');
+    // 6. Sirf isi customer ka enabled update karein.
+    // Saved slots bilkul change nahi honge.
+    const { data: updatedRows, error: updateError } =
+      await supabase
+        .from('customer_auto_lucky_order_settings')
+        .update({ enabled })
+        .eq('user_id', customer.id)
+        .select('user_id, enabled');
 
     if (updateError) throw updateError;
 
@@ -3338,22 +3470,22 @@ const handleAutoLuckyOrderToggle = async (
       updatedRows[0].enabled !== enabled
     ) {
       throw new Error(
-        'Setting save verify nahi hui. Supabase RLS policy ya database permissions check karein.'
+        'Setting save verify nahi hui. Supabase RLS permissions check karein.'
       );
     }
 
     showToast(
       enabled
-        ? 'Sub-admin customer Lucky Auto Slots enabled.'
-        : 'Sub-admin customer Lucky Auto Slots disabled.'
+        ? 'Customer Auto Lucky Slots enabled successfully.'
+        : 'Customer Auto Lucky Slots disabled successfully.'
     );
+
   } catch (err: unknown) {
     console.error(
-      'Sub-admin Auto Lucky Order update failed:',
+      'Auto Lucky Order toggle failed:',
       err
     );
 
-    // Save fail ho to UI purani value par wapas.
     if (optimisticUpdateApplied) {
       setCustomers((prev) =>
         prev.map((item) =>
@@ -3379,12 +3511,35 @@ const handleAutoLuckyOrderToggle = async (
     showToast(
       err instanceof Error
         ? err.message
-        : 'Sub-admin Lucky Auto Order setting save nahi hui.',
+        : 'Auto Lucky Slots setting save nahi hui.',
       'error'
     );
   }
 };
 
+const handleResetUserProfits = async (customer: CustomerProfile) => {
+  if (!window.confirm(`Reset profits for ${customer.full_name || customer.username || 'this customer'}?`)) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ total_profits: 0 })
+    .eq('id', customer.id);
+
+  if (error) {
+    showToast(`Profit reset failed: ${error.message}`, 'error');
+    return;
+  }
+
+  setCustomers((prev) =>
+    prev.map((c) =>
+      c.id === customer.id ? { ...c, total_profits: 0 } : c
+    )
+  );
+
+  showToast('Customer profits reset successfully!');
+};
 const handleResetUserTasks = async (customer: any) => {
  
 const confirmed = window.confirm(
@@ -4110,6 +4265,7 @@ const handlePublishLuckyOrderSlot = async () => {
         showToast('Unable to update credentials. Please try again.', 'error');
       }
     };
+
     const handleSaveMainSettings = async (e: React.FormEvent) => {
       e.preventDefault();
 
@@ -4150,15 +4306,17 @@ const handlePublishLuckyOrderSlot = async () => {
           throw saveError;
         }
 
-        if (
-          savedRows.deposit_trc20_address !== cleanAddress ||
-          (savedRows.telegram_url ?? '') !== cleanTelegram ||
-          (savedRows.whatsapp_url ?? '') !== cleanWhatsApp
-        ) {
-          throw new Error(
-            'Saved settings do not match the entered values. Please try again.'
-          );
-        }
+      if (
+  savedRows.deposit_trc20_address !== cleanAddress ||
+  (savedRows.main_invite_code ?? '') !== cleanMainInvite ||
+  (savedRows.qr_code_url ?? '') !== qrCodeUrl.trim() ||
+  (savedRows.telegram_url ?? '') !== cleanTelegram ||
+  (savedRows.whatsapp_url ?? '') !== cleanWhatsApp
+) {
+  throw new Error(
+    'One or more settings do not match the values saved in Supabase. Please try again.'
+  );
+}
 
         setDepositTrc20(savedRows.deposit_trc20_address);
         setMainInviteCode(savedRows.main_invite_code ?? '');
@@ -4182,52 +4340,81 @@ const handlePublishLuckyOrderSlot = async () => {
       }
     };
 
+const handleCreateSubAdmin = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    const handleCreateSubAdmin = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!isMainAdmin) return;
-      if (!newSubEmail.trim() || !newSubPassword.trim() || !newSubInviteCode.trim()) {
-        showToast('Please fill all fields', 'error');
-        return;
-      }
+  if (!isMainAdmin) return;
 
-      try {
-       const permissions: SubAdminPermissions = {
-  users: true,
-  deposits: true,
-  withdrawals: true,
-  support: true,
-  tasks: false,
-  products: false,
-  invitationCode: true,
-  telegram: true,
-  whatsapp: true,
-  auto_task_lock: true,
-  auto_lucky_order_enabled: true,
-  manual_task_lock: true,
-};
-        const { data: insertedData, error } = await supabase
-          .from('sub_admins')
-          .insert([{
-            email: newSubEmail.trim().toLowerCase(),
-            password: newSubPassword.trim(),
-            invite_code: newSubInviteCode.trim().toUpperCase(),
-            permissions,
-          }])
-          .select()
-          .single();
+  const email = newSubEmail.trim().toLowerCase();
+  const password = newSubPassword.trim();
+  const inviteCode = newSubInviteCode.trim().toUpperCase();
 
-        if (error) throw error;
-        if (insertedData) setSubAdmins((prev) => [...prev, insertedData]);
+  if (!email || !password || !inviteCode) {
+    showToast('Please fill all fields', 'error');
+    return;
+  }
 
-        setNewSubEmail('');
-        setNewSubPassword('');
-        setNewSubInviteCode('');
-        showToast('Sub-Admin created successfully!');
-      } catch (err: any) {
-        showToast(err.message || 'Error creating Sub-Admin', 'error');
-      }
+  try {
+    const permissions: SubAdminPermissions = {
+      users: true,
+      deposits: true,
+      withdrawals: true,
+      support: true,
+      tasks: false,
+      products: false,
+      invitationCode: true,
+      telegram: true,
+      whatsapp: true,
+      auto_task_lock: true,
+      auto_lucky_order_enabled: true,
+      manual_task_lock: true,
     };
+
+    // Create Sub-admin securely through Edge Function
+    const { data, error } = await supabase.functions.invoke(
+      'create-sub-admin',
+      {
+        body: {
+          email,
+          password,
+          invite_code: inviteCode,
+          permissions,
+        },
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error(data?.message || 'Sub-Admin creation failed');
+    }
+
+    // Load the newly created database record
+    const { data: insertedData, error: fetchError } = await supabase
+      .from('sub_admins')
+      .select('*')
+      .ilike('email', email)
+      .single();
+
+    if (fetchError) {
+      throw new Error(
+        'Sub-admin created, but list refresh failed: ' + fetchError.message
+      );
+    }
+
+    if (insertedData) {
+      setSubAdmins((prev) => [...prev, insertedData]);
+    }
+
+    setNewSubEmail('');
+    setNewSubPassword('');
+    setNewSubInviteCode('');
+
+    showToast('Sub-Admin created successfully!');
+  } catch (err: any) {
+    showToast(err.message || 'Error creating Sub-Admin', 'error');
+  }
+};
 
     const handleDeleteSubAdmin = async (subId: string) => {
       if (!isMainAdmin) return;
@@ -4242,47 +4429,102 @@ const handlePublishLuckyOrderSlot = async () => {
       }
     };
 
-    const handleSaveSubAdminSettings = async () => {
-      if (!isMainAdmin || !selectedSubAdminForModal) return;
+const handleSaveSubAdminSettings = async () => {
+  if (!isMainAdmin || !selectedSubAdminForModal) return;
 
-      try {
-        const payload: any = {
-          permissions: editSubPerms,
-        };
+  try {
+    const oldEmail = (selectedSubAdminForModal.email || '').trim().toLowerCase();
+    const newEmail = editSubEmail.trim().toLowerCase();
 
-        if (editSubEmail.trim()) {
-          payload.email = editSubEmail.trim().toLowerCase();
-        }
+    if (!newEmail) {
+      showToast('Sub-Admin email is required.', 'error');
+      return;
+    }
 
-        if (editSubPassword.trim()) {
-          payload.password = editSubPassword.trim();
-        }
+    // Find Sub-Admin Auth user ID.
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, email, role, is_subadmin')
+      .ilike('email', oldEmail)
+      .maybeSingle();
 
-        if (editSubInviteCode.trim()) {
-          payload.invite_code = editSubInviteCode.trim().toUpperCase();
-        }
+    if (profileError) throw profileError;
 
-        const { error } = await supabase
-          .from('sub_admins')
-          .update(payload)
-          .eq('id', selectedSubAdminForModal.id);
+    if (
+      !profile ||
+      profile.role !== 'admin' ||
+      profile.is_subadmin !== true
+    ) {
+      throw new Error('Sub-Admin Auth account not found.');
+    }
 
-        if (error) throw error;
+    // Update email/password through secure Edge Function.
+    if (newEmail !== oldEmail || editSubPassword.trim()) {
+      const body: any = {
+        target_user_id: profile.id,
+      };
 
-        setSubAdmins((prev) =>
-          prev.map((s) =>
-            s.id === selectedSubAdminForModal.id
-              ? { ...s, ...payload }
-              : s
-          )
-        );
-
-        showToast('Sub-Admin settings updated!');
-        setSelectedSubAdminForModal(null);
-      } catch (err: any) {
-        showToast(err.message || 'Error saving settings', 'error');
+      if (newEmail !== oldEmail) {
+        body.new_email = newEmail;
       }
+
+      if (editSubPassword.trim()) {
+        body.new_password = editSubPassword.trim();
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        'admin-update-user-password',
+        { body }
+      );
+
+      if (error) {
+        const details = await error.context?.json().catch(() => null);
+        throw new Error(
+          details?.message || error.message || 'Credential update failed.'
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || 'Credential update failed.');
+      }
+    }
+
+    // Save remaining settings.
+    const payload: any = {
+      email: newEmail,
+      permissions: editSubPerms,
+      is_active: editSubActive,
+      whatsapp_url: editSubWhatsApp.trim(),
+      telegram_url: editSubTelegram.trim(),
     };
+
+    if (editSubInviteCode.trim()) {
+      payload.invite_code = editSubInviteCode.trim().toUpperCase();
+    }
+
+    const { error: saveError } = await supabase
+      .from('sub_admins')
+      .update(payload)
+      .eq('id', selectedSubAdminForModal.id);
+
+    if (saveError) throw saveError;
+
+    setSubAdmins((prev) =>
+      prev.map((s) =>
+        s.id === selectedSubAdminForModal.id
+          ? { ...s, ...payload }
+          : s
+      )
+    );
+
+    setEditSubPassword('');
+    showToast('Sub-Admin settings updated!');
+    setSelectedSubAdminForModal(null);
+
+  } catch (err: any) {
+    showToast(err.message || 'Error saving settings', 'error');
+  }
+};
 
     const getCustomerDetailsByUserId = (userId: string) => {
       const cust = customers.find((c) => c.id === userId);
@@ -4668,6 +4910,10 @@ const handlePublishLuckyOrderSlot = async () => {
     const visibleCustomers = isMainAdmin ? customers : customers.filter((c) => isCustomerOfSubAdmin(c, subAdminInviteCode));
     const filteredCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, searchQuery));
     const filteredDeleteCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, deleteSearchQuery));
+    const permanentDeleteCustomers = visibleCustomers
+  .filter((c) => filterByUniversalQuery(c, permanentDeleteSearch))
+  .slice(0, permanentDeleteSearch.trim() ? undefined : 10);
+    
     const filteredTaskCustomers = visibleCustomers.filter((c) => filterByUniversalQuery(c, taskSearchQuery));
     const filteredDeposits = deposits.filter((d) => {
       if (!isMainAdmin) {
@@ -5211,15 +5457,23 @@ const activeUserChatHistory =
                       <span>Auto Lucky Order</span>
                       <input
                         type="checkbox"
-                        checked={Boolean(
-                          selectedUserForModal.auto_lucky_order_enabled
-                        )}
-                        onChange={(e) =>
-                          handleAutoLuckyOrderToggle(
-                            selectedUserForModal,
-                            e.target.checked
-                          )
-                        }
+                      checked={
+  customers.find(
+    (customer) => customer.id === selectedUserForModal.id
+  )?.auto_lucky_order_enabled === true
+}
+onChange={(e) => {
+  const latestCustomer = customers.find(
+    (customer) => customer.id === selectedUserForModal.id
+  );
+
+  if (latestCustomer) {
+    handleAutoLuckyOrderToggle(
+      latestCustomer,
+      e.target.checked
+    );
+  }
+}}
                         className="peer sr-only"
                         aria-label="Enable Auto Lucky Order for this customer"
                       />
@@ -5791,6 +6045,98 @@ const activeUserChatHistory =
               {/* Professional Header */}
               <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
+                 {/* CREATE NEW USER BUTTON */}
+<div className="flex justify-end pr-1">
+  
+          <button
+    type="button"
+    onClick={() => setShowCreateUserModal(true)}
+    className="rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-green-700"
+  >
+    + CREATE NEW USER
+  </button>
+</div>
+
+{/* CREATE USER MODAL */}
+{showCreateUserModal && (
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+    <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+
+      <div className="mb-5 flex items-center justify-between">
+        <h3 className="text-xl font-black text-slate-900">
+          Create New User
+        </h3>
+
+        <button
+          type="button"
+          onClick={() => setShowCreateUserModal(false)}
+          className="rounded-lg px-3 py-1 text-2xl font-bold text-slate-500 hover:bg-slate-100"
+        >
+          ×
+        </button>
+      </div>
+
+      <form onSubmit={handleCreateNewUser} className="space-y-4">
+
+        <input
+          type="text"
+          placeholder="Username"
+          required
+          value={newUserForm.username}
+          onChange={(e) =>
+            setNewUserForm({ ...newUserForm, username: e.target.value })
+          }
+          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-green-500"
+        />
+
+        <input
+          type="email"
+          placeholder="Email Address"
+          required
+          value={newUserForm.email}
+          onChange={(e) =>
+            setNewUserForm({ ...newUserForm, email: e.target.value })
+          }
+          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-green-500"
+        />
+
+        <input
+          type="password"
+          placeholder="Login Password"
+          required
+          minLength={6}
+          value={newUserForm.password}
+          onChange={(e) =>
+            setNewUserForm({ ...newUserForm, password: e.target.value })
+          }
+          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-green-500"
+        />
+
+        <input
+          type="text"
+          placeholder="Invitation Code (Optional)"
+          value={newUserForm.invitation_code}
+          onChange={(e) =>
+            setNewUserForm({
+              ...newUserForm,
+              invitation_code: e.target.value,
+            })
+          }
+          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-green-500"
+        />
+
+        <button
+          type="submit"
+          disabled={creatingUser}
+          className="w-full rounded-xl bg-green-600 py-3.5 font-black text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {creatingUser ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
+        </button>
+
+      </form>
+    </div>
+  </div>
+)}
                   <h2 className="text-xl font-black tracking-tight text-slate-900">
                     Customer Management
                   </h2>
@@ -6036,6 +6382,18 @@ const activeUserChatHistory =
                             >
                               ↻
                             </button>
+
+                           <button
+  type="button"
+  onClick={() => handleResetUserProfits(c)}
+  title="Reset Profits"
+  className="h-10 w-10 rounded-xl border border-amber-200
+    bg-amber-50 text-amber-700 text-xs font-black
+    shadow-sm hover:bg-amber-100 hover:shadow
+    transition flex items-center justify-center"
+>
+  $0
+</button>
 
                             <button
                               type="button"
@@ -8925,7 +9283,7 @@ const activeUserChatHistory =
                                         onClick={() => {
                                           if (
                                             window.confirm(
-                                              'Kya aap is credential request ko reject karna chahte hain?'
+                                              'Do you want to reject?'
                                             )
                                           ) {
                                             void handleReviewCredentialRequest(
@@ -9095,11 +9453,40 @@ const activeUserChatHistory =
                           <label className="font-bold text-slate-600 block mb-1">Sub-Admin Email</label>
                           <input type="email" placeholder="subadmin@platform.com" value={newSubEmail} onChange={(e) => setNewSubEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
                         </div>
+                       
+                       {/* WhatsApp Link */}
+<div>
+  <label className="block text-xs font-bold text-slate-700 mb-1">
+    WhatsApp Support Link
+  </label>
+  <input
+    type="url"
+    value={editSubWhatsApp}
+    onChange={(e) => setEditSubWhatsApp(e.target.value)}
+    placeholder="https://wa.me/..."
+    className="w-full border rounded-xl p-3 text-sm"
+  />
+</div>
+
+{/* Telegram Link */}
+<div>
+  <label className="block text-xs font-bold text-slate-700 mb-1">
+    Telegram Support Link
+  </label>
+  <input
+    type="url"
+    value={editSubTelegram}
+    onChange={(e) => setEditSubTelegram(e.target.value)}
+    placeholder="https://t.me/..."
+    className="w-full border rounded-xl p-3 text-sm"
+  />
+</div>
                         <div>
                           <label className="font-bold text-slate-600 block mb-1">Password</label>
                           <input type="password" placeholder="Assign password" value={newSubPassword} onChange={(e) => setNewSubPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5" />
                         </div>
                         <div>
+
                           <label className="font-bold text-slate-600 block mb-1">Unique Invi Code</label>
                           <input type="text" placeholder="SUB2026A01" value={newSubInviteCode} onChange={(e) => setNewSubInviteCode(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold uppercase" />
                         </div>
@@ -9121,16 +9508,19 @@ const activeUserChatHistory =
                               </div>
                               <div className="flex gap-2">
                                 <button
-                                  onClick={() => {
-                                    setSelectedSubAdminForModal(sub);
-                                    setEditSubEmail(sub.email || '');
-                                    setEditSubPassword('');
-                                    setEditSubInviteCode(sub.invite_code || '');
-                                    setEditSubPerms({
-                                      ...defaultSubAdminPermissions,
-                                      ...(sub.permissions || {}),
-                                    });
-                                  }}
+                                onClick={() => {
+  setSelectedSubAdminForModal(sub);
+  setEditSubEmail(sub.email || '');
+  setEditSubPassword('');
+  setEditSubInviteCode(sub.invite_code || '');
+  setEditSubWhatsApp(sub.whatsapp_link || '');
+  setEditSubTelegram(sub.telegram_link || '');
+  setEditSubActive(sub.is_active !== false);
+  setEditSubPerms({
+    ...defaultSubAdminPermissions,
+    ...(sub.permissions || {}),
+  });
+}}
                                   className="px-3 py-1.5 bg-blue-900 text-white font-black text-[10px] rounded-xl shadow hover:bg-blue-800 transition"
                                 >
                                   ⚙️ Settings
@@ -9457,7 +9847,20 @@ const activeUserChatHistory =
                     Main Admin Only
                   </span>
                 </div>
-
+<div className="p-5">
+  <input
+    type="text"
+    value={permanentDeleteSearch}
+    onChange={(e) => setPermanentDeleteSearch(e.target.value)}
+    placeholder="Search customer by name, email, ID or invite code..."
+    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-red-500"
+  />
+  <p className="mt-2 text-xs text-slate-500">
+    {permanentDeleteSearch.trim()
+      ? `Search results: ${permanentDeleteCustomers.length}`
+      : `Showing first ${permanentDeleteCustomers.length} customers. Search to find others.`}
+  </p>
+</div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[700px] text-left text-xs">
                     <thead className="bg-red-900 text-white">
@@ -9470,8 +9873,8 @@ const activeUserChatHistory =
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredDeleteCustomers.map((c) => (
-                        <tr key={c.id} className="hover:bg-red-50">
+                         {permanentDeleteCustomers.map((c) => (
+                          <tr key={c.id} className="hover:bg-red-50">
                           <td className="p-3">
                             <div className="font-black text-red-900">#{c.custom_id}</div>
                             <div className="mt-1 font-semibold text-slate-700">
@@ -9488,25 +9891,39 @@ const activeUserChatHistory =
                           <td className="p-3 text-right">
                             <button
                               type="button"
-                              onClick={() => {
-                                const confirmed = window.confirm(
-                                  `Are you sure you want to delete customer #${c.custom_id}?`
-                                );
-                                if (!confirmed) return;
+                           onClick={async () => {
+  const confirmed = window.confirm(
+    `Are you sure you want to permanently delete customer #${c.custom_id}?`
+  );
 
-                                supabase.from('profiles').delete().eq('id', c.id).then(({ error }) => {
-                                  if (!error) {
-                                    setCustomers((prev) => prev.filter((item) => item.id !== c.id));
-                                    if (reportCustomerId === String(c.id)) {
-                                      setReportCustomerId('');
-                                      setReportTasks([]);
-                                    }
-                                    showToast('Customer deleted successfully.');
-                                  } else {
-                                    showToast(error.message, 'error');
-                                  }
-                                });
-                              }}
+  if (!confirmed) return;
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'delete-customer',
+      {
+        body: { userId: c.id },
+      }
+    );
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error(data?.message || 'Customer deletion failed.');
+    }
+
+    setCustomers((prev) => prev.filter((item) => item.id !== c.id));
+
+    if (reportCustomerId === String(c.id)) {
+      setReportCustomerId('');
+      setReportTasks([]);
+    }
+
+    showToast('Customer deleted successfully.');
+  } catch (error: any) {
+    showToast(error.message || 'Customer deletion failed.', 'error');
+  }
+}}
                               className="rounded-lg bg-red-600 px-3 py-2 text-[10px] font-black text-white hover:bg-red-700"
                             >
                               🗑️ Delete Customer
@@ -9514,8 +9931,8 @@ const activeUserChatHistory =
                           </td>
                         </tr>
                       ))}
-                      {!filteredDeleteCustomers.length && (
-                        <tr><td colSpan={5} className="p-6 text-center text-slate-500">No customers found.</td></tr>
+                      {!permanentDeleteCustomers.length && (
+                          <tr><td colSpan={5} className="p-6 text-center text-slate-500">No customers found.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -9680,7 +10097,68 @@ const activeUserChatHistory =
                   <label className="font-bold text-slate-600 block mb-1">Update Invitation Code</label>
                   <input type="text" value={editSubInviteCode} onChange={(e) => setEditSubInviteCode(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold uppercase" />
                 </div>
+{/* Change Password */}
+<div>
+  <label className="block text-xs font-bold text-slate-700 mb-1">
+    Change Sub-Admin Password
+  </label>
+  <input
+    type="password"
+    value={editSubPassword}
+    onChange={(e) => setEditSubPassword(e.target.value)}
+    placeholder="Enter new password"
+    className="w-full border rounded-xl p-3 text-sm"
+  />
+</div>
 
+{/* Account Status */}
+<div className="flex items-center justify-between bg-slate-50 border rounded-xl p-3">
+  <div>
+    <p className="text-sm font-bold text-slate-800">Account Status</p>
+    <p className={`text-xs font-semibold ${
+      editSubActive ? 'text-green-600' : 'text-red-600'
+    }`}>
+      {editSubActive ? 'Active' : 'Deactivated'}
+    </p>
+  </div>
+  <button
+    type="button"
+    onClick={() => setEditSubActive((prev) => !prev)}
+    className={`px-4 py-2 rounded-lg text-xs font-bold text-white ${
+      editSubActive ? 'bg-red-600' : 'bg-green-600'
+    }`}
+  >
+    {editSubActive ? 'Deactivate' : 'Activate'}
+  </button>
+</div>
+
+{/* WhatsApp Link */}
+<div>
+  <label className="block text-xs font-bold text-slate-700 mb-1">
+    WhatsApp Support Link
+  </label>
+  <input
+    type="url"
+    value={editSubWhatsApp}
+    onChange={(e) => setEditSubWhatsApp(e.target.value)}
+    placeholder="https://wa.me/..."
+    className="w-full border rounded-xl p-3 text-sm"
+  />
+</div>
+
+{/* Telegram Link */}
+<div>
+  <label className="block text-xs font-bold text-slate-700 mb-1">
+    Telegram Support Link
+  </label>
+  <input
+    type="url"
+    value={editSubTelegram}
+    onChange={(e) => setEditSubTelegram(e.target.value)}
+    placeholder="https://t.me/..."
+    className="w-full border rounded-xl p-3 text-sm"
+  />
+</div>
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
                   <span className="font-extrabold text-blue-900 block uppercase text-[10px]">Sub-Admin Permissions:</span>
                   <div className="grid grid-cols-2 gap-2">

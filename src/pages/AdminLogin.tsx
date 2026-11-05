@@ -108,11 +108,11 @@ export function AdminLogin() {
       // ==========================================
       // 5. SUB-ADMIN VERIFICATION
       // ==========================================
-      const { data: subAdmins, error: subAdminError } = await supabase
-        .from('sub_admins')
-        .select('id, email')
-        .ilike('email', userEmail)
-        .limit(2);
+     const { data: subAdmins, error: subAdminError } = await supabase
+  .from('sub_admins')
+  .select('id, email, is_active')
+  .ilike('email', userEmail)
+  .limit(2);
 
       if (subAdminError) {
         throw new Error(
@@ -133,7 +133,12 @@ export function AdminLogin() {
       }
 
       const subAdmin = subAdmins[0];
-
+if (subAdmin.is_active === false) {
+  throw new Error(
+    'Your account has been deactivated. Please contact the administrator.'
+  );
+}
+      
       if (subAdmin.email?.trim().toLowerCase() !== userEmail) {
         throw new Error('Sub-Admin email verification failed.');
       }

@@ -3666,13 +3666,16 @@ readOnly={isLuckyOrderDeposit}
           </div>
         </div>
       )}
+
+
+
+
 {/* FULL PAGE TASK MODAL */}
 {showFullPageTask && currentTask && (
   <div className="fixed inset-0 bg-black z-50 flex flex-col p-2 sm:p-3 overflow-y-auto font-sans text-white border-2 border-amber-400/30 shadow-2xl">
 
     {/* HEADER */}
     <div className="flex justify-between items-center py-1 px-2 border-b border-amber-400/20 shrink-0">
-
       <button
         onClick={() => setShowFullPageTask(false)}
         className="text-xs bg-black border border-amber-400/50 text-amber-300 font-bold px-2.5 py-1 rounded-lg"
@@ -3688,7 +3691,6 @@ readOnly={isLuckyOrderDeposit}
       >
         ✕
       </button>
-
     </div>
 
     {/* FULL PAGE CONTENT */}
@@ -3698,6 +3700,13 @@ readOnly={isLuckyOrderDeposit}
         .task-blue-card {
           background: #000000;
           animation: none;
+        }
+        @keyframes slideNotification {
+          0% { transform: translateY(-10px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        .animate-notification {
+          animation: slideNotification 0.4s ease-out forwards;
         }
       `}</style>
 
@@ -3723,145 +3732,116 @@ readOnly={isLuckyOrderDeposit}
             </h2>
           </div>
 
-        {/* 1. DIGITAL MARKETING ICONS (Golden Gradient Background) */}
-<div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-2 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-  <div className="grid grid-cols-3 divide-x divide-amber-400/20 text-center">
+          {/* 1. DIGITAL MARKETING ICONS */}
+          <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-1.5 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+            <div className="grid grid-cols-3 divide-x divide-amber-400/20 text-center">
+              <div className="px-1 py-0.5">
+                <div className="text-sm">📈</div>
+                <p className="text-[8px] font-bold text-amber-300">Brand Growth</p>
+              </div>
 
-    <div className="px-1 py-0.5">
-      <div className="text-sm">📈</div>
-      <p className="text-[8px] font-bold text-amber-300">
-        Brand Growth
-      </p>
-    </div>
+              <div className="px-1 py-0.5">
+                <div className="text-sm">📣</div>
+                <p className="text-[8px] font-bold text-amber-300">Digital Marketing</p>
+              </div>
 
-    <div className="px-1 py-0.5">
-      <div className="text-sm">📣</div>
-      <p className="text-[8px] font-bold text-amber-300">
-        Digital Marketing
-      </p>
-    </div>
-
-    <div className="px-1 py-0.5">
-      <div className="text-sm">🎯</div>
-      <p className="text-[8px] font-bold text-amber-300">
-        Product Promotion
-      </p>
-    </div>
-
-  </div>
-</div>
-
-       {/* 2. PRODUCT IMAGE + DETAILS */}
-<div className="w-full space-y-1.5">
-  
-  {/* PRODUCT IMAGE CONTAINER - ORIGINAL FIT WITHOUT ZOOM */}
-  <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-1.5 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-    <img
-      src={currentTask.imageUrl}
-      alt={currentTask.name}
-      loading="eager"
-      decoding="async"
-      fetchPriority="high"
-      className="block w-full h-auto max-h-[26vh] sm:max-h-[30vh] object-contain object-center rounded-lg"
-    />
-  </div>
-
-  {/* PRODUCT NAME AND PRICE */}
-  <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-2.5 shadow-[0_0_15px_rgba(245,158,11,0.15)] flex items-center justify-between gap-2">
-
-    <div className="min-w-0 flex-1">
-      <p className="text-[8px] font-black uppercase tracking-wider text-amber-300">
-        👑 Premium Product
-      </p>
-
-      <h3 className="mt-0.5 text-[11px] sm:text-xs font-extrabold text-white leading-snug break-words">
-        {currentTask.name}
-      </h3>
-    </div>
-
-    <div className="shrink-0 text-right">
-      <p className="text-[8px] font-bold text-amber-300">
-        Product Price
-      </p>
-
-      <p className="text-xs sm:text-sm font-black text-amber-300 font-mono">
-        ${Number(currentTask.price || 0).toLocaleString('en-US', {
-          minimumFractionDigits: 2,
-        })}
-      </p>
-    </div>
-
-  </div>
-
-</div>
-          {/* LUCKY ORDER NOTIFICATION */}
-          {currentTask.isLucky && (
-            <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-2 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-
-              <div className="relative z-10">
-
-                <div className="flex items-center justify-between mb-1 border-b border-amber-300/20 pb-1">
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm">🔔</span>
-                    <span className="text-[9px] font-black uppercase tracking-wider text-amber-300">
-                      Lucky Order Notification
-                    </span>
-                  </div>
-
-                  <span className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-1.5 py-0.5 text-[7px] font-black text-emerald-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    ACTIVE
-                  </span>
-
-                </div>
-
-                <div className="flex items-start gap-2">
-
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-amber-300/30 bg-amber-400/10 text-sm">
-                    🎁
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black text-amber-300">
-                      Congratulations!
-                    </p>
-
-                    <p className="text-[9px] font-extrabold text-white">
-                      You have got a Lucky Order!
-                    </p>
-
-                    <p className="text-[7px] leading-tight font-medium text-amber-100/80">
-                      Please complete your high commission Lucky Order and get your reward commission.
-                    </p>
-                  </div>
-
-                </div>
-
-                <div className="mt-1.5 flex items-center justify-between gap-2 rounded border border-amber-300/30 bg-black/30 px-2 py-1">
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs">💰</span>
-                    <span className="text-[9px] font-bold text-amber-200">
-                      Lucky Order Amount
-                    </span>
-                  </div>
-
-                  <span className="text-[10px] font-black text-amber-300 font-mono">
-                    ${Number(currentTask.luckyAmount || 0).toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                    })}
-                  </span>
-
-                </div>
-
+              <div className="px-1 py-0.5">
+                <div className="text-sm">🎯</div>
+                <p className="text-[8px] font-bold text-amber-300">Product Promotion</p>
               </div>
             </div>
-          )}
+          </div>
 
+          {/* 2. PRODUCT IMAGE (LEFT) + DETAILS (RIGHT) - SINGLE COMBINED CARD */}
+          <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-2.5 shadow-[0_0_15px_rgba(245,158,11,0.15)] flex items-center gap-3">
+            
+            {/* LEFT: PRODUCT IMAGE CONTAINER (NO ZOOM, FULL FIT) */}
+            <div className="w-2/5 shrink-0 bg-black/40 rounded-lg p-1 border border-amber-400/30 flex items-center justify-center">
+              <img
+                src={currentTask.imageUrl}
+                alt={currentTask.name}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="w-full h-24 sm:h-28 object-contain object-center rounded"
+              />
+            </div>
+
+            {/* RIGHT: PRODUCT NAME & PRICE */}
+            <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-1">
+              <div>
+                <p className="text-[8px] font-black uppercase tracking-wider text-amber-300">
+                  👑 Premium Product
+                </p>
+                <h3 className="mt-1 text-[11px] sm:text-xs font-extrabold text-white leading-snug break-words">
+                  {currentTask.name}
+                </h3>
+              </div>
+
+              <div className="mt-3 pt-1 border-t border-amber-400/20">
+                <p className="text-[8px] font-bold text-amber-300 uppercase">
+                  Product Price
+                </p>
+                <p className="text-sm sm:text-base font-black text-amber-300 font-mono mt-0.5">
+                  ${Number(currentTask.price || 0).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                  })}
+                </p>
+              </div>
+            </div>
+
+          </div>
+         {/* CENTER ANIMATED NOTIFICATION SYSTEM (LUCKY ORDER) */}
+{currentTask.isLucky && (
+  <div className="animate-notification relative w-full overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-[#201300] via-[#4a3200] to-[#201300] p-3 shadow-[0_0_20px_rgba(245,158,11,0.3)] text-center">
+    <div className="relative z-10">
+
+      {/* NOTIFICATION HEADER BADGE */}
+      <div className="flex items-center justify-between mb-2 border-b border-amber-300/30 pb-1.5">
+        <div className="flex items-center gap-1.5 mx-auto">
+          <span className="text-sm animate-pulse">🔔</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">
+            Lucky Order Notification
+          </span>
+        </div>
+      </div>
+
+      {/* CENTERED TEXT LINES */}
+      <div className="flex flex-col items-center justify-center space-y-1 my-1.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-300/40 bg-amber-400/20 text-base shadow-inner mb-0.5">
+          🎁
+        </div>
+
+        <p className="text-xs sm:text-sm font-black text-amber-300 tracking-wide">
+          Congratulations!
+        </p>
+
+        <p className="text-[11px] sm:text-xs font-extrabold text-white tracking-wide">
+          You've got a Lucky Order!
+        </p>
+
+        <p className="text-[9px] sm:text-[10px] font-medium text-amber-100/90 leading-tight px-1 mt-0.5">
+          Please complete your high commission Lucky Order and get your reward commission.
+        </p>
+      </div>
+
+      {/* LUCKY AMOUNT HIGHLIGHT */}
+      <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg border border-amber-300/30 bg-black/40 px-3 py-1.5">
+        <span className="text-[10px] font-bold text-amber-200 flex items-center gap-1">
+          <span>💰</span> Lucky Order Amount:
+        </span>
+        <span className="text-xs sm:text-sm font-black text-amber-300 font-mono">
+          ${Number(currentTask.luckyAmount || 0).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+          })}
+        </span>
+      </div>
+
+    </div>
+  </div>
+)}
           {/* 3. RATING + COMMISSION */}
           <div className="grid grid-cols-2 divide-x divide-amber-400/20 border-y border-amber-400/20 py-1 text-center">
-
             <div className="px-1">
               <div className="text-xs">⭐</div>
               <p className="text-[8px] font-bold text-amber-300">
@@ -3883,24 +3863,17 @@ readOnly={isLuckyOrderDeposit}
                 })}
               </p>
             </div>
-
           </div>
 
           {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
           {currentTask.isLucky && typeof runningTasksVal !== 'undefined' && runningTasksVal < 0 && (
             <div className="rounded-lg border border-red-500/80 bg-gradient-to-r from-[#260000] via-[#690b0b] to-[#260000] p-1.5 shadow-[0_0_10px_rgba(220,38,38,0.2)]">
-
               <div className="flex justify-between items-center gap-1.5">
-
                 <div className="flex items-center gap-1">
                   <span className="text-sm">👛</span>
                   <div>
-                    <p className="text-[9px] font-black text-red-300">
-                      Recharge Amount
-                    </p>
-                    <p className="text-[8px] font-semibold text-red-200">
-                      Negative Balance Locked
-                    </p>
+                    <p className="text-[9px] font-black text-red-300">Recharge Amount</p>
+                    <p className="text-[8px] font-semibold text-red-200">Negative Balance Locked</p>
                   </div>
                 </div>
 
@@ -3909,9 +3882,7 @@ readOnly={isLuckyOrderDeposit}
                     minimumFractionDigits: 2,
                   })}
                 </p>
-
               </div>
-
             </div>
           )}
 
@@ -3923,7 +3894,8 @@ readOnly={isLuckyOrderDeposit}
       <button
         onClick={async () => {
           if (!currentTask) return;
-         
+       
+       
           // Normal task: existing completion flow
           if (!currentTask.isLucky) {
             await handleConfirmTask();

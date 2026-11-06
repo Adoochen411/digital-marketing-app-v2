@@ -2940,7 +2940,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
               <div className="bg-gradient-to-r from-amber-950 via-[#2a1a08] to-amber-950 border-2 border-amber-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-black text-amber-400 tracking-wider">amazon VIP 1</h3>
-                  <p className="text-[10px] text-amber-200">Exclusive Amazon Grabbing Portal (1% - 10% Commission)</p>
+                  <p className="text-[10px] text-amber-200">Exclusive Amazon Grabbing Portal (1% - 20% Commission)</p>
                 </div>
                 <div className="w-12 h-12 bg-amber-500 text-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg">
                   a
@@ -2952,7 +2952,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
               <div className="bg-gradient-to-r from-red-950 via-[#2a0808] to-red-950 border-2 border-red-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-black text-red-400 tracking-wider">AliExpress VIP 2</h3>
-                  <p className="text-[10px] text-red-200">Exclusive AliExpress Grabbing Portal (1% - 20% Commission)</p>
+                  <p className="text-[10px] text-red-200">Exclusive AliExpress Grabbing Portal (1% - 40% Commission)</p>
                 </div>
                 <div className="w-12 h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center font-black text-lg shadow-lg">
                   Ali
@@ -2964,7 +2964,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
               <div className="bg-gradient-to-r from-emerald-950 via-[#082a18] to-emerald-950 border-2 border-emerald-500 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-black text-emerald-400 tracking-wider">shopify VIP 3</h3>
-                  <p className="text-[10px] text-emerald-200">Exclusive Shopify Grabbing Portal (1% - 30% Commission)</p>
+                  <p className="text-[10px] text-emerald-200">Exclusive Shopify Grabbing Portal (1% - 70% Commission)</p>
                 </div>
                 <div className="w-12 h-12 bg-emerald-500 text-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg">
                   S
@@ -3132,7 +3132,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-300">Earn with high commission:</span>
-                  <span className="font-bold text-[#f3e5ab]">0.56% - 0.75% / Order</span>
+                  <span className="font-bold text-[#f3e5ab]"> Regular / Order</span>
                 </div>
 
                 <button
@@ -3158,7 +3158,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-300">Earn with high commission:</span>
-                  <span className="font-bold text-[#f3e5ab]">1% to 10% / Order</span>
+                  <span className="font-bold text-[#f3e5ab]">High Commisison </span>
                 </div>
 
                 <button
@@ -3187,7 +3187,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-300">Earn with high commission:</span>
-                  <span className="font-bold text-[#f3e5ab]">1% to 20% / Order</span>
+                  <span className="font-bold text-[#f3e5ab]">  Vip Commission / Order</span>
                 </div>
 
                 <button
@@ -3216,7 +3216,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-300">Earn with high commission:</span>
-                  <span className="font-bold text-[#f3e5ab]">1% to 30% / Order</span>
+                  <span className="font-bold text-[#f3e5ab]">Vip3 Commission / Order</span>
                 </div>
 
                 <button

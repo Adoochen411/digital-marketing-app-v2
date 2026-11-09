@@ -981,33 +981,44 @@ const fetchAdminData = async () => {
   const tasks: Promise<void>[] = [];
 
   // 1. Customers: list ko baqi requests se independent load karein.
-  tasks.push(
-    runBackgroundTask('Customers', async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
+ tasks.push(
+  runBackgroundTask('Customers', async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      if (!data) return;
+    if (error) throw error;
+    if (!data) return;
 
-      setCustomers((previous) =>
-        data.map((profile) => {
-          const existing = previous.find(
-            (customer) => customer.id === profile.id
-          );
+    const { data: autoSettings, error: autoError } = await supabase
+      .from('customer_auto_lucky_order_settings')
+      .select('user_id, enabled');
 
-          return {
-            ...profile,
-            auto_task_lock: profile.auto_task_lock !== false,
-            auto_lucky_order_enabled:
-              existing?.auto_lucky_order_enabled ?? false,
-          };
-        })
-      );
-    })
-  );
+    if (autoError) throw autoError;
 
+    const settingsMap = new Map(
+      (autoSettings || []).map((setting) => [
+        setting.user_id,
+        setting.enabled === true,
+      ])
+    );
+
+    setCustomers(
+      data.map((profile) => ({
+        ...profile,
+
+        // Existing system bilkul same
+        auto_task_lock: profile.auto_task_lock !== false,
+
+        // Supabase ka actual enabled status
+        auto_lucky_order_enabled: settingsMap.has(profile.id)
+          ? settingsMap.get(profile.id) === true
+          : false,
+      }))
+    );
+  })
+);
 
   // 2. Auto Lucky settings: customers aane ka wait nahi karein.
   tasks.push(
@@ -1582,119 +1593,144 @@ useEffect(() => {
     window.location.href = '/admin/login';
   };
 
-  const handleFundSubmit = async () => {
-    if (!selectedUserForModal || !fundInput) return;
+const handleFundSubmit = async () => {
+  if (!selectedUserForModal || !fundInput) return;
 
-    const val = Number(fundInput);
+  const val = Number(fundInput);
+
+  if (
+    !Number.isFinite(val) ||
+    val <= 0 ||
+    Math.abs(val * 100 - Math.round(val * 100)) > 0.000001
+  ) {
+    showToast(
+      'Enter a valid amount with up to 2 decimal places.',
+      'error'
+    );
+    return;
+  }
+
+  const isAdd = modalType === 'add_funds';
+  const userId = selectedUserForModal.id;
+  const customerNumber = selectedUserForModal.custom_id;
+
+  const previousBalance = Number(
+    selectedUserForModal.balance ?? 0
+  );
+
+  const optimisticBalance =
+    previousBalance + (isAdd ? val : -val);
+
+  // UI foran update — database response ka wait nahi.
+  setCustomers((prev) =>
+    prev.map((customer) =>
+      customer.id === userId
+        ? { ...customer, balance: optimisticBalance }
+        : customer
+    )
+  );
+
+  setSelectedUserForModal((prev) =>
+    prev && prev.id === userId
+      ? { ...prev, balance: optimisticBalance }
+      : prev
+  );
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'admin_adjust_customer_balance_and_lucky_order' as any,
+      {
+        p_target_user_id: userId,
+        p_amount: val,
+        p_action: isAdd ? 'add' : 'deduct',
+        p_note: isAdd
+          ? 'Manual Add Funds by Admin'
+          : 'Manual Deduct Funds by Admin',
+      } as any
+    );
+
+    if (error) throw error;
+
+    const result = data as {
+      success?: boolean;
+      balance_after?: number;
+      amount?: number;
+      action?: string;
+      lucky_order_funding_added?: number;
+      lucky_order_funding_status?: string;
+    } | null;
 
     if (
-      !Number.isFinite(val) ||
-      val <= 0 ||
-      Math.abs(val * 100 - Math.round(val * 100)) > 0.000001
+      !result?.success ||
+      result.balance_after == null ||
+      !Number.isFinite(Number(result.balance_after))
     ) {
-      showToast(
-        'Enter a valid amount with up to 2 decimal places.',
-        'error'
-      );
-      return;
-    }
-
-    const isAdd = modalType === 'add_funds';
-    const userId = selectedUserForModal.id;
-
-    try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError) throw sessionError;
-
-      if (!session) {
-        throw new Error(
-          'Supabase login session missing. Please log out and log in again.'
-        );
-      }
-
-      const { data, error } = await supabase.rpc(
-        'admin_adjust_customer_balance_and_lucky_order' as any,
-        {
-          p_target_user_id: userId,
-          p_amount: val,
-          p_action: isAdd ? 'add' : 'deduct',
-          p_note: isAdd
-            ? 'Manual Add Funds by Admin'
-            : 'Manual Deduct Funds by Admin',
-        } as any
-      );
-
-      if (error) throw error;
-
-      const result = data as {
-        success?: boolean;
-        balance_after?: number;
-        amount?: number;
-        action?: string;
-        lucky_order_funding_added?: number;
-        lucky_order_funding_status?: string;
-      } | null;
-
-      if (
-        !result?.success ||
-        result.balance_after == null ||
-        !Number.isFinite(Number(result.balance_after))
-      ) {
-        throw new Error(
-          'Balance update could not be verified. Please check the database before retrying.'
-        );
-      }
-
-      const newBalance = Number(result.balance_after);
-
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === userId
-            ? { ...customer, balance: newBalance }
-            : customer
-        )
-      );
-
-      setSelectedUserForModal((prev) =>
-        prev && prev.id === userId
-          ? { ...prev, balance: newBalance }
-          : prev
-      );
-
-      const fundingAdded = Number(
-        result.lucky_order_funding_added ?? 0
-      );
-
-      const customerNumber = selectedUserForModal.custom_id;
-
-      if (isAdd && fundingAdded > 0) {
-        showToast(
-          `$${val.toFixed(2)} added to customer #${customerNumber}. ` +
-          `Lucky Order funding recorded: $${fundingAdded.toFixed(2)}. ` +
-          `New balance: $${newBalance.toFixed(2)}`
-        );
-      } else {
-        showToast(
-          `$${val.toFixed(2)} ${isAdd ? 'added to' : 'deducted from'
-          } customer #${customerNumber}. ` +
-          `New balance: $${newBalance.toFixed(2)}`
-        );
-      }
-
-      setFundInput('');
-      setModalType(null);
-    } catch (err: any) {
-      console.error('Manual balance adjustment failed:', err);
-      showToast(
-        err?.message || 'Could not update customer balance.',
-        'error'
+      throw new Error(
+        'Balance update could not be verified. Please check the database before retrying.'
       );
     }
-  };
+
+    // Supabase ki confirmed balance final hogi.
+    const newBalance = Number(result.balance_after);
+
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === userId
+          ? { ...customer, balance: newBalance }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === userId
+        ? { ...prev, balance: newBalance }
+        : prev
+    );
+
+    const fundingAdded = Number(
+      result.lucky_order_funding_added ?? 0
+    );
+
+    if (isAdd && fundingAdded > 0) {
+      showToast(
+        `$${val.toFixed(2)} added to customer #${customerNumber}. ` +
+        `Lucky Order funding recorded: $${fundingAdded.toFixed(2)}. ` +
+        `New balance: $${newBalance.toFixed(2)}`
+      );
+    } else {
+      showToast(
+        `$${val.toFixed(2)} ${isAdd ? 'added to' : 'deducted from'} ` +
+        `customer #${customerNumber}. New balance: $${newBalance.toFixed(2)}`
+      );
+    }
+
+    setFundInput('');
+    setModalType(null);
+
+  } catch (err: any) {
+    console.error('Manual balance adjustment failed:', err);
+
+    // Save fail ho to purani balance restore karein.
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === userId
+          ? { ...customer, balance: previousBalance }
+          : customer
+      )
+    );
+
+    setSelectedUserForModal((prev) =>
+      prev && prev.id === userId
+        ? { ...prev, balance: previousBalance }
+        : prev
+    );
+
+    showToast(
+      err?.message || 'Could not update customer balance.',
+      'error'
+    );
+  }
+};
 
   const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
 
@@ -3359,11 +3395,7 @@ const handleManualTaskLockToggle = async (
 
     if (error) throw error;
 
-    showToast(
-      locked
-        ? 'Customer manual tasks locked.'
-        : 'Customer manual tasks unlocked.'
-    );
+   
   } catch (err: unknown) {
     // Database save fail ho to rollback
     setCustomers((prev) =>
@@ -3396,9 +3428,24 @@ const handleAutoLuckyOrderToggle = async (
   const previousValue =
     customer.auto_lucky_order_enabled === true;
 
-  let optimisticUpdateApplied = false;
+let optimisticUpdateApplied = true;
 
-  try {
+// Slider foran update karein.
+setCustomers((prev) =>
+  prev.map((item) =>
+    item.id === customer.id
+      ? { ...item, auto_lucky_order_enabled: enabled }
+      : item
+  )
+);
+
+setSelectedUserForModal((prev) =>
+  prev && prev.id === customer.id
+    ? { ...prev, auto_lucky_order_enabled: enabled }
+    : prev
+);
+
+try {
     // 1. Current logged-in user verify karein.
     const { data: authData, error: authError } =
       await supabase.auth.getUser();
@@ -3492,23 +3539,7 @@ console.log('AUTO LUCKY ADMIN CHECK:', {
       );
     }
 
-    // 5. Sirf selected customer ka UI update karein.
-    setCustomers((prev) =>
-      prev.map((item) =>
-        item.id === customer.id
-          ? { ...item, auto_lucky_order_enabled: enabled }
-          : item
-      )
-    );
-
-    setSelectedUserForModal((prev) =>
-      prev && prev.id === customer.id
-        ? { ...prev, auto_lucky_order_enabled: enabled }
-        : prev
-    );
-
-    optimisticUpdateApplied = true;
-
+  
     // 6. Sirf isi customer ka enabled update karein.
     // Saved slots bilkul change nahi honge.
     const { data: updatedRows, error: updateError } =
@@ -3531,12 +3562,7 @@ console.log('AUTO LUCKY ADMIN CHECK:', {
       );
     }
 
-    showToast(
-      enabled
-        ? 'Customer Auto Lucky Slots enabled successfully.'
-        : 'Customer Auto Lucky Slots disabled successfully.'
-    );
-
+  
   } catch (err: unknown) {
     console.error(
       'Auto Lucky Order toggle failed:',
@@ -3708,11 +3734,8 @@ const handleAutoTaskLockToggle = async (
 
     if (error) throw error;
 
-    showToast(
-      shouldLock
-        ? 'Customer auto tasks locked.'
-        : 'Customer auto tasks unlocked.'
-    );
+ 
+ 
   } catch (err: unknown) {
     // Save fail ho to purani value restore
     setCustomers((prev) =>

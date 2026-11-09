@@ -300,10 +300,79 @@ useEffect(() => {
 
   let isMounted = true;
 
-  const fetchUserProfileAndData = async () => {
+const fetchUserProfileAndData = async () => {
+
+  // 1. PROFILE: Do not wait for products
+  void (async () => {
     try {
-      // 1. Products load
-      const { data: prodData, error: prodError } = await supabase
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Profile loading failed:', error);
+        return;
+      }
+
+      if (!data || !isMounted) return;
+
+      setBalance(Number(data.balance) || 0);
+      setTodayCommission(Number(data.total_profits) || 0);
+      setRunningTasksVal(Number(data.running_tasks) || 0);
+
+      if (data.email) setUserEmail(data.email);
+      if (data.phone) setUserPhone(data.phone);
+
+      setMyInviteCode(
+        String(data.user_invite_code || data.invitation_code || '').trim()
+      );
+
+      if (data.completed_tasks !== undefined) {
+        setCompletedTasks(data.completed_tasks);
+      }
+
+      if (data.vip_level) setActiveVipLevel(data.vip_level);
+
+      if (data.withdraw_message) {
+        setWithdrawLockedMsg(data.withdraw_message);
+      }
+
+      if (data.is_frozen !== undefined) {
+        setIsAccountFrozen(Boolean(data.is_frozen));
+      }
+
+      if (data.auto_task_lock !== undefined) {
+        setIsAutoTaskLocked(Boolean(data.auto_task_lock));
+      }
+
+      setIsWithdrawLocked(Boolean(data.withdraw_locked));
+      setCurrentTask(data.pending_task ?? null);
+
+      if (
+        data.trc20 ||
+        data.trc20_address ||
+        data.account_number ||
+        data.bank_name
+      ) {
+        setTrc20Address(data.trc20_address || data.trc20 || '');
+        setErc20Address(data.erc20 || '');
+        setBankName(data.bank_name || '');
+        setAccountNumber(data.account_number || '');
+        setIsWalletAlreadyBound(true);
+      }
+
+    } catch (error) {
+      console.error('Profile loading error:', error);
+    }
+  })();
+
+
+  // 2. PRODUCTS: Load independently in background
+  void (async () => {
+    try {
+      const { data, error } = await supabase
         .from('products')
         .select('*')
         .eq('is_active', true)
@@ -313,87 +382,43 @@ useEffect(() => {
         })
         .order('id', { ascending: true });
 
-      if (prodError) {
-        console.error('Products loading failed:', prodError);
-      } else if (prodData && isMounted) {
-        setDbProducts(prodData);
+      if (error) {
+        console.error('Products loading failed:', error);
+      } else if (data && isMounted) {
+        setDbProducts(data);
       }
 
-      // 2. Profile load
-      const { data, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
+    } catch (error) {
+      console.error('Products loading error:', error);
+    }
+  })();
 
-      if (profileError) {
-        console.error('Profile loading failed:', profileError);
-      }
 
-      if (data && isMounted) {
-        setBalance(Number(data.balance) || 0);
-        setTodayCommission(Number(data.total_profits) || 0);
-        setRunningTasksVal(Number(data.running_tasks) || 0);
-        if (data.email) setUserEmail(data.email);
-        if (data.phone) setUserPhone(data.phone);
+  // 3. SETTINGS + DEPOSIT + WITHDRAWAL: Load in parallel
+  void (async () => {
+    try {
+      const [
+        settingsResult,
+        depositsResult,
+        withdrawalsResult,
+      ] = await Promise.all([
+        supabase
+          .from('system_settings')
+          .select('deposit_trc20_address')
+          .maybeSingle(),
 
-        setMyInviteCode(
-          String(data.user_invite_code || data.invitation_code || '').trim()
-        );
+        supabase
+          .from('deposits')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
 
-        if (data.completed_tasks !== undefined) {
-          setCompletedTasks(data.completed_tasks);
-        }
-
-        if (data.vip_level) setActiveVipLevel(data.vip_level);
-        if (data.withdraw_message) {
-          setWithdrawLockedMsg(data.withdraw_message);
-        }
-
-        if (data.is_frozen !== undefined) {
-          setIsAccountFrozen(Boolean(data.is_frozen));
-        }
-
-        if (data.auto_task_lock !== undefined) {
-          setIsAutoTaskLocked(Boolean(data.auto_task_lock));
-        }
-
-        setCurrentTask(data.pending_task ?? null);
-
-        if (
-          data.trc20 ||
-          data.trc20_address ||
-          data.account_number ||
-          data.bank_name
-        ) {
-          setTrc20Address(data.trc20_address || data.trc20 || '');
-          setErc20Address(data.erc20 || '');
-          setBankName(data.bank_name || '');
-          setAccountNumber(data.account_number || '');
-          setIsWalletAlreadyBound(true);
-        }
-      }
-
-      // 3. Settings, deposits and withdrawals load together
-      const [settingsResult, depositsResult, withdrawalsResult] =
-        await Promise.all([
-          supabase
-            .from('system_settings')
-            .select('deposit_trc20_address')
-            .maybeSingle(),
-
-          supabase
-            .from('deposits')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false }),
-
-          supabase
-            .from('withdrawals')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false }),
-        ]);
+        supabase
+          .from('withdrawals')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+      ]);
 
       if (!isMounted) return;
 
@@ -419,10 +444,13 @@ useEffect(() => {
       } else {
         setWithdrawHistory(withdrawalsResult.data ?? []);
       }
+
     } catch (error) {
-      console.error('Customer dashboard loading failed:', error);
+      console.error('Customer history loading error:', error);
     }
-  };
+  })();
+
+};
 
   void fetchUserProfileAndData();
 

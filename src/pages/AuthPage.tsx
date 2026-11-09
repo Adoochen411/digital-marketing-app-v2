@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 export const AuthPage: React.FC = () => {
   const { signIn } = useAuth();
   const navigate = useNavigate();
+
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -15,6 +17,9 @@ export const AuthPage: React.FC = () => {
   const [userCaptchaInput, setUserCaptchaInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [verificationStatus, setVerificationStatus] =
+    useState<'verifying' | 'success' | null>(null);
 
   const generateCaptcha = () => {
     setCaptchaCode(
@@ -26,47 +31,75 @@ export const AuthPage: React.FC = () => {
     generateCaptcha();
   }, [isLogin]);
 
+
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+if (loading) return;
 
-    if (loading) return;
+console.log('AUTH BUTTON CLICKED');
+
+// Force React to render verification card immediately.
+flushSync(() => {
+  setLoading(true);
+  setError(null);
+  setVerificationStatus('verifying');
+});
+
+// Give browser time to paint the card before Supabase requests.
+await new Promise(resolve => setTimeout(resolve, 100));
 
     const cleanUsername = username.trim();
     const cleanEmail = email.trim().toLowerCase();
     const userEnteredCode = invitationCode.trim().toUpperCase();
 
-    if (!cleanUsername || !password) {
-      setError('Please enter your username and password.');
-      return;
-    }
-
-    if (
-      isLogin &&
-      userCaptchaInput.trim() !== captchaCode
-    ) {
-      setError('Invalid Verification Code (Captcha).');
-      generateCaptcha();
-      setUserCaptchaInput('');
-      return;
-    }
-
-    setLoading(true);
-
     try {
+      // COMMON VALIDATION
+      if (!cleanUsername || !password) {
+        throw new Error(
+          'Please enter your username and password.'
+        );
+      }
+
+      // LOGIN CAPTCHA VALIDATION
+      if (
+        isLogin &&
+        userCaptchaInput.trim() !== captchaCode
+      ) {
+        throw new Error(
+          'Invalid Verification Code (Captcha).'
+        );
+      }
+
+      // =====================================
       // LOGIN
+      // =====================================
       if (isLogin) {
         await signIn(cleanUsername, password);
-        // Login notification flag
-        localStorage.setItem('auth_notification', 'welcome_login');
-        navigate('/dashboard', { 
-          replace: true, 
-          state: { notification: 'welcome_login' } 
+
+        setVerificationStatus('success');
+
+        await new Promise(resolve =>
+          setTimeout(resolve, 1200)
+        );
+
+        localStorage.setItem(
+          'auth_notification',
+          'welcome_login'
+        );
+
+        navigate('/dashboard', {
+          replace: true,
+          state: { notification: 'welcome_login' }
         });
+
         return;
       }
 
+      // =====================================
       // REGISTRATION VALIDATION
+      // =====================================
+
       if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
         throw new Error(
           'Username must be 3-30 characters and contain only English letters, numbers, or underscores.'
@@ -85,20 +118,43 @@ export const AuthPage: React.FC = () => {
         );
       }
 
-      // CHECK USERNAME
-      const {
-        data: usernameMatch,
-        error: usernameCheckError,
-      } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('username', cleanUsername)
-        .limit(1);
+      // =====================================
+      // CHECK USERNAME, EMAIL AND MAIN CODE
+      // =====================================
 
-      if (usernameCheckError) {
+      const [
+        usernameResult,
+        mainSettingResult,
+        emailResult,
+      ] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id')
+          .ilike('username', cleanUsername)
+          .limit(1),
+
+        supabase
+          .from('system_settings')
+          .select('main_invite_code')
+          .eq('id', 1)
+          .maybeSingle(),
+
+        cleanEmail
+          ? supabase
+              .from('profiles')
+              .select('id')
+              .ilike('email', cleanEmail)
+              .limit(1)
+          : Promise.resolve({
+              data: [],
+              error: null,
+            }),
+      ]);
+
+      if (usernameResult.error) {
         console.error(
           'Username check error:',
-          usernameCheckError
+          usernameResult.error
         );
 
         throw new Error(
@@ -106,42 +162,52 @@ export const AuthPage: React.FC = () => {
         );
       }
 
-      if (usernameMatch && usernameMatch.length > 0) {
+      if (usernameResult.data?.length) {
         throw new Error(
           'This username is already registered. Please choose another username.'
         );
       }
 
-      // VALIDATE MAIN ADMIN OR SUB-ADMIN INVITATION CODE
+      if (mainSettingResult.error) {
+        console.error(
+          'Main invitation lookup error:',
+          mainSettingResult.error
+        );
+
+        throw new Error(
+          `Main invitation lookup failed: ${mainSettingResult.error.message}`
+        );
+      }
+
+      if (emailResult.error) {
+        console.error(
+          'Email check error:',
+          emailResult.error
+        );
+
+        throw new Error(
+          'Could not verify email availability. Please try again.'
+        );
+      }
+
+      if (emailResult.data?.length) {
+        throw new Error(
+          'This email is already registered. Please use another email.'
+        );
+      }
+
+      // =====================================
+      // VALIDATE MAIN ADMIN / SUB-ADMIN CODE
+      // =====================================
+
       let matchedSubAdminId: string | null = null;
 
       const normalizedCode = userEnteredCode
         .trim()
         .toUpperCase();
 
-      // Check Main Admin invitation code first.
-      const {
-        data: mainSetting,
-        error: settingError,
-      } = await supabase
-        .from('system_settings')
-        .select('main_invite_code')
-        .eq('id', 1)
-        .maybeSingle();
-
-      if (settingError) {
-        console.error(
-          'Main invitation lookup error:',
-          settingError
-        );
-
-        throw new Error(
-          `Main invitation lookup failed: ${settingError.message}`
-        );
-      }
-
       const mainCode = String(
-        mainSetting?.main_invite_code ?? ''
+        mainSettingResult.data?.main_invite_code ?? ''
       )
         .trim()
         .toUpperCase();
@@ -151,7 +217,6 @@ export const AuthPage: React.FC = () => {
 
       let isValidSub = false;
 
-      // Only check Sub-Admin invitation if Main Admin code did not match.
       if (!isValidMain) {
         const {
           data: subAdminMatch,
@@ -174,10 +239,7 @@ export const AuthPage: React.FC = () => {
           );
         }
 
-        if (
-          subAdminMatch &&
-          subAdminMatch.length > 1
-        ) {
+        if (subAdminMatch && subAdminMatch.length > 1) {
           throw new Error(
             'This invitation code is duplicated. Please contact the administrator.'
           );
@@ -198,46 +260,22 @@ export const AuthPage: React.FC = () => {
         );
       }
 
-      // CHECK EMAIL IF PROVIDED
-      if (cleanEmail) {
-        const {
-          data: emailMatch,
-          error: emailCheckError,
-        } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('email', cleanEmail)
-          .limit(1);
+      // =====================================
+      // PREPARE CUSTOMER ACCOUNT
+      // =====================================
 
-        if (emailCheckError) {
-          console.error(
-            'Email check error:',
-            emailCheckError
-          );
-
-          throw new Error(
-            'Could not verify email availability. Please try again.'
-          );
-        }
-
-        if (emailMatch && emailMatch.length > 0) {
-          throw new Error(
-            'This email is already registered. Please use another email.'
-          );
-        }
-      }
-
-      // USE SUPPLIED EMAIL OR USERNAME-BASED EMAIL
       const userEmail =
         cleanEmail ||
         `${cleanUsername.toLowerCase()}@appuser.local`;
 
-      // GENERATE CUSTOMER INVITATION CODE
       const uniqueOwnDashboardCode =
         'M' +
         Math.floor(10000 + Math.random() * 90000);
 
-      // CREATE AUTH ACCOUNT
+      // =====================================
+      // CREATE SUPABASE AUTH ACCOUNT
+      // =====================================
+
       const {
         data: authData,
         error: authErr,
@@ -265,9 +303,7 @@ export const AuthPage: React.FC = () => {
 
         if (
           authErrorMessage.includes('already registered') ||
-          authErrorMessage.includes(
-            'already been registered'
-          ) ||
+          authErrorMessage.includes('already been registered') ||
           authErrorMessage.includes('already exists')
         ) {
           throw new Error(
@@ -284,49 +320,54 @@ export const AuthPage: React.FC = () => {
         );
       }
 
-      // EMAIL CONFIRMATION MAY BE REQUIRED BY SUPABASE
+      // Email confirmation is expected to be disabled.
+      // Without an active session, do not falsely report success.
       if (!authData.session) {
-        setError(
-          'Account created. Please check your email for confirmation, then log in.'
+        throw new Error(
+          'Account was created but no active session was returned. Please check that email confirmation is disabled in Supabase Auth settings.'
         );
-
-        setIsLogin(true);
-        setPassword('');
-        setUserCaptchaInput('');
-        generateCaptcha();
-        return;
       }
 
-      // SIGN IN AFTER REGISTRATION
-      await signIn(userEmail, password);
-     
-     // SAVE CUSTOMER REGISTRATION LOCATION
-try {
-  const { data: locationData, error: locationError } =
-    await supabase.functions.invoke(
-      'capture-registration-location',
-      {
-        body: {},
-      }
-    );
+      // =====================================
+      // REGISTRATION SUCCESS
+      // =====================================
 
-  if (locationError) {
-    console.error('Location capture error:', locationError.message);
-  } else {
-    console.log('Location capture result:', locationData);
-  }
-} catch (locationError) {
-  console.error('Location capture failed:', locationError);
-}
-     
-     
-     
-      // Registration notification flag
-      localStorage.setItem('auth_notification', 'welcome_register');
-      navigate('/dashboard', { 
-        replace: true, 
-        state: { notification: 'welcome_register' } 
+      setVerificationStatus('success');
+
+      await new Promise(resolve =>
+        setTimeout(resolve, 1200)
+      );
+
+      localStorage.setItem(
+        'auth_notification',
+        'welcome_register'
+      );
+
+      navigate('/dashboard', {
+        replace: true,
+        state: { notification: 'welcome_register' }
       });
+
+      // Capture registration location in background.
+      void supabase.functions.invoke(
+        'capture-registration-location',
+        {
+          body: {},
+        }
+      ).then(({ error }) => {
+        if (error) {
+          console.error(
+            'Location capture error:',
+            error.message
+          );
+        }
+      }).catch((locationError) => {
+        console.error(
+          'Location capture failed:',
+          locationError
+        );
+      });
+
     } catch (err: unknown) {
       console.error('Authentication error:', err);
 
@@ -336,15 +377,18 @@ try {
           : 'Authentication failed. Please try again.';
 
       setError(message);
+      setVerificationStatus(null);
+
       generateCaptcha();
       setUserCaptchaInput('');
+
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#02091d] flex items-center justify-center p-4 relative font-sans overflow-x-hidden">
+<div className="w-full min-h-screen min-h-[100dvh] bg-[#02091d] flex items-center justify-center p-3 sm:p-4 relative font-sans overflow-x-hidden">
       <div
         className="fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none z-0 opacity-20 mix-blend-screen"
         style={{
@@ -355,7 +399,73 @@ try {
 
       <div className="fixed inset-0 bg-gradient-to-b from-[#02091d]/90 via-[#051642]/85 to-[#010617]/95 pointer-events-none z-0" />
 
+      {/* VERIFICATION AND SUCCESS CARD */}
+{/* VERIFICATION AND SUCCESS CARD */}
+{verificationStatus && (
+  <div
+    className="fixed inset-0 flex items-center justify-center p-4 bg-[#02091d]/75 backdrop-blur-sm"
+    style={{ zIndex: 999999 }}
+  >
+    <div className="w-full max-w-[290px] p-6 rounded-2xl bg-slate-950 border-2 border-cyan-400/70 shadow-[0_0_35px_rgba(6,182,212,0.45)] text-center relative overflow-hidden">
+
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500" />
+
+      {verificationStatus === 'verifying' ? (
+        <>
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full border-4 border-cyan-400/20 border-t-cyan-400 animate-spin shadow-[0_0_18px_rgba(6,182,212,0.35)]" />
+
+          <h3 className="text-lg font-black text-cyan-300 tracking-wide">
+            Verifying...
+          </h3>
+
+          <p className="text-xs text-sky-100/80 mt-2">
+            Please wait while we verify your information and process your account.
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-cyan-400/15 border-2 border-cyan-400 flex items-center justify-center">
+            <svg
+              className="w-8 h-8 text-cyan-300"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </div>
+
+          <h3 className="text-lg font-black text-cyan-300">
+            {isLogin
+              ? 'Login Successful!'
+              : 'Registration Successful!'}
+          </h3>
+
+          <p className="text-xs text-sky-100/80 mt-2">
+            {isLogin
+              ? 'Your login has been verified successfully.'
+              : 'Your account has been created successfully.'}
+          </p>
+        </>
+      )}
+
+      <div className="mt-5 h-1 w-full rounded-full bg-blue-950 overflow-hidden">
+        <div className="h-full w-full bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500 animate-pulse" />
+      </div>
+
+    </div>
+  </div>
+)}
+      {/* EXISTING AUTH CARD */}
+     
+     
       <div className="bg-slate-950/90 border border-blue-500/40 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-[0_0_50px_rgba(6,182,212,0.25)] relative z-10 backdrop-blur-xl">
+
         <div className="text-center space-y-1.5">
           <h1 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-200 to-blue-400 uppercase tracking-wide">
             Digital Marketing
@@ -365,7 +475,6 @@ try {
             E COMMERCE
           </p>
 
-          {/* DIGITAL MARKETING LOGO */}
           <div className="pt-2">
             <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden border-2 border-cyan-400/50 p-0.5 bg-gradient-to-tr from-cyan-500 via-blue-600 to-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.4)]">
               <div className="w-full h-full bg-slate-950 rounded-[14px] flex flex-col items-center justify-center p-1 text-center relative overflow-hidden">
@@ -532,16 +641,20 @@ try {
                 ? 'LOGIN ➔'
                 : 'REGISTER ACCOUNT ➔'}
           </button>
+   
         </form>
 
         <div className="pt-2 text-center border-t border-slate-900">
           <button
             type="button"
             onClick={() => {
+              if (loading) return;
+
               setIsLogin(!isLogin);
               setError(null);
               setPassword('');
               setUserCaptchaInput('');
+              setVerificationStatus(null);
             }}
             className="text-xs font-semibold text-cyan-400 hover:underline"
           >
@@ -550,6 +663,7 @@ try {
               : 'Already have an account? Login here'}
           </button>
         </div>
+
       </div>
     </div>
   );

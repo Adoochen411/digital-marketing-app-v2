@@ -3247,8 +3247,8 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
       </h3>
 
       {/* PAYMENT METHOD */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
+<div className="grid grid-cols-2 gap-1.5">
+          <button
           type="button"
           onClick={() => setPaymentMethod('trc20')}
           className={`rounded-xl border p-2 text-xs font-bold ${
@@ -3274,7 +3274,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 
       {/* TRC20 DETAILS */}
       {paymentMethod === 'trc20' && (
-        <div className="text-center space-y-2 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+        <div className="text-center space-y-2 bg-[#18150a] p-2 rounded-2xl border border-[#d4af37]/40">
           <p className="text-[10px] text-[#d4af37] uppercase font-bold">
             TRC20 Deposit Address
           </p>
@@ -3308,7 +3308,7 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
     
 {/* BANK DETAILS */}
 {depositStep === 1 && paymentMethod === 'bank' && (
-  <div className="space-y-3 bg-[#18150a] p-3 rounded-2xl border border-[#d4af37]/40">
+  <div className="space-y-3 bg-[#18150a] p-2 rounded-2xl border border-[#d4af37]/40">
     <p className="text-[10px] text-[#d4af37] uppercase font-bold">
       Bank Transfer Details
     </p>
@@ -3429,7 +3429,7 @@ readOnly={isLuckyOrderDeposit}
         </p>
 
         <p className="text-[10px] text-gray-400 mt-2">Deposit Amount</p>
-        <p className="text-lg font-black text-[#d4af37]">
+        <p className="text-base  font-black text-[#d4af37]">
           ${Number(depositAmount).toFixed(2)}
         </p>
       </div>
@@ -3720,9 +3720,8 @@ readOnly={isLuckyOrderDeposit}
 
          
 {/* PROFESSIONAL PRODUCT CARD */}
-<div className="relative w-full overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#17130b] via-[#090909] to-[#17130b] p-3 sm:p-4 shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
-
-  <div className="flex items-center justify-between gap-2 mb-3">
+<div className="relative box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#17130b] via-[#090909] to-[#17130b] p-2 sm:p-4 shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
+  <div className="flex items-center justify-between gap-2 mb-2">
     <div>
       <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-amber-400/80">
         Featured Collection
@@ -3738,7 +3737,7 @@ readOnly={isLuckyOrderDeposit}
   </div>
  
 {/* PRODUCT IMAGE - FULL WIDTH PROFESSIONAL */}
-<div className="relative w-full h-[260px] sm:h-[300px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
+<div className="relative w-full  h-[180px] xs:h-[200px] sm:h-[260px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
 
   <img
     src={currentTask.imageUrl}
@@ -3772,7 +3771,7 @@ readOnly={isLuckyOrderDeposit}
     </div>
 
 {/* DIGITAL MARKETING ACTIVITY LOGS */}
-<div className="mt-2 w-full overflow-hidden rounded-lg border border-amber-400/20 bg-[#080808] py-2">
+<div className="mt-1.5 w-full overflow-hidden rounded-lg border border-amber-400/20 bg-[#080808] py-1.5">
 
   <div className="mb-1 flex items-center gap-1.5 px-2">
     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -3831,8 +3830,8 @@ readOnly={isLuckyOrderDeposit}
 
 </div>
 
-    <h3 className="mt-1.5 break-words text-base font-black leading-snug tracking-wide text-white sm:text-lg">
-      {currentTask.name}
+<h3 className="mt-1.5 break-words text-sm sm:text-lg font-black leading-tight tracking-wide text-white">
+        {currentTask.name}
     </h3>
 
     <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 p-3">
@@ -3910,44 +3909,31 @@ readOnly={isLuckyOrderDeposit}
 )}
          
 {/* PROFESSIONAL RATING + COMMISSION */}
-<div className="grid grid-cols-2 gap-2">
-
-  <div className="rounded-xl border border-amber-400/25 bg-gradient-to-br from-[#211900] to-[#090909] p-3 text-center">
-    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
-      Product Rating
+<div className="mt-2 grid grid-cols-2 overflow-hidden rounded-xl border border-white/10 bg-black/40">
+  
+  <div className="flex min-w-0 flex-col items-center justify-center border-r border-white/10 px-2 py-2">
+    <p className="text-[8px] font-semibold uppercase tracking-wider text-gray-400">
+      Product Price
     </p>
 
-    <p className="mt-1 text-lg font-black text-amber-300">
-      4.9 <span className="text-xs text-gray-400">/ 5</span>
-    </p>
-
-    <div className="mt-1 text-sm tracking-[2px] text-amber-400">
-      ★★★★★
-    </div>
-
-    <p className="mt-1 text-[8px] font-semibold text-gray-400">
-      Premium Rating
-    </p>
-  </div>
-
-  <div className="rounded-xl border border-emerald-400/25 bg-gradient-to-br from-[#06251a] to-[#090909] p-3 text-center">
-    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
-      Commission Earned
-    </p>
-
-    <p className="mt-2 text-lg font-black text-emerald-400">
-      +${Number(currentTask.commission || 0).toLocaleString('en-US', {
+    <p className="mt-0.5 text-base sm:text-xl font-black tracking-tight text-amber-300">
+      ${Number(currentTask.price || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
       })}
     </p>
+  </div>
 
-    <p className="mt-2 text-[8px] font-semibold text-emerald-300/70">
-      Task Commission
+  <div className="flex min-w-0 flex-col items-center justify-center px-2 py-2">
+    <p className="text-[8px] font-semibold uppercase tracking-wider text-gray-400">
+      Task Reference
+    </p>
+
+    <p className="mt-0.5 text-sm font-bold text-white">
+      #{currentTask.id}
     </p>
   </div>
 
 </div>
-
           {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
           {currentTask.isLucky && typeof runningTasksVal !== 'undefined' && runningTasksVal < 0 && (
             <div className="rounded-lg border border-red-500/80 bg-gradient-to-r from-[#260000] via-[#690b0b] to-[#260000] p-1.5 shadow-[0_0_10px_rgba(220,38,38,0.2)]">

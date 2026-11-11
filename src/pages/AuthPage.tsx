@@ -123,46 +123,50 @@ await new Promise(resolve => setTimeout(resolve, 100));
       // =====================================
 
       const [
-        usernameResult,
+        availabilityResult,
         mainSettingResult,
-        emailResult,
       ] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id')
-          .ilike('username', cleanUsername)
-          .limit(1),
+        supabase.rpc(
+          'check_registration_availability',
+          {
+            p_username: cleanUsername,
+            p_email: cleanEmail || null,
+          }
+        ),
 
         supabase
           .from('system_settings')
           .select('main_invite_code')
           .eq('id', 1)
           .maybeSingle(),
-
-        cleanEmail
-          ? supabase
-              .from('profiles')
-              .select('id')
-              .ilike('email', cleanEmail)
-              .limit(1)
-          : Promise.resolve({
-              data: [],
-              error: null,
-            }),
       ]);
 
-      if (usernameResult.error) {
+      if (availabilityResult.error) {
         console.error(
-          'Username check error:',
-          usernameResult.error
+          'Username/email availability RPC error:',
+          availabilityResult.error
         );
 
         throw new Error(
-          'Could not verify username availability. Please try again.'
+          `Could not verify username availability: ${availabilityResult.error.message}`
         );
       }
 
-      if (usernameResult.data?.length) {
+      const availability =
+        availabilityResult.data?.[0];
+
+      if (!availability) {
+        console.error(
+          'Availability RPC returned no result:',
+          availabilityResult.data
+        );
+
+        throw new Error(
+          'Username availability check returned no result. Please try again.'
+        );
+      }
+
+      if (availability.username_exists) {
         throw new Error(
           'This username is already registered. Please choose another username.'
         );
@@ -179,18 +183,7 @@ await new Promise(resolve => setTimeout(resolve, 100));
         );
       }
 
-      if (emailResult.error) {
-        console.error(
-          'Email check error:',
-          emailResult.error
-        );
-
-        throw new Error(
-          'Could not verify email availability. Please try again.'
-        );
-      }
-
-      if (emailResult.data?.length) {
+      if (availability.email_exists) {
         throw new Error(
           'This email is already registered. Please use another email.'
         );

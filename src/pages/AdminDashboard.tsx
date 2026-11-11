@@ -1571,11 +1571,19 @@ useEffect(() => {
       { event: '*', schema: 'public', table: 'custom_tasks' },
       () => void refreshAdminData()
     )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        void refreshAdminChat();
-      }
-    });
+ .subscribe((status, error) => {
+  console.log('Admin Realtime Status:', status);
+
+  if (status === 'SUBSCRIBED') {
+    console.log('Admin Realtime Connected');
+    void refreshAdminData();
+    void refreshAdminChat();
+  }
+
+  if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+    console.error('Admin Realtime Error:', error);
+  }
+});
 
   window.addEventListener('online', handleAdminOnline);
 

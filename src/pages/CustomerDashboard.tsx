@@ -80,7 +80,7 @@ const [selectedSupportImageUrl, setSelectedSupportImageUrl] =
   useState<string | null>(null);
   const usernameDisplay = user?.user_metadata?.username || userEmail.split('@')[0] || 'User';
   const emailDisplay = userEmail.includes('@appuser.local') ? `${usernameDisplay} (Active)` : userEmail;
-
+const [originalUserPhone, setOriginalUserPhone] = useState('');
   const [balance, setBalance] = useState<number>(0.00);
   const [completedTasks, setCompletedTasks] = useState<number>(0);
   const [todayCommission, setTodayCommission] = useState<number>(0.00);
@@ -324,7 +324,11 @@ const fetchUserProfileAndData = async () => {
 
       if (data.email) setUserEmail(data.email);
       if (data.phone) setUserPhone(data.phone);
-
+      
+      
+      setOriginalUserPhone(data.phone || '');
+      
+      
       setMyInviteCode(
         String(data.user_invite_code || data.invitation_code || '').trim()
       );
@@ -1728,138 +1732,22 @@ let selectedLuckyProd = luckyGalleryProducts.find(
 
       setRunningTasksVal(displayNegativeAmt);
     } else {
-      // 7. Normal product task
-      if (assignedBatchProducts.length === 0) {
-        showToast(
-          `Batch ${currentBatchNumber} mein koi active product assigned nahi hai. Admin se products assign karwayein.`,
-          'error'
-        );
-        return;
-      }
-
-      if (balance <= 0) {
-        showToast(
-          'Insufficient balance! Please make a deposit request.',
-          'error'
-        );
-        setShowDepositModal(true);
-        return;
-      }
-
-
-const allActiveBatchProducts = dbProducts
-  .filter(
-    (product: any) =>
-      Number(product.rotation_batch) >= 1 &&
-      Number(product.rotation_batch) <= 10 &&
-      product.is_active !== false
-  )
-  .sort(
-    (a: any, b: any) =>
-      Number(a.rotation_batch) - Number(b.rotation_batch) ||
-      Number(a.id) - Number(b.id)
-  );
-
-if (allActiveBatchProducts.length === 0) {
-  showToast('No active normal products are available.', 'error');
-  return;
-}
-const rotationStartedAt = performance.now();
-
-const {
-  data: rotatingProducts,
-  error: rotationError,
-} = await supabase.rpc('get_next_rotating_product');
-
-console.log(
-  '[TASK SPEED] Product rotation RPC:',
-  Math.round(performance.now() - rotationStartedAt),
-  'ms'
+   // 7. Normal product task — backend se grab
+const { data, error } = await supabase.rpc(
+  'grab_normal_customer_task'
 );
-if (rotationError) {
-  console.error('Shared product rotation failed:', rotationError);
+
+if (error || !data?.success || !data?.task) {
+  console.error('Normal task RPC failed:', error);
   showToast(
-    'Could not select the next product. Please try again.',
+    error?.message || 'Could not load task. Please try again.',
     'error'
   );
   return;
 }
 
-const selectedOfficialProd = Array.isArray(rotatingProducts)
-  ? rotatingProducts[0]
-  : rotatingProducts;
-
-if (!selectedOfficialProd) {
-  showToast('No active normal products are available.', 'error');
-  return;
-}
-
-const vipLevel = String(activeVipLevel);
-
-let minCommissionCents = 50;
-let maxCommissionCents = 75;
-
-if (vipLevel.includes('VIP 3')) {
-  minCommissionCents = 100;
-  maxCommissionCents = 1200;
-} else if (vipLevel.includes('VIP 2')) {
-  minCommissionCents = 100;
-  maxCommissionCents = 1000;
-} else if (vipLevel.includes('VIP 1')) {
-  minCommissionCents = 100;
-  maxCommissionCents = 500;
-}
-
-const calculatedCommission =
-  (
-    Math.floor(
-      Math.random() *
-        (maxCommissionCents - minCommissionCents + 1)
-    ) + minCommissionCents
-  ) / 100;
-
-const itemPrice = Number(selectedOfficialProd.price);
-
-if (!Number.isFinite(itemPrice) || itemPrice < 0) {
-  showToast(
-    'Product price is invalid. Please contact customer support.',
-    'error'
-  );
-  return;
-}
-
-      grabbedProduct = {
-        id: nextTaskNum,
-        name: selectedOfficialProd.name,
-        store: selectedOfficialProd.store || 'Amazon',
-        price: itemPrice,
-        commission: calculatedCommission,
-        rating: 5,
-        imageUrl:
-          selectedOfficialProd.image_url ||
-          selectedOfficialProd.imageUrl,
-        isLucky: false,
-      };
-
-     const saveTaskStartedAt = performance.now();
-
-const { error: profileError } = await supabase
-  .from('profiles')
-  .update({
-    pending_task: grabbedProduct,
-    running_tasks: 0,
-  })
-  .eq('id', user.id);
-
-console.log(
-  '[TASK SPEED] Profile save:',
-  Math.round(performance.now() - saveTaskStartedAt),
-  'ms'
-);
-
-      if (profileError) throw profileError;
-
-      setRunningTasksVal(0);
+grabbedProduct = data.task as ProductTask;
+setRunningTasksVal(0);
     }
 
     setCurrentTask(grabbedProduct);
@@ -1876,42 +1764,43 @@ console.log(
 };
 
 const handleConfirmTask = async () => {
-if (!user || !currentTask) return;
-if (isGrabbing) return;
+  if (!user || !currentTask) return;
+  if (isGrabbing) return;
 
-// MANUAL TASK LOCK: Existing task bhi confirm nahi ho sakega
-const { data: taskLockProfile, error: taskLockError } = await supabase
-  .from('profiles')
-  .select('manual_task_lock')
-  .eq('id', user.id)
-  .single();
+  // MANUAL TASK LOCK: Existing task bhi confirm nahi ho sakega
+  const { data: taskLockProfile, error: taskLockError } = await supabase
+    .from('profiles')
+    .select('manual_task_lock')
+    .eq('id', user.id)
+    .single();
 
-if (taskLockError || !taskLockProfile) {
-  showToast('Please refresh the page and try again.', 'error');
-  return;
-}
+  if (taskLockError || !taskLockProfile) {
+    showToast('Please refresh the page and try again.', 'error');
+    return;
+  }
 
-if (taskLockProfile.manual_task_lock === true) {
-  showToast('Please refresh the page and try again.', 'error');
-  return;
-}
+  if (taskLockProfile.manual_task_lock === true) {
+    showToast('Please refresh the page and try again.', 'error');
+    return;
+  }
 
-setIsGrabbing(true);
+  setIsGrabbing(true);
+
   try {
-    // LUCKY ORDER: completion, commission aur balance ek RPC transaction mein
+    // LUCKY ORDER: Existing secure backend completion
     if (currentTask.isLucky) {
-     const customTaskId = currentTask.customTaskId;
+      const customTaskId = currentTask.customTaskId;
 
-if (
-  typeof customTaskId !== 'string' ||
-  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customTaskId)
-) {
-  showToast(
-    'Lucky Order ID is missing or invalid. Please refresh and try again.',
-    'error'
-  );
-  return;
-} 
+      if (
+        typeof customTaskId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customTaskId)
+      ) {
+        showToast(
+          'Lucky Order ID is missing or invalid. Please refresh and try again.',
+          'error'
+        );
+        return;
+      }
 
       const { data, error } = await supabase.rpc(
         'complete_funded_lucky_order',
@@ -1954,104 +1843,45 @@ if (
       return;
     }
 
-    // NORMAL TASK: existing completion flow
-    const earnedCommission = Number(currentTask.commission || 0);
-
-    if (
-      !Number.isFinite(earnedCommission) ||
-      earnedCommission < 0
-    ) {
-      showToast('Invalid task commission.', 'error');
-      return;
-    }
-
-    const nextCompletedTasks = completedTasks + 1;
-
-    // Current batch progress profile se read karein
-    const { data: batchProfile, error: batchReadError } = await supabase
-      .from('profiles')
-      .select('batch_number, batch_product_position')
-      .eq('id', user.id)
-      .single();
-
-    if (batchReadError || !batchProfile) {
-      showToast('Could not load batch progress. Please try again.', 'error');
-      return;
-    }
-
-    const currentBatchNumber = Number(batchProfile.batch_number) || 1;
-    const currentBatchPosition = Number(batchProfile.batch_product_position) || 0;
-
-    // ROUND-ROBIN ROTATION:
-    // Har completed normal task ke baad agla batch select hoga.
-    // Batch 1 product 1 -> Batch 2 product 1 -> ... -> Batch 6 product 1
-    // Batch 6 ke baad Batch 1 product 2 shuru hoga.
-
-const safeBatchNumber =
-  Number.isInteger(currentBatchNumber) &&
-  currentBatchNumber >= 1 &&
-  currentBatchNumber <= 10
-    ? currentBatchNumber
-    : 1;
-
-const safeBatchPosition =
-  Number.isInteger(currentBatchPosition) &&
-  currentBatchPosition >= 0 &&
-  currentBatchPosition < 100
-    ? currentBatchPosition
-    : 0;
-
-// Batch 1 -> 2 -> ... -> 10 -> 1
-const nextBatchNumber =
-  safeBatchNumber >= 10 ? 1 : safeBatchNumber + 1;
-
-// Har 10th batch ke baad product position agay barhegi
-const savedBatchPosition =
-  safeBatchNumber >= 10
-    ? (safeBatchPosition + 1) % 100
-    : safeBatchPosition;
-
-    const newTotalProfits = Number(
-      (Number(todayCommission) + earnedCommission).toFixed(2)
+    // NORMAL TASK: Completion, commission, balance aur batch
+    // rotation directly Supabase Backend RPC se
+    const { data, error } = await supabase.rpc(
+      'complete_normal_customer_task'
     );
 
-    const newBalance = Number(
-      (Number(balance) + earnedCommission).toFixed(2)
-    );
-
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        balance: newBalance,
-        total_profits: newTotalProfits,
-        completed_tasks: nextCompletedTasks,
-        batch_number: nextBatchNumber,
-       batch_product_position: savedBatchPosition,
-        running_tasks: 0,
-        pending_task: null,
-      })
-      .eq('id', user.id);
-
-    if (profileError) {
-      console.error('Normal task completion failed:', profileError);
+    if (error) {
+      console.error('Normal task completion RPC failed:', error);
       showToast(
-        'Task could not be completed. Please try again.',
+        error.message || 'Task could not be completed. Please try again.',
         'error'
       );
       return;
     }
 
-    setBalance(newBalance);
-    setTodayCommission(newTotalProfits);
-    setCompletedTasks(nextCompletedTasks);
+    if (!data || data.success !== true) {
+      showToast(
+        'Task completion was not confirmed. Please refresh and check your account.',
+        'error'
+      );
+      return;
+    }
+
+    // UI ko backend ke confirmed results se update karein
+    setBalance(Number(data.balance));
+    setTodayCommission(Number(data.total_profits));
+    setCompletedTasks(Number(data.completed_tasks));
     setRunningTasksVal(0);
     setCurrentTask(null);
     setShowFullPageTask(false);
 
-_setRecordsList((prev) => [currentTask, ...prev]);
+    _setRecordsList((prev) => [currentTask, ...prev]);
+
     showToast(
-      `Task #${currentTask.id} completed! Earned +$${earnedCommission.toFixed(2)}.`
+      `Task #${currentTask.id} completed! Earned +$${Number(
+        data.commission
+      ).toFixed(2)}.`
     );
+
   } catch (err: any) {
     console.error('Task completion error:', err);
 
@@ -2099,32 +1929,84 @@ _setRecordsList((prev) => [currentTask, ...prev]);
     }
   };
 
-  const handleSecurityUpdateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
+const handleSecurityUpdateSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    await supabase.from('profiles').update({ email: userEmail, phone: userPhone }).eq('id', user.id);
+  if (!user) {
+    showToast('Please sign in first.', 'error');
+    return;
+  }
 
-    if (newLoginPass) {
-      const { error } = await supabase.auth.updateUser({ password: newLoginPass });
-      if (error) {
-        showToast(`Login Pass Error: ${error.message}`, 'error');
-        return;
-      }
+  const newEmail = userEmail.trim().toLowerCase();
+  const oldEmail = (user.email || '').trim().toLowerCase();
+  const newPhone = userPhone.trim();
+
+  // Phone update — database enforces one-time restriction
+  
+const userPhoneInitialValue = originalUserPhone;  
+  if (newPhone !== (userPhoneInitialValue || '').trim()) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ phone: newPhone })
+      .eq('id', user.id);
+
+    if (error) {
+      showToast(error.message, 'error');
+      return;
+    }
+  }
+
+  // Email update through Supabase Auth
+  if (newEmail && newEmail !== oldEmail) {
+    const { error } = await supabase.auth.updateUser({
+      email: newEmail,
+    });
+
+    if (error) {
+      showToast(`Email Error: ${error.message}`, 'error');
+      return;
     }
 
-    if (newWithdrawPass) {
-      await supabase
-        .from('profiles')
-        .update({ withdraw_password: newWithdrawPass })
-        .eq('id', user.id);
-    }
+    showToast(
+      'Email verification link sent. Your new email will be saved after verification.',
+      'success'
+    );
+  }
 
-    showToast('Profile credentials updated successfully!');
-    setShowSettingsModal(false);
-    setNewLoginPass('');
-    setNewWithdrawPass('');
-  };
+  // Login password — normal password update
+  if (newLoginPass) {
+    const { error } = await supabase.auth.updateUser({
+      password: newLoginPass,
+    });
+
+    if (error) {
+      showToast(`Login Password Error: ${error.message}`, 'error');
+      return;
+    }
+  }
+
+  // Withdrawal password — existing database flow preserved
+  if (newWithdrawPass) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ withdraw_password: newWithdrawPass })
+      .eq('id', user.id);
+
+    if (error) {
+      showToast(`Withdrawal Password Error: ${error.message}`, 'error');
+      return;
+    }
+  }
+
+  if (!newEmail || newEmail === oldEmail) {
+    showToast('Profile settings updated successfully!', 'success');
+  }
+
+  setShowSettingsModal(false);
+  setNewLoginPass('');
+  setNewWithdrawPass('');
+};
+
 
 const handleDepositSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -3836,45 +3718,147 @@ readOnly={isLuckyOrderDeposit}
             </div>
           </div>
 
-          {/* 2. PRODUCT IMAGE (LEFT) + DETAILS (RIGHT) - SINGLE COMBINED CARD */}
-          <div className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-[#180f00] via-[#382500] to-[#180f00] p-2.5 shadow-[0_0_15px_rgba(245,158,11,0.15)] flex items-center gap-3">
-            
-            {/* LEFT: PRODUCT IMAGE CONTAINER (NO ZOOM, FULL FIT) */}
-            <div className="w-2/5 shrink-0 bg-black/40 rounded-lg p-1 border border-amber-400/30 flex items-center justify-center">
-              <img
-                src={currentTask.imageUrl}
-                alt={currentTask.name}
-                loading="eager"
-                decoding="async"
-                fetchPriority="high"
-                className="w-full h-24 sm:h-28 object-contain object-center rounded"
-              />
-            </div>
+         
+{/* PROFESSIONAL PRODUCT CARD */}
+<div className="relative w-full overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#17130b] via-[#090909] to-[#17130b] p-3 sm:p-4 shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
 
-            {/* RIGHT: PRODUCT NAME & PRICE */}
-            <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-1">
-              <div>
-                <p className="text-[8px] font-black uppercase tracking-wider text-amber-300">
-                  👑 Premium Product
-                </p>
-                <h3 className="mt-1 text-[11px] sm:text-xs font-extrabold text-white leading-snug break-words">
-                  {currentTask.name}
-                </h3>
-              </div>
+  <div className="flex items-center justify-between gap-2 mb-3">
+    <div>
+      <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-amber-400/80">
+        Featured Collection
+      </p>
+      <h3 className="text-sm font-extrabold tracking-wide text-white">
+        Premium Product
+      </h3>
+    </div>
 
-              <div className="mt-3 pt-1 border-t border-amber-400/20">
-                <p className="text-[8px] font-bold text-amber-300 uppercase">
-                  Product Price
-                </p>
-                <p className="text-sm sm:text-base font-black text-amber-300 font-mono mt-0.5">
-                  ${Number(currentTask.price || 0).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                  })}
-                </p>
-              </div>
-            </div>
+    <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[9px] font-bold text-emerald-300">
+      ● TASK ACTIVE
+    </span>
+  </div>
+ 
+{/* PRODUCT IMAGE - FULL WIDTH PROFESSIONAL */}
+<div className="relative w-full h-[260px] sm:h-[300px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
 
-          </div>
+  <img
+    src={currentTask.imageUrl}
+    alt={currentTask.name}
+    loading="eager"
+    decoding="async"
+    fetchPriority="high"
+    onError={(e) => {
+      e.currentTarget.style.display = 'none';
+    }}
+    className="absolute inset-0 w-full h-full object-contain object-center"
+  />
+
+</div>
+
+
+  {/* PRODUCT NAME + PARTNER */}
+  <div className="mt-3">
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[9px] font-bold uppercase tracking-widest text-amber-400">
+        Product Details
+      </span>
+
+      <span className="shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[9px] font-bold text-amber-200">
+        {String(
+          (currentTask as any)?.store ||
+          (currentTask as any)?.platform ||
+          'Marketplace Partner'
+        )}
+      </span>
+    </div>
+
+{/* DIGITAL MARKETING ACTIVITY LOGS */}
+<div className="mt-2 w-full overflow-hidden rounded-lg border border-amber-400/20 bg-[#080808] py-2">
+
+  <div className="mb-1 flex items-center gap-1.5 px-2">
+    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+    <span className="text-[8px] font-black uppercase tracking-[0.18em] text-amber-400">
+      Digital Marketing Activity
+    </span>
+    <span className="ml-auto text-[7px] text-emerald-400">
+      LIVE
+    </span>
+  </div>
+
+  <div className="relative overflow-hidden whitespace-nowrap">
+    <div className="flex w-max animate-dm-logs">
+      <div className="flex shrink-0 items-center gap-5 px-3">
+        <span className="text-[9px] text-gray-300">
+          📦 Product task loaded successfully
+        </span>
+        <span className="text-[9px] text-emerald-400">
+          ✓ Task details verified
+        </span>
+        <span className="text-[9px] text-amber-300">
+          ★ Product information available
+        </span>
+        <span className="text-[9px] text-gray-300">
+          ⚡ Commission calculated
+        </span>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-5 px-3" aria-hidden="true">
+        <span className="text-[9px] text-gray-300">
+          📦 Product task loaded successfully
+        </span>
+        <span className="text-[9px] text-emerald-400">
+          ✓ Task details verified
+        </span>
+        <span className="text-[9px] text-amber-300">
+          ★ Product information available
+        </span>
+        <span className="text-[9px] text-gray-300">
+          ⚡ Commission calculated
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <style>{`
+    @keyframes dmLogsScroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    .animate-dm-logs {
+      animation: dmLogsScroll 22s linear infinite;
+    }
+  `}</style>
+
+</div>
+
+    <h3 className="mt-1.5 break-words text-base font-black leading-snug tracking-wide text-white sm:text-lg">
+      {currentTask.name}
+    </h3>
+
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 p-3">
+      <div>
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400">
+          Product Price
+        </p>
+        <p className="mt-1 text-xl font-black tracking-tight text-amber-300">
+          ${Number(currentTask.price || 0).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+          })}
+        </p>
+      </div>
+
+      <div className="text-right">
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400">
+          Task Reference
+        </p>
+        <p className="mt-1 text-xs font-bold text-white">
+          #{currentTask.id}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
          {/* CENTER ANIMATED NOTIFICATION SYSTEM (LUCKY ORDER) */}
 {currentTask.isLucky && (
   <div className="animate-notification relative w-full overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-[#201300] via-[#4a3200] to-[#201300] p-3 shadow-[0_0_20px_rgba(245,158,11,0.3)] text-center">
@@ -3924,30 +3908,45 @@ readOnly={isLuckyOrderDeposit}
     </div>
   </div>
 )}
-          {/* 3. RATING + COMMISSION */}
-          <div className="grid grid-cols-2 divide-x divide-amber-400/20 border-y border-amber-400/20 py-1 text-center">
-            <div className="px-1">
-              <div className="text-xs">⭐</div>
-              <p className="text-[8px] font-bold text-amber-300">
-                High Commission Rating
-              </p>
-              <p className="mt-0.5 text-[9px] font-black text-amber-300">
-                ⭐⭐⭐⭐⭐ 4.9/5
-              </p>
-            </div>
+         
+{/* PROFESSIONAL RATING + COMMISSION */}
+<div className="grid grid-cols-2 gap-2">
 
-            <div className="px-1">
-              <div className="text-xs">👑</div>
-              <p className="text-[8px] font-bold text-amber-300">
-                Commission Earned
-              </p>
-              <p className="mt-0.5 text-[10px] font-black text-emerald-400 font-mono">
-                +${Number(currentTask.commission || 0).toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                })}
-              </p>
-            </div>
-          </div>
+  <div className="rounded-xl border border-amber-400/25 bg-gradient-to-br from-[#211900] to-[#090909] p-3 text-center">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+      Product Rating
+    </p>
+
+    <p className="mt-1 text-lg font-black text-amber-300">
+      4.9 <span className="text-xs text-gray-400">/ 5</span>
+    </p>
+
+    <div className="mt-1 text-sm tracking-[2px] text-amber-400">
+      ★★★★★
+    </div>
+
+    <p className="mt-1 text-[8px] font-semibold text-gray-400">
+      Premium Rating
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-emerald-400/25 bg-gradient-to-br from-[#06251a] to-[#090909] p-3 text-center">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+      Commission Earned
+    </p>
+
+    <p className="mt-2 text-lg font-black text-emerald-400">
+      +${Number(currentTask.commission || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+      })}
+    </p>
+
+    <p className="mt-2 text-[8px] font-semibold text-emerald-300/70">
+      Task Commission
+    </p>
+  </div>
+
+</div>
 
           {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
           {currentTask.isLucky && typeof runningTasksVal !== 'undefined' && runningTasksVal < 0 && (

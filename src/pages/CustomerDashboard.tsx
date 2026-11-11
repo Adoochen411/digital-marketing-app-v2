@@ -3683,40 +3683,38 @@ readOnly={isLuckyOrderDeposit}
     </div>
 
     {/* FULL PAGE CONTENT */}
-<div className="task-fit-content w-full max-w-none mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-y-auto overscroll-contain">
-        <style>{`
+<div className="task-fit-content w-full max-w-none mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+  
+            <style>{`
         .task-blue-card {
           background: #000000;
           animation: none;
         }
-     /* RESPONSIVE FULL SCREEN TASK FIT */
+ /* FULL PAGE TASK - ALL CONTENT VISIBLE */
 .task-fit-content {
   width: 100%;
-  max-width: 100%;
+  max-width: none;
+  min-width: 0;
   min-height: 0;
   max-height: 100%;
   box-sizing: border-box;
-  overflow-y: auto;
-  overflow-x: hidden;
+
   zoom: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 
-@media (min-width: 640px) {
-  .task-fit-content {
-    max-width: 100%;
-  }
+.task-blue-card {
+  width: 100%;
+  flex-shrink: 0;
 }
 
 @media (min-width: 640px) {
   .task-fit-content {
-    max-width: 36rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .task-fit-content {
-    max-width: 40rem;
+    width: 100%;
+    max-width: none;
   }
 }
        
@@ -3911,24 +3909,22 @@ readOnly={isLuckyOrderDeposit}
   </div>
 </div>
 
-         {/* CENTER ANIMATED NOTIFICATION SYSTEM (LUCKY ORDER) */}
+{/* CENTER ANIMATED NOTIFICATION SYSTEM (LUCKY ORDER) */}
 {currentTask.isLucky && (
-  <div className="animate-notification relative w-full overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-[#201300] via-[#4a3200] to-[#201300] p-3 shadow-[0_0_20px_rgba(245,158,11,0.3)] text-center">
-    <div className="relative z-10">
+  <div className="animate-notification relative w-full min-w-0 shrink-0 overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-[#201300] via-[#4a3200] to-[#201300] p-2 sm:p-3 shadow-[0_0_20px_rgba(245,158,11,0.3)] text-center box-border">
+    <div className="relative z-10 w-full min-w-0">
 
-      {/* NOTIFICATION HEADER BADGE */}
-      <div className="flex items-center justify-between mb-2 border-b border-amber-300/30 pb-1.5">
-        <div className="flex items-center gap-1.5 mx-auto">
-          <span className="text-sm animate-pulse">🔔</span>
-          <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">
-            Lucky Order Notification
-          </span>
-        </div>
+      {/* NOTIFICATION HEADER */}
+      <div className="flex items-center justify-center gap-1.5 mb-2 border-b border-amber-300/30 pb-2">
+        <span className="text-sm animate-pulse">🔔</span>
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-amber-300 break-words">
+          Lucky Order Notification
+        </span>
       </div>
 
-      {/* CENTERED TEXT LINES */}
-      <div className="flex flex-col items-center justify-center space-y-1 my-1.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-300/40 bg-amber-400/20 text-base shadow-inner mb-0.5">
+      {/* NOTIFICATION DETAILS */}
+      <div className="flex flex-col items-center justify-center gap-1.5 py-1">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-300/40 bg-amber-400/20 text-base shadow-inner">
           🎁
         </div>
 
@@ -3936,21 +3932,22 @@ readOnly={isLuckyOrderDeposit}
           Congratulations!
         </p>
 
-        <p className="text-[11px] sm:text-xs font-extrabold text-white tracking-wide">
+        <p className="text-[11px] sm:text-xs font-extrabold text-white">
           You've got a Lucky Order!
         </p>
 
-        <p className="text-[9px] sm:text-[10px] font-medium text-amber-100/90 leading-tight px-1 mt-0.5">
+        <p className="w-full text-[10px] sm:text-xs font-medium text-amber-100/90 leading-relaxed px-1 break-words">
           Please complete your high commission Lucky Order and get your reward commission.
         </p>
       </div>
 
-      {/* LUCKY AMOUNT HIGHLIGHT */}
-      <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg border border-amber-300/30 bg-black/40 px-3 py-1.5">
-        <span className="text-[10px] font-bold text-amber-200 flex items-center gap-1">
-          <span>💰</span> Lucky Order Amount:
+      {/* LUCKY AMOUNT */}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300/30 bg-black/40 px-2 sm:px-3 py-2">
+        <span className="text-[10px] sm:text-xs font-bold text-amber-200 flex items-center gap-1">
+          💰 Lucky Order Amount:
         </span>
-        <span className="text-xs sm:text-sm font-black text-amber-300 font-mono">
+
+        <span className="text-xs sm:text-sm font-black text-amber-300 font-mono break-all">
           ${Number(currentTask.luckyAmount || 0).toLocaleString('en-US', {
             minimumFractionDigits: 2,
           })}
@@ -3960,47 +3957,48 @@ readOnly={isLuckyOrderDeposit}
     </div>
   </div>
 )}
-   
+
 {/* PROFESSIONAL RATING + COMMISSION */}
-<div className="grid grid-cols-2 gap-1.5 mt-2">
+<div className="grid grid-cols-2 w-full min-w-0 shrink-0 gap-2 mt-2">
 
   {/* PRODUCT RATING */}
-  <div className="rounded-xl border border-amber-400/25 bg-gradient-to-br from-[#211900] to-[#090909] p-2.5 text-center">
-    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+  <div className="min-w-0 box-border rounded-xl border border-amber-400/25 bg-gradient-to-br from-[#211900] to-[#090909] p-2 sm:p-3 text-center overflow-hidden">
+    <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-gray-400 break-words">
       Product Rating
     </p>
 
-    <p className="mt-1 text-lg font-black text-amber-300">
+    <p className="mt-1 text-base sm:text-lg font-black text-amber-300">
       4.9 <span className="text-xs text-gray-400">/ 5</span>
     </p>
 
-    <div className="mt-1 text-sm tracking-[2px] text-amber-400">
+    <div className="mt-1 text-xs sm:text-sm tracking-wider text-amber-400 whitespace-nowrap">
       ★★★★★
     </div>
 
-    <p className="mt-1 text-[8px] font-semibold text-gray-400">
+    <p className="mt-1 text-[8px] sm:text-[9px] font-semibold text-gray-400 break-words">
       Premium Rating
     </p>
   </div>
 
   {/* COMMISSION EARNED */}
-  <div className="rounded-xl border border-emerald-400/25 bg-gradient-to-br from-[#06251a] to-[#090909] p-2.5 text-center">
-    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+  <div className="min-w-0 box-border rounded-xl border border-emerald-400/25 bg-gradient-to-br from-[#06251a] to-[#090909] p-2 sm:p-3 text-center overflow-hidden">
+    <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-gray-400 break-words">
       Commission Earned
     </p>
 
-    <p className="mt-2 text-lg font-black text-emerald-400">
+    <p className="mt-2 text-base sm:text-lg font-black text-emerald-400 break-all">
       +${Number(currentTask.commission || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
       })}
     </p>
 
-    <p className="mt-2 text-[8px] font-semibold text-emerald-300/70">
+    <p className="mt-2 text-[8px] sm:text-[9px] font-semibold text-emerald-300/70 break-words">
       Task Commission
     </p>
   </div>
 
 </div>
+
 
           {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
           {currentTask.isLucky && typeof runningTasksVal !== 'undefined' && runningTasksVal < 0 && (

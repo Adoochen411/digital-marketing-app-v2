@@ -863,11 +863,35 @@ const applyProfileSettings = (profile: any) => {
     setTimeout(() => setMessage(null), 3500);
   };
 
-  const copyToClipboard = (text: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard!');
-  };
+const copyToClipboard = async (text: string) => {
+  try {
+    if (!text?.trim()) {
+      showToast('Address is empty', 'error');
+      return;
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text.trim());
+    } else {
+      const textArea = document.createElement('textarea');
+      textArea.value = text.trim();
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+
+      if (!copied) throw new Error('Copy failed');
+    }
+
+    showToast('TRC20 Address Copied Successfully!', 'success');
+  } catch (error) {
+    console.error('Copy failed:', error);
+    showToast('Copy failed. Please try again.', 'error');
+  }
+};
 
 
 useEffect(() => {
@@ -2312,8 +2336,8 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
 };
   return (
     
-    <div className="min-h-screen w-full bg-[#050508] text-amber-100 pb-28 relative font-sans overflow-x-hidden">
-      {/* PROFESSIONAL GREEN ALERT NOTIFICATION */}
+<div className="min-h-[100dvh] w-full max-w-none bg-[#050508] text-amber-100 pb-28 relative font-sans overflow-x-hidden">
+        {/* PROFESSIONAL GREEN ALERT NOTIFICATION */}
 {toastMsg && (
   <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-emerald-600/95 border border-emerald-400 text-white px-6 py-3.5 rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center space-x-3 backdrop-blur-md transition-all duration-500 animate-bounce">
     <div className="w-6 h-6 rounded-full bg-emerald-900/80 border border-emerald-300 flex items-center justify-center font-bold text-emerald-200 text-xs">
@@ -2339,8 +2363,8 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
         </div>
       </div>
 
-      <div className="max-w-md mx-auto w-full px-4 pt-4 space-y-4 relative z-10">
-        
+<div className="w-full max-w-none mx-auto px-4 sm:px-6 lg:px-8 pt-4 space-y-4 relative z-10">
+
         {message && (
           <div
             className={`p-3.5 text-xs font-bold text-center rounded-2xl shadow-xl border backdrop-blur-md ${
@@ -3203,7 +3227,8 @@ const handleDepositSubmit = async (e: React.FormEvent) => {
       </div>
 
       {/* BOTTOM NAVIGATION BAR */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0b0c10]/95 border-t-2 border-[#d4af37]/60 backdrop-blur-2xl py-2 px-3 flex justify-around items-center z-50 shadow-[0_-5px_20px_rgba(212,175,55,0.2)]">
+<div className="fixed bottom-0 inset-x-0 w-full max-w-none mx-auto
+      bg-[#0b0c10]/95 border-t-2 border-[#d4af37]/60 backdrop-blur-2xl py-2 px-3 flex justify-around items-center z-50 shadow-[0_-5px_20px_rgba(212,175,55,0.2)]">
         <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center space-y-0.5 ${activeTab === 'home' ? 'text-[#f3e5ab]' : 'text-gray-400'}`}>
           <span className="text-lg">🏠</span>
           <span className="text-[9px] font-bold">Home</span>
@@ -3638,8 +3663,7 @@ readOnly={isLuckyOrderDeposit}
 
 {/* FULL PAGE TASK MODAL */}
 {showFullPageTask && currentTask && (
-<div className="fixed inset-0 h-[100dvh] w-full bg-black z-50 flex flex-col p-1.5 sm:p-3 overflow-hidden font-sans text-white border-2 border-amber-400/30 shadow-2xl">
-    {/* HEADER */}
+<div className="fixed inset-0 w-screen h-[100dvh] min-h-0 box-border bg-black z-50 flex flex-col p-1 sm:p-2 md:p-3 overflow-hidden font-sans text-white border-2 border-amber-400/30 shadow-2xl">    {/* HEADER */}
     <div className="flex justify-between items-center py-1 px-2 border-b border-amber-400/20 shrink-0">
       <button
         onClick={() => setShowFullPageTask(false)}
@@ -3665,16 +3689,24 @@ readOnly={isLuckyOrderDeposit}
           background: #000000;
           animation: none;
         }
-       /* MOBILE FULL TASK SCREEN FIT */
+     /* RESPONSIVE FULL SCREEN TASK FIT */
 .task-fit-content {
-  zoom: 0.78;
+  width: 100%;
+  max-width: 32rem;
   min-height: 0;
+  zoom: clamp(0.62, calc(100dvh / 1000), 1);
+  box-sizing: border-box;
 }
 
-/* Larger screens */
 @media (min-width: 640px) {
   .task-fit-content {
-    zoom: 1;
+    max-width: 36rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .task-fit-content {
+    max-width: 40rem;
   }
 }
        
@@ -3918,33 +3950,48 @@ readOnly={isLuckyOrderDeposit}
     </div>
   </div>
 )}
-         
+   
 {/* PROFESSIONAL RATING + COMMISSION */}
-<div className="mt-2 grid grid-cols-2 overflow-hidden rounded-xl border border-white/10 bg-black/40">
-  
-  <div className="flex min-w-0 flex-col items-center justify-center border-r border-white/10 px-2 py-2">
-    <p className="text-[8px] font-semibold uppercase tracking-wider text-gray-400">
-      Product Price
+<div className="grid grid-cols-2 gap-1.5 mt-2">
+
+  {/* PRODUCT RATING */}
+  <div className="rounded-xl border border-amber-400/25 bg-gradient-to-br from-[#211900] to-[#090909] p-2.5 text-center">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+      Product Rating
     </p>
 
-    <p className="mt-0.5 text-base sm:text-xl font-black tracking-tight text-amber-300">
-      ${Number(currentTask.price || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-      })}
+    <p className="mt-1 text-lg font-black text-amber-300">
+      4.9 <span className="text-xs text-gray-400">/ 5</span>
+    </p>
+
+    <div className="mt-1 text-sm tracking-[2px] text-amber-400">
+      ★★★★★
+    </div>
+
+    <p className="mt-1 text-[8px] font-semibold text-gray-400">
+      Premium Rating
     </p>
   </div>
 
-  <div className="flex min-w-0 flex-col items-center justify-center px-2 py-2">
-    <p className="text-[8px] font-semibold uppercase tracking-wider text-gray-400">
-      Task Reference
+  {/* COMMISSION EARNED */}
+  <div className="rounded-xl border border-emerald-400/25 bg-gradient-to-br from-[#06251a] to-[#090909] p-2.5 text-center">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+      Commission Earned
     </p>
 
-    <p className="mt-0.5 text-sm font-bold text-white">
-      #{currentTask.id}
+    <p className="mt-2 text-lg font-black text-emerald-400">
+      +${Number(currentTask.commission || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+      })}
+    </p>
+
+    <p className="mt-2 text-[8px] font-semibold text-emerald-300/70">
+      Task Commission
     </p>
   </div>
 
 </div>
+
           {/* 4. FULL RED RECHARGE / NEGATIVE AMOUNT */}
           {currentTask.isLucky && typeof runningTasksVal !== 'undefined' && runningTasksVal < 0 && (
             <div className="rounded-lg border border-red-500/80 bg-gradient-to-r from-[#260000] via-[#690b0b] to-[#260000] p-1.5 shadow-[0_0_10px_rgba(220,38,38,0.2)]">

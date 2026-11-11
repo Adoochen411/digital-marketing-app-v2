@@ -3663,24 +3663,47 @@ readOnly={isLuckyOrderDeposit}
 
 {/* FULL PAGE TASK MODAL */}
 {showFullPageTask && currentTask && (
-<div className="fixed inset-0 w-screen h-[100dvh] min-h-0 box-border bg-black z-50 flex flex-col p-1 sm:p-2 md:p-3 overflow-hidden font-sans text-white border-2 border-amber-400/30 shadow-2xl">    {/* HEADER */}
-    <div className="flex justify-between items-center py-1 px-2 border-b border-amber-400/20 shrink-0">
+  <div className="fixed inset-0 w-screen h-[100dvh] min-h-0 box-border bg-black z-50 flex flex-col p-1 sm:p-2 md:p-3 overflow-hidden font-sans text-white border-2 border-amber-400/30 shadow-2xl">
+
+    {/* HEADER */}
+    <div className="flex justify-between items-center py-2 px-2 border-b border-amber-400/20 shrink-0">
+
+      {/* PROFESSIONAL BACK BUTTON */}
       <button
         onClick={() => setShowFullPageTask(false)}
-        className="text-xs bg-black border border-amber-400/50 text-amber-300 font-bold px-2.5 py-1 rounded-lg"
+        className="flex items-center justify-center gap-2 text-sm bg-gradient-to-r from-[#201300] to-[#3b2700] border border-amber-400/60 text-amber-300 font-bold px-4 py-2 rounded-xl shadow-md active:scale-95 transition-all"
       >
-        ← Back
+        <span className="text-xl leading-none">←</span>
+        <span>Back</span>
       </button>
 
       <div className="w-4"></div>
 
+      {/* PROFESSIONAL CLOSE BUTTON */}
       <button
         onClick={() => setShowFullPageTask(false)}
-        className="text-xs bg-black border border-amber-400/50 text-amber-300 font-bold px-2.5 py-1 rounded-lg"
+        aria-label="Close"
+        className="flex items-center justify-center w-11 h-11 text-2xl bg-gradient-to-br from-[#3b1010] to-[#180505] border border-red-400/60 text-red-300 font-bold rounded-xl shadow-md active:scale-95 transition-all"
       >
         ✕
       </button>
+
     </div>
+
+    {/* LUCKY ORDER TOP NOTIFICATION */}
+    {currentTask.isLucky && (
+      <div className="shrink-0 w-full flex justify-center py-1">
+        <div className="bg-amber-500/20 border border-amber-400 rounded-full px-5 py-1 text-center shadow-lg shadow-amber-500/20">
+          <span className="text-amber-300 text-xs font-extrabold tracking-wider">
+            🍀 LUCKY ORDER
+          </span>
+        </div>
+      </div>
+    )}
+
+
+
+
 
     {/* FULL PAGE CONTENT */}
 <div className="task-fit-content w-full max-w-none mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-y-auto overflow-x-hidden overscroll-contain">
@@ -3788,7 +3811,7 @@ readOnly={isLuckyOrderDeposit}
   </div>
  
 {/* PRODUCT IMAGE - FULL WIDTH PROFESSIONAL */}
-<div className="relative w-full  h-[180px] xs:h-[200px] sm:h-[260px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
+<div className="relative w-full  h-[110px] xs:h-[130px] sm:h-[260px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
 
   <img
     src={currentTask.imageUrl}

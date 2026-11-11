@@ -86,7 +86,7 @@ const [selectedSupportImageUrl, setSelectedSupportImageUrl] =
   const [todayCommission, setTodayCommission] = useState<number>(0.00);
   const [runningTasksVal, setRunningTasksVal] = useState<number>(0);
   const [activeVipLevel, setActiveVipLevel] = useState<string>('VIP 0 - Regular');
-
+const [luckyGalleryCache, setLuckyGalleryCache] = useState<any[]>([]);
   // Account Frozen & Task Lock States
   const [isAccountFrozen, setIsAccountFrozen] = useState<boolean>(false);
   const [isAutoTaskLocked, setIsAutoTaskLocked] = useState<boolean>(true);
@@ -667,6 +667,50 @@ useEffect(() => {
     void supabase.removeChannel(channel);
   };
 }, [user?.id]);
+
+useEffect(() => {
+  let isMounted = true;
+
+  const loadLuckyGallery = async () => {
+    const { data, error } = await supabase
+      .from('lucky_order_products')
+      .select('id, name, store, price, image_url, rating, is_active, in_lucky_gallery')
+      .eq('in_lucky_gallery', true)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Lucky gallery preload failed:', error);
+      return;
+    }
+
+    if (isMounted && data) {
+      setLuckyGalleryCache(data);
+    }
+  };
+
+  void loadLuckyGallery();
+
+  const channel = supabase
+    .channel('customer-lucky-gallery-cache')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'lucky_order_products',
+      },
+      () => {
+        void loadLuckyGallery();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    isMounted = false;
+    void supabase.removeChannel(channel);
+  };
+}, []);
+
 
 useEffect(() => {
   if (!user?.id) return;
@@ -1386,15 +1430,37 @@ const handleGrabTask = async () => {
   const nextTaskNum = completedTasks + 1;
 
   try {
-    // 1. Read customer Auto Lucky Order settings
-    const {
-      data: customerAutoSettings,
-      error: customerSettingsError,
-    } = await supabase
-      .from('customer_auto_lucky_order_settings')
-      .select('enabled, slots')
-      .eq('user_id', user.id)
-      .maybeSingle();
+  
+// Load Auto Lucky settings and batch progress together.
+const [
+  {
+    data: customerAutoSettings,
+    error: customerSettingsError,
+  },
+  {
+    data: batchProfile,
+    error: batchReadError,
+  },
+] = await Promise.all([
+  supabase
+    .from('customer_auto_lucky_order_settings')
+    .select('enabled, slots')
+    .eq('user_id', user.id)
+    .maybeSingle(),
+
+  supabase
+    .from('profiles')
+    .select('batch_number, batch_product_position')
+    .eq('id', user.id)
+    .single(),
+]);
+
+if (customerSettingsError) {
+  console.error('Customer Auto Lucky settings:', customerSettingsError);
+  showToast('Could not load Auto Lucky Order settings.', 'error');
+  return;
+}
+
 
     if (customerSettingsError) {
       console.error('Customer Auto Lucky settings:', customerSettingsError);
@@ -1502,17 +1568,8 @@ const autoSlot = autoLuckyEnabled
 
   
 
-    // 5. Read customer's saved batch progress
-    const {
-      data: batchProfile,
-      error: batchReadError,
-    } = await supabase
-      .from('profiles')
-      .select('batch_number, batch_product_position')
-      .eq('id', user.id)
-      .single();
-
-   if (batchReadError || !batchProfile) {
+// 5. Use batch progress already loaded above.
+if (batchReadError || !batchProfile) {
   console.error('Batch progress read failed:', {
     error: batchReadError,
     userId: user.id,
@@ -1526,6 +1583,7 @@ const autoSlot = autoLuckyEnabled
   );
   return;
 }
+
  const currentBatchNumber = Math.min(
   10,
   Math.max(1, Number(batchProfile.batch_number) || 1)
@@ -1587,39 +1645,23 @@ if (assignedBatchProducts.length === 0) {
 
       displayNegativeAmt = -Math.abs(targetLuckyAmount);
 
-  
-      // Lucky Order product sirf Lucky Gallery se select karein.
-      // Database mein saved lucky_product_id ko priority dein.
-      const {
-        data: luckyGalleryProducts,
-        error: luckyGalleryError,
-      } = await supabase
-        .from('lucky_order_products')
-        .select(
-          'id, name, store, price, image_url, rating, is_active, in_lucky_gallery'
-        )
-        .eq('in_lucky_gallery', true)
-        .eq('is_active', true);
+  // Lucky Order product sirf preloaded Lucky Gallery cache se select karein.
+// Database mein saved lucky_product_id ko priority dein.
+const luckyGalleryProducts = luckyGalleryCache;
 
-      if (luckyGalleryError) {
-        console.error('Lucky gallery product lookup failed:', luckyGalleryError);
-        showToast('Could not load Lucky Products. Please try again.', 'error');
-        return;
-      }
+if (!luckyGalleryProducts || luckyGalleryProducts.length === 0) {
+  showToast(
+    'Lucky Products are loading. Please try again.',
+    'error'
+  );
+  return;
+}
 
-      if (!luckyGalleryProducts || luckyGalleryProducts.length === 0) {
-        showToast(
-          'No active products are available in the Lucky Products gallery.',
-          'error'
-        );
-        return;
-      }
-
-      // Use the product assigned to this Lucky Order by SQL.
-      let selectedLuckyProd = luckyGalleryProducts.find(
-        (product: any) =>
-          Number(product.id) === Number(customTaskData.lucky_product_id)
-      );
+// Use the product assigned to this Lucky Order by SQL.
+let selectedLuckyProd = luckyGalleryProducts.find(
+  (product: any) =>
+    Number(product.id) === Number(customTaskData.lucky_product_id)
+);
 
       // Fallback for older tasks without a saved product ID:
       // prefer products priced at or above the task's minimum amount.
@@ -1722,12 +1764,18 @@ if (allActiveBatchProducts.length === 0) {
   showToast('No active normal products are available.', 'error');
   return;
 }
+const rotationStartedAt = performance.now();
 
 const {
   data: rotatingProducts,
   error: rotationError,
 } = await supabase.rpc('get_next_rotating_product');
 
+console.log(
+  '[TASK SPEED] Product rotation RPC:',
+  Math.round(performance.now() - rotationStartedAt),
+  'ms'
+);
 if (rotationError) {
   console.error('Shared product rotation failed:', rotationError);
   showToast(
@@ -1793,13 +1841,21 @@ if (!Number.isFinite(itemPrice) || itemPrice < 0) {
         isLucky: false,
       };
 
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          pending_task: grabbedProduct,
-          running_tasks: 0,
-        })
-        .eq('id', user.id);
+     const saveTaskStartedAt = performance.now();
+
+const { error: profileError } = await supabase
+  .from('profiles')
+  .update({
+    pending_task: grabbedProduct,
+    running_tasks: 0,
+  })
+  .eq('id', user.id);
+
+console.log(
+  '[TASK SPEED] Profile save:',
+  Math.round(performance.now() - saveTaskStartedAt),
+  'ms'
+);
 
       if (profileError) throw profileError;
 

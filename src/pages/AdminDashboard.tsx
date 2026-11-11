@@ -1618,21 +1618,36 @@ const handleFundSubmit = async () => {
     selectedUserForModal.balance ?? 0
   );
 
+  const previousAutoTaskLock =
+    selectedUserForModal.auto_task_lock !== false;
+
   const optimisticBalance =
     previousBalance + (isAdd ? val : -val);
 
-  // UI foran update — database response ka wait nahi.
+  // Balance aur Auto Task Lock foran UI mein update.
   setCustomers((prev) =>
     prev.map((customer) =>
       customer.id === userId
-        ? { ...customer, balance: optimisticBalance }
+        ? {
+            ...customer,
+            balance: optimisticBalance,
+            auto_task_lock: isAdd
+              ? false
+              : customer.auto_task_lock,
+          }
         : customer
     )
   );
 
   setSelectedUserForModal((prev) =>
     prev && prev.id === userId
-      ? { ...prev, balance: optimisticBalance }
+      ? {
+          ...prev,
+          balance: optimisticBalance,
+          auto_task_lock: isAdd
+            ? false
+            : prev.auto_task_lock,
+        }
       : prev
   );
 
@@ -1670,20 +1685,32 @@ const handleFundSubmit = async () => {
       );
     }
 
-    // Supabase ki confirmed balance final hogi.
     const newBalance = Number(result.balance_after);
 
+    // Database confirmation ke baad final UI update.
     setCustomers((prev) =>
       prev.map((customer) =>
         customer.id === userId
-          ? { ...customer, balance: newBalance }
+          ? {
+              ...customer,
+              balance: newBalance,
+              auto_task_lock: isAdd
+                ? false
+                : customer.auto_task_lock,
+            }
           : customer
       )
     );
 
     setSelectedUserForModal((prev) =>
       prev && prev.id === userId
-        ? { ...prev, balance: newBalance }
+        ? {
+            ...prev,
+            balance: newBalance,
+            auto_task_lock: isAdd
+              ? false
+              : prev.auto_task_lock,
+          }
         : prev
     );
 
@@ -1710,18 +1737,26 @@ const handleFundSubmit = async () => {
   } catch (err: any) {
     console.error('Manual balance adjustment failed:', err);
 
-    // Save fail ho to purani balance restore karein.
+    // Error aaye to purani balance aur lock restore.
     setCustomers((prev) =>
       prev.map((customer) =>
         customer.id === userId
-          ? { ...customer, balance: previousBalance }
+          ? {
+              ...customer,
+              balance: previousBalance,
+              auto_task_lock: previousAutoTaskLock,
+            }
           : customer
       )
     );
 
     setSelectedUserForModal((prev) =>
       prev && prev.id === userId
-        ? { ...prev, balance: previousBalance }
+        ? {
+            ...prev,
+            balance: previousBalance,
+            auto_task_lock: previousAutoTaskLock,
+          }
         : prev
     );
 

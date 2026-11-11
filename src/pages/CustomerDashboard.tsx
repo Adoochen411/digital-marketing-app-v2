@@ -3683,8 +3683,8 @@ readOnly={isLuckyOrderDeposit}
     </div>
 
     {/* FULL PAGE CONTENT */}
-<div className="task-fit-content w-full max-w-md mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-hidden">
-      <style>{`
+<div className="task-fit-content w-full max-w-none mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-y-auto overscroll-contain">
+        <style>{`
         .task-blue-card {
           background: #000000;
           animation: none;
@@ -3692,10 +3692,20 @@ readOnly={isLuckyOrderDeposit}
      /* RESPONSIVE FULL SCREEN TASK FIT */
 .task-fit-content {
   width: 100%;
-  max-width: 32rem;
+  max-width: 100%;
   min-height: 0;
-  zoom: clamp(0.62, calc(100dvh / 1000), 1);
+  max-height: 100%;
   box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  zoom: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 640px) {
+  .task-fit-content {
+    max-width: 100%;
+  }
 }
 
 @media (min-width: 640px) {

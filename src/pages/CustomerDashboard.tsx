@@ -3638,8 +3638,7 @@ readOnly={isLuckyOrderDeposit}
 
 {/* FULL PAGE TASK MODAL */}
 {showFullPageTask && currentTask && (
-  <div className="fixed inset-0 bg-black z-50 flex flex-col p-2 sm:p-3 overflow-y-auto font-sans text-white border-2 border-amber-400/30 shadow-2xl">
-
+<div className="fixed inset-0 h-[100dvh] w-full bg-black z-50 flex flex-col p-1.5 sm:p-3 overflow-hidden font-sans text-white border-2 border-amber-400/30 shadow-2xl">
     {/* HEADER */}
     <div className="flex justify-between items-center py-1 px-2 border-b border-amber-400/20 shrink-0">
       <button
@@ -3660,13 +3659,25 @@ readOnly={isLuckyOrderDeposit}
     </div>
 
     {/* FULL PAGE CONTENT */}
-    <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-center gap-2 py-2">
-
+<div className="task-fit-content w-full max-w-md mx-auto flex-1 min-h-0 flex flex-col justify-start gap-1.5 py-1 overflow-hidden">
       <style>{`
         .task-blue-card {
           background: #000000;
           animation: none;
         }
+       /* MOBILE FULL TASK SCREEN FIT */
+.task-fit-content {
+  zoom: 0.78;
+  min-height: 0;
+}
+
+/* Larger screens */
+@media (min-width: 640px) {
+  .task-fit-content {
+    zoom: 1;
+  }
+}
+       
         @keyframes slideNotification {
           0% { transform: translateY(-10px); opacity: 0; }
           100% { transform: translateY(0); opacity: 1; }

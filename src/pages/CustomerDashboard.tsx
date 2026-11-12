@@ -3794,7 +3794,7 @@ readOnly={isLuckyOrderDeposit}
 
          
 {/* PROFESSIONAL PRODUCT CARD */}
-<div className="relative box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#17130b] via-[#090909] to-[#17130b] p-2 sm:p-4 shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
+<div className="relative box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#17130b] via-[#090909] to-[#17130b] p-1.5 sm:p-3 shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
   <div className="flex items-center justify-between gap-2 mb-2">
     <div>
       <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-amber-400/80">
@@ -3811,8 +3811,7 @@ readOnly={isLuckyOrderDeposit}
   </div>
  
 {/* PRODUCT IMAGE - FULL WIDTH PROFESSIONAL */}
-<div className="relative w-full  h-[110px] xs:h-[130px] sm:h-[260px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
-
+<div className="relative w-full h-[95px] sm:h-[260px] overflow-hidden rounded-xl border border-amber-400/20 bg-white flex items-center justify-center">
   <img
     src={currentTask.imageUrl}
     alt={currentTask.name}
